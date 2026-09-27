@@ -23,6 +23,9 @@ data/
 .env.*
 !.env.example
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Test / coverage output
 coverage/
 
