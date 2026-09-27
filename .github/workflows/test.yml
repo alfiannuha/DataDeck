@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - name: Resolve dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race tests
+        run: go test -race ./...
+
+      - name: Vulnerability scan (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Build (CGO-free)
+        run: CGO_ENABLED=0 go build ./...
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Static export (single-binary assets)
+        run: npm run build:static
+
+      - name: Dependency audit (fail on critical)
+        run: npm audit --audit-level=critical
+
+  integration:
+    name: Backend Integration (PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: datadeck_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: datadeck_test
+        ports:
+          - "3306:3306"
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Ephemeral, isolated CI service credentials (never production).
+      DATADECK_TEST_PG_HOST: 127.0.0.1
+      DATADECK_TEST_PG_PORT: "5432"
+      DATADECK_TEST_PG_USER: postgres
+      DATADECK_TEST_PG_PASSWORD: postgres
+      DATADECK_TEST_PG_DATABASE: datadeck_test
+      DATADECK_TEST_PG_SSLMODE: disable
+      DATADECK_TEST_MYSQL_HOST: 127.0.0.1
+      DATADECK_TEST_MYSQL_PORT: "3306"
+      DATADECK_TEST_MYSQL_USER: root
+      DATADECK_TEST_MYSQL_PASSWORD: mysql
+      DATADECK_TEST_MYSQL_DATABASE: datadeck_test
+      DATADECK_TEST_MYSQL_SSLMODE: disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - name: Resolve dependencies
+        run: go mod download
+
+      - name: Run PostgreSQL integration tests
+        run: go test -tags=integration ./... -count=1

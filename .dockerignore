@@ -1,0 +1,29 @@
+# Docker build context exclusions — keep the image context small and avoid
+# leaking local data, secrets or build artifacts into the build.
+
+# Dependencies / build output
+frontend/node_modules
+frontend/.next
+frontend/out
+backend/bin
+release
+coverage
+.playwright-mcp
+
+# Local application data / databases
+data
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+
+# VCS / editors
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store

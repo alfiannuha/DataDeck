@@ -1,0 +1,70 @@
+name: Browser E2E (release validation)
+
+# Heavier release validation, separated from the fast CI workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Single-binary release flow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build single binary (embedded frontend)
+        run: bash scripts/build-embedded.sh "$GITHUB_WORKSPACE/datadeck"
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start DataDeck server
+        run: |
+          STORE_DIR="$(mktemp -d)"
+          # Ephemeral CI-only key; never a committed secret.
+          ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+            STORAGE_PATH="$STORE_DIR/datadeck.db" \
+            HOST=127.0.0.1 PORT=8099 ENVIRONMENT=test \
+            ./datadeck >"$STORE_DIR/server.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8099/api/v1/health >/dev/null; then
+              echo "server ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to start"; cat "$STORE_DIR/server.log"; exit 1
+
+      - name: Run browser E2E
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8099
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

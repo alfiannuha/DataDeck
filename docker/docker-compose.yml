@@ -1,0 +1,32 @@
+# DataDeck single-container deployment (PRD §9.1 single-binary runtime).
+#
+# The image serves both the API and the embedded PWA frontend on one port.
+# The PRD §9.2 two-container sketch is superseded by the single-binary strategy;
+# its example encryption key is NOT used.
+#
+# Required: export ENCRYPTION_KEY (32 raw bytes or 64 hex chars).
+#   ENCRYPTION_KEY=... docker compose -f docker/docker-compose.yml up --build
+#
+# Run from the repository root so the build context includes backend + frontend:
+#   docker compose -f docker/docker-compose.yml up --build
+
+services:
+  datadeck:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: "0.1.0-dev"
+    image: datadeck:0.1.0-dev
+    ports:
+      - "8080:8080"
+    environment:
+      # Must be provided by the operator; compose fails if unset.
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY (32 bytes or 64 hex chars)}"
+      STORAGE_PATH: /data/datadeck.db
+    volumes:
+      - datadeck-data:/data
+    restart: unless-stopped
+
+volumes:
+  datadeck-data:

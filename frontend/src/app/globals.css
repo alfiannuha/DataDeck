@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+/*
+ * DataDeck design tokens (dark-mode first).
+ *
+ * Declared with Tailwind v4's @theme so they become utilities such as
+ * bg-background, bg-panel, border-border, text-muted-foreground, bg-accent.
+ * Components should reference these tokens instead of arbitrary values.
+ */
+@theme {
+  /* Surfaces */
+  --color-background: #09090b;
+  --color-panel: #101013;
+  --color-panel-raised: #18181b;
+  --color-editor-surface: #0b0b0d;
+  --color-result-surface: #0e0e11;
+
+  /* Borders */
+  --color-border: #27272a;
+  --color-border-strong: #3f3f46;
+
+  /* Text */
+  --color-foreground: #fafafa;
+  --color-muted-foreground: #a1a1aa;
+  --color-subtle-foreground: #71717a;
+
+  /* Accent */
+  --color-accent: #2563eb;
+  --color-accent-hover: #3b82f6;
+  --color-accent-foreground: #eff6ff;
+
+  /* Destructive */
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #fef2f2;
+
+  /* Focus */
+  --color-focus-ring: #3b82f6;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+}
