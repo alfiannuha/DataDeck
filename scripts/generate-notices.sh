@@ -35,8 +35,13 @@ mkdir -p "$(dirname "$OUT")"
   python3 - "$GO_SBOM" /tmp/datadeck-go-modules.txt <<'PY'
 import json, os, sys
 sbom_path, modules_path = sys.argv[1], sys.argv[2]
-sbom = json.load(open(sbom_path))
 dirs = {}
+try:
+    sbom = json.load(open(sbom_path))
+except FileNotFoundError:
+    sbom = None
+    print("  NOTE: Go SBOM not found; listing the full module graph instead.")
+    print("        Generate it with: syft scan file:release/datadeck_<version>_<os>_<arch> -o cyclonedx-json=" + sbom_path)
 try:
     with open(modules_path) as fh:
         for line in fh:
@@ -63,11 +68,15 @@ def classify(text):
     return "REVIEW"
 
 rows = []
-for c in sbom.get("components", []):
-    purl = c.get("purl") or ""
-    if not purl.startswith("pkg:golang/"):
-        continue
-    name, version = c.get("name"), c.get("version")
+if sbom is None:
+    entries = sorted(dirs.keys())
+else:
+    entries = []
+    for c in sbom.get("components", []):
+        purl = c.get("purl") or ""
+        if purl.startswith("pkg:golang/"):
+            entries.append((c.get("name"), c.get("version")))
+for name, version in entries:
     d = dirs.get((name, version), "")
     license_name = "UNKNOWN"
     if d and os.path.isdir(d):

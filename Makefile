@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: help setup install dev backend frontend test lint typecheck build embed release docker-build docker-validate clean check
+.PHONY: help setup install dev backend frontend test lint typecheck build embed release release-dry-run docker-build docker-validate clean check
 
 help:
 	@echo "DataDeck development commands:"
@@ -57,6 +57,10 @@ embed: build
 # Cross-platform release binaries (see docs/release/platform-matrix.md).
 release:
 	bash scripts/build-release.sh
+
+# Non-publishing release dry run (build matrix + SBOM + packages + checksums).
+release-dry-run:
+	bash scripts/release-dry-run.sh
 
 # Container image (see docs/release/docker.md).
 docker-build:

@@ -1,0 +1,248 @@
+name: Release
+
+# Publishing is driven by version tags (vX.Y.Z). Feature-branch pushes never
+# publish. `workflow_dispatch` runs a non-publishing dry run by default.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and validate artifacts without publishing a release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate (tests + security gates)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: datadeck_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: datadeck_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      DATADECK_TEST_PG_HOST: 127.0.0.1
+      DATADECK_TEST_PG_PORT: "5432"
+      DATADECK_TEST_PG_USER: postgres
+      DATADECK_TEST_PG_PASSWORD: postgres
+      DATADECK_TEST_PG_DATABASE: datadeck_test
+      DATADECK_TEST_PG_SSLMODE: disable
+      DATADECK_TEST_MYSQL_HOST: 127.0.0.1
+      DATADECK_TEST_MYSQL_PORT: "3306"
+      DATADECK_TEST_MYSQL_USER: root
+      DATADECK_TEST_MYSQL_PASSWORD: mysql
+      DATADECK_TEST_MYSQL_DATABASE: datadeck_test
+      DATADECK_TEST_MYSQL_SSLMODE: disable
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Version / tag consistency
+        run: |
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+              echo "ERROR: tag v$TAG_VERSION does not match VERSION ($FILE_VERSION)" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$FILE_VERSION"
+
+      - name: Backend gates
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+          go test -race ./...
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          CGO_ENABLED=0 go build ./...
+
+      - name: Backend integration (PostgreSQL + MySQL)
+        working-directory: backend
+        run: go test -tags=integration ./... -count=1
+
+      - name: Frontend gates
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+          npm run build:static
+          npm audit --audit-level=critical
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: windows, goarch: amd64, ext: ".exe" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build static frontend export
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build:static
+
+      - name: Embed frontend
+        run: |
+          rm -rf backend/internal/web/dist
+          mkdir -p backend/internal/web/dist
+          cp -R frontend/out/. backend/internal/web/dist/
+          find backend/internal/web/dist -name '*.map' -type f -delete
+
+      - name: Compile ${{ matrix.goos }}/${{ matrix.goarch }}
+        working-directory: backend
+        run: |
+          VERSION="$(tr -d '[:space:]' < ../VERSION)"
+          COMMIT="${GITHUB_SHA::7}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          OUT="../release/datadeck_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}"
+          mkdir -p ../release
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath \
+              -ldflags "-s -w \
+                -X github.com/datadeck/datadeck/backend/internal/version.Version=${VERSION} \
+                -X github.com/datadeck/datadeck/backend/internal/version.Commit=${COMMIT} \
+                -X github.com/datadeck/datadeck/backend/internal/version.BuildDate=${BUILD_DATE}" \
+              -o "$OUT" ./cmd/server
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release/datadeck_*
+          if-no-files-found: error
+
+  supply-chain:
+    name: SBOM, licenses, packaging, checksums
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: backend/go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Collect binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release
+          merge-multiple: true
+
+      - name: Install syft
+        run: GOBIN=/usr/local/bin go install github.com/anchore/syft/cmd/syft@latest
+
+      - name: Frontend SBOM (CycloneDX)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm sbom --sbom-format cyclonedx > ../release/frontend.cdx.json
+
+      - name: Go SBOM (CycloneDX + SPDX)
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p release/sbom
+          syft scan "file:release/datadeck_${VERSION}_linux_amd64" \
+            -o cyclonedx-json=release/sbom/datadeck-go.cdx.json \
+            -o spdx-json=release/sbom/datadeck-go.spdx.json
+          mv release/frontend.cdx.json release/sbom/frontend.cdx.json
+
+      - name: License notices
+        run: |
+          mkdir -p release/licenses
+          bash scripts/generate-notices.sh
+
+      - name: Package archives + checksums
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          python3 scripts/package_artifacts.py --version "$VERSION" --release-dir release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: release/**
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: supply-chain
+    if: github.ref_type == 'tag' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: release
+
+      - name: Create release with artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "DataDeck ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            release/*.tar.gz release/*.zip release/SHA256SUMS \
+            release/sbom/*.json release/licenses/*.txt
