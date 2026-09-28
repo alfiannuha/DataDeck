@@ -64,3 +64,13 @@ type Index struct {
 	Primary bool     `json:"primary"`
 	Columns []string `json:"columns"`
 }
+
+// DatabaseInfo is lightweight metadata for one selectable database on a
+// server-level connection (PRF-01). It deliberately carries no schema/tables:
+// discovery must stay cheap and must not imply that schemas were loaded.
+type DatabaseInfo struct {
+	Name string `json:"name"`
+	// BootstrapCandidate marks the conventional maintenance database (e.g.
+	// PostgreSQL "postgres") used when a profile has no default database.
+	BootstrapCandidate bool `json:"bootstrap_candidate,omitempty"`
+}

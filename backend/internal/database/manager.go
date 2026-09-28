@@ -124,6 +124,68 @@ func (m *Manager) Capabilities(driver model.Driver) (model.Capabilities, bool) {
 	return connector.Capabilities(), true
 }
 
+// ListDatabases discovers the databases selectable on a server-level
+// connection (PRF-01). Only connectors implementing DatabaseLister support it
+// (PostgreSQL); other drivers return ErrNotImplemented.
+//
+// Bootstrap resolution (ADR-009 §3): an explicit/default database wins; when
+// the profile has none, the candidates are tried in order — "postgres", then a
+// database named after the login user. Each candidate probe uses a temporary,
+// unregistered pool that is closed immediately, so discovery never leaves a
+// pool (or one pool per database) behind. `id` is accepted for symmetry with the
+// other manager operations and will key per-database pools once pool identity
+// lands (PRF01-T03+).
+func (m *Manager) ListDatabases(ctx context.Context, id string, cfg Config) ([]model.DatabaseInfo, error) {
+	connector, ok := m.connectors[cfg.Driver]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDriver, cfg.Driver)
+	}
+	lister, ok := connector.(DatabaseLister)
+	if !ok {
+		return nil, fmt.Errorf("%w: database discovery is not implemented for %s", ErrNotImplemented, cfg.Driver)
+	}
+
+	var lastErr error
+	for _, candidate := range bootstrapCandidates(cfg) {
+		probe := cfg
+		probe.Database = candidate
+		db, err := m.connect(ctx, probe)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		databases, err := lister.ListDatabases(ctx, db)
+		_ = db.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return databases, nil
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("no bootstrap database candidate")
+	}
+	if cfg.Database == "" {
+		return nil, fmt.Errorf("%w: %w", ErrNoBootstrapDatabase, lastErr)
+	}
+	return nil, lastErr
+}
+
+// bootstrapCandidates returns the databases to try for discovery. An explicit
+// database is used as-is (no fallback). Otherwise the conventional maintenance
+// database is tried first, followed by a database named after the login user.
+func bootstrapCandidates(cfg Config) []string {
+	if cfg.Database != "" {
+		return []string{cfg.Database}
+	}
+	candidates := []string{"postgres"}
+	if cfg.Username != "" && cfg.Username != "postgres" {
+		candidates = append(candidates, cfg.Username)
+	}
+	return candidates
+}
+
 // Execute activates (or reuses) the pool for id and runs one statement through
 // the connector for cfg.Driver.
 func (m *Manager) Execute(ctx context.Context, id string, cfg Config, sqlText string) (model.QueryResult, error) {

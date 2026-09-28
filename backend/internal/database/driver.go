@@ -23,6 +23,10 @@ var (
 	// ErrNotImplemented marks driver operations that exist in the contract but
 	// are not implemented for that engine yet.
 	ErrNotImplemented = errors.New("database: operation not implemented for this driver")
+	// ErrNoBootstrapDatabase marks a discovery attempt where a PostgreSQL
+	// profile has no database and none of the bootstrap candidates ("postgres",
+	// the login-named database) is reachable (PRF-01/ADR-009).
+	ErrNoBootstrapDatabase = errors.New("database: no bootstrap database available")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.
@@ -71,6 +75,16 @@ func DefaultOptions() Options {
 		ConnMaxIdleTime: 5 * time.Minute,
 		PingTimeout:     5 * time.Second, // PRD §2.1 health check
 	}
+}
+
+// DatabaseLister is an optional connector capability: drivers that expose
+// multiple selectable databases on one server-level connection implement it
+// (PostgreSQL — PRF-01). MySQL/SQLite deliberately do not.
+type DatabaseLister interface {
+	// ListDatabases returns lightweight metadata for the databases visible to
+	// the connection's credentials, excluding templates and databases the user
+	// cannot connect to.
+	ListDatabases(ctx context.Context, db *sql.DB) ([]model.DatabaseInfo, error)
 }
 
 // Connector opens and health-checks pools for a single target database driver,

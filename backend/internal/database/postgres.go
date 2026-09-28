@@ -22,13 +22,14 @@ func (Postgres) Name() model.Driver { return model.DriverPostgres }
 // Capabilities reports the PostgreSQL feature set.
 func (Postgres) Capabilities() model.Capabilities {
 	return model.Capabilities{
-		Schemas:         true,
-		ForeignKeys:     true,
-		Indexes:         true,
-		SSL:             true,
-		SSH:             true,
-		Dialect:         "postgres",
-		IdentifierQuote: `"`,
+		Schemas:           true,
+		ForeignKeys:       true,
+		Indexes:           true,
+		SSL:               true,
+		SSH:               true,
+		MultipleDatabases: true,
+		Dialect:           "postgres",
+		IdentifierQuote:   `"`,
 	}
 }
 

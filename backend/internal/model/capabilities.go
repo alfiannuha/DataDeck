@@ -13,6 +13,10 @@ type Capabilities struct {
 	// SSL / SSH report whether connection settings for these are meaningful.
 	SSL bool `json:"ssl"`
 	SSH bool `json:"ssh"`
+	// MultipleDatabases reports whether the engine exposes multiple selectable
+	// databases on one server-level connection (PostgreSQL: true; MySQL/SQLite:
+	// false — PRF-01).
+	MultipleDatabases bool `json:"multiple_databases"`
 	// Dialect is the editor/introspection dialect identifier (e.g. "postgres").
 	Dialect string `json:"dialect"`
 	// IdentifierQuote is the character used to quote identifiers ("`" for
