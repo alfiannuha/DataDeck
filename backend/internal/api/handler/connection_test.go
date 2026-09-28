@@ -170,15 +170,15 @@ func TestCreateValidationErrors(t *testing.T) {
 	h, _, _ := newTestHandler(t)
 
 	cases := map[string]string{
-		"missing name":       `{"driver":"postgres","host":"h","database_name":"d","username":"u"}`,
-		"missing driver":     `{"name":"n","host":"h","database_name":"d","username":"u"}`,
-		"unsupported oracle": `{"name":"n","driver":"oracle","host":"h","database_name":"d","username":"u"}`,
-		"missing host":       `{"name":"n","driver":"postgres","database_name":"d","username":"u"}`,
-		"missing database":   `{"name":"n","driver":"postgres","host":"h","username":"u"}`,
-		"missing username":   `{"name":"n","driver":"postgres","host":"h","database_name":"d"}`,
-		"invalid port":       `{"name":"n","driver":"postgres","host":"h","port":70000,"database_name":"d","username":"u"}`,
-		"invalid ssl mode":   `{"name":"n","driver":"postgres","host":"h","database_name":"d","username":"u","ssl_mode":"bogus"}`,
-		"malformed json":     `{`,
+		"missing name":           `{"driver":"postgres","host":"h","database_name":"d","username":"u"}`,
+		"missing driver":         `{"name":"n","host":"h","database_name":"d","username":"u"}`,
+		"unsupported oracle":     `{"name":"n","driver":"oracle","host":"h","database_name":"d","username":"u"}`,
+		"missing host":           `{"name":"n","driver":"postgres","database_name":"d","username":"u"}`,
+		"mysql missing database": `{"name":"n","driver":"mysql","host":"h","username":"u"}`,
+		"missing username":       `{"name":"n","driver":"postgres","host":"h","database_name":"d"}`,
+		"invalid port":           `{"name":"n","driver":"postgres","host":"h","port":70000,"database_name":"d","username":"u"}`,
+		"invalid ssl mode":       `{"name":"n","driver":"postgres","host":"h","database_name":"d","username":"u","ssl_mode":"bogus"}`,
+		"malformed json":         `{`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -368,5 +368,81 @@ func TestTestSQLiteConnection(t *testing.T) {
 	}
 	if !decodeEnvelope(t, rec).Success {
 		t.Error("sqlite test connection success = false")
+	}
+}
+
+// PRF-01: PostgreSQL profiles may omit the database (server-level profile).
+func TestCreatePostgresProfileWithoutDatabase(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+
+	rec := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+		`{"name":"Server only","driver":"postgres","host":"127.0.0.1","port":5432,"username":"u","password":"pw"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var created ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &created); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if created.DatabaseName != "" {
+		t.Errorf("database_name = %q, want empty", created.DatabaseName)
+	}
+
+	stored, err := repository.NewConnectionRepository(db).Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.DatabaseName != "" {
+		t.Errorf("stored database_name = %q, want empty", stored.DatabaseName)
+	}
+	if stored.EncryptedPassword == nil || *stored.EncryptedPassword == "pw" {
+		t.Error("password was not stored as ciphertext")
+	}
+}
+
+// PRF-01: an existing PostgreSQL profile that carries a database keeps working
+// unchanged (the value acts as the default database).
+func TestCreatePostgresProfileWithDatabasePreserved(t *testing.T) {
+	h, db, cipher := newTestHandler(t)
+
+	rec := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+		`{"name":"Legacy","driver":"postgres","host":"127.0.0.1","port":5432,"database_name":"CCM","username":"u","password":"pw"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var created ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &created); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if created.DatabaseName != "CCM" {
+		t.Errorf("database_name = %q, want CCM", created.DatabaseName)
+	}
+
+	stored, err := repository.NewConnectionRepository(db).Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.DatabaseName != "CCM" {
+		t.Errorf("stored database_name = %q, want preserved CCM", stored.DatabaseName)
+	}
+	plaintext, err := cipher.Decrypt(*stored.EncryptedPassword)
+	if err != nil || string(plaintext) != "pw" {
+		t.Fatalf("credential did not round-trip: %q, %v", plaintext, err)
+	}
+}
+
+// PRF-01: /test accepts a PostgreSQL profile without a database and fails on
+// connectivity (502), never on validation (400).
+func TestTestPostgresConnectionWithoutDatabase(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	rec := doRequest(h.Test, http.MethodPost, "/api/v1/connections/test",
+		`{"driver":"postgres","host":"127.0.0.1","port":1,"username":"u","password":"pw"}`)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (body=%s)", rec.Code, rec.Body.String())
+	}
+	env := decodeEnvelope(t, rec)
+	if env.Error == nil || env.Error.Code != "CONNECTION_ERROR" {
+		t.Errorf("error = %+v, want CONNECTION_ERROR", env.Error)
 	}
 }

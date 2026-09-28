@@ -110,9 +110,11 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 	}
 
 	// Required fields must match the actual validation behavior.
+	// PRF-01: database_name is required per-driver at runtime (mysql/sqlite)
+	// but optional in the schema because PostgreSQL profiles may omit it.
 	requiredFields := map[string][]string{
-		"handler.ConnectionRequest":     {"driver", "name", "database_name"},
-		"handler.ConnectionTestRequest": {"driver", "database_name"},
+		"handler.ConnectionRequest":     {"driver", "name"},
+		"handler.ConnectionTestRequest": {"driver"},
 		"handler.QueryRequest":          {"connection_id", "sql"},
 		"handler.SavedQueryRequest":     {"title", "sql_text"},
 	}

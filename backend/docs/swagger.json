@@ -67,7 +67,6 @@
                     }
                 },
                 "required": [
-                    "database_name",
                     "driver",
                     "name"
                 ],
@@ -166,7 +165,6 @@
                     }
                 },
                 "required": [
-                    "database_name",
                     "driver"
                 ],
                 "type": "object"

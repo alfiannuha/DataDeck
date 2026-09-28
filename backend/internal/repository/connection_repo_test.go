@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
+	"github.com/datadeck/datadeck/backend/internal/storage"
 )
 
 func sampleProfile(id, name string) *model.ConnectionProfile {
@@ -159,5 +161,55 @@ func TestConnectionRepositoryDriverConstraint(t *testing.T) {
 	profile.Driver = model.Driver("oracle")
 	if err := repo.Create(ctx, profile); err == nil {
 		t.Fatal("Create() with unsupported driver error = nil, want constraint error")
+	}
+}
+
+// PRF-01: a pre-PRF-01 (M6) store must remain readable without a schema change,
+// preserving profiles, their database_name and their encrypted credentials.
+func TestConnectionRepositoryReadsLegacyStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "datadeck.db")
+	ctx := context.Background()
+
+	store, err := storage.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open storage: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO connection_profiles
+		(id, name, driver, host, port, database_name, username, encrypted_password, ssl_mode)
+		VALUES ('legacy','CCM profile','postgres','db.internal',5432,'CCM','readonly','ciphertext-value','require')`); err != nil {
+		t.Fatalf("seed legacy profile: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close storage: %v", err)
+	}
+
+	// Reopen (restart-safe) and read the legacy profile back.
+	reopened, err := storage.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen storage: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	var migrations int
+	if err := reopened.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	// PRF-01 requires no schema migration; the store still has the original one.
+	if migrations != 1 {
+		t.Errorf("schema_migrations count = %d, want 1 (no PRF-01 schema change)", migrations)
+	}
+
+	got, err := NewConnectionRepository(reopened.DB()).Get(ctx, "legacy")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.DatabaseName != "CCM" {
+		t.Errorf("database_name = %q, want CCM preserved", got.DatabaseName)
+	}
+	if got.EncryptedPassword == nil || *got.EncryptedPassword != "ciphertext-value" {
+		t.Errorf("encrypted password = %v, want preserved ciphertext", got.EncryptedPassword)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Error("timestamps were not preserved")
 	}
 }

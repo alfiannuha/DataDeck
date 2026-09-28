@@ -49,7 +49,6 @@ components:
           example: appuser
           type: string
       required:
-      - database_name
       - driver
       - name
       type: object
@@ -123,7 +122,6 @@ components:
           example: appuser
           type: string
       required:
-      - database_name
       - driver
       type: object
     handler.DeleteConnectionResponse:

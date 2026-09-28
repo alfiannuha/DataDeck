@@ -259,6 +259,10 @@ Request body for `POST /api/v1/connections` and `POST /api/v1/connections/test`:
 - `driver` is one of `postgres`, `mysql`, `sqlite`.
 - `postgres`/`mysql` require `host` and `username`; `port` defaults to `5432`
   (PostgreSQL) or `3306` (MySQL).
+- `database_name` is **required** for `mysql` and `sqlite`, and **optional** for
+  `postgres`: a PostgreSQL profile represents a server/instance and the value is
+  an initial/default database (PRF-01). When omitted, the database is selected
+  after connecting; a query is not silently bound to any database.
 - `sqlite` requires `database_name` as a **file path** and takes no
   host/port/username/password; `ssl_mode` is ignored.
 - `ssl_mode` defaults to `disable` and must be one of
@@ -423,11 +427,12 @@ Resolved during M1 (implementation now defines these):
 - Creation returns `200 OK` (the `201` candidate was not adopted).
 - `DELETE` returns `data: { "id": "<id>" }`.
 - Required request fields are marked in OpenAPI and enforced in code:
-  create requires `name`, `driver`, `database_name`; test requires `driver`,
-  `database_name`; execute requires `connection_id`, `sql`. `port`, `ssl_mode`,
-  `password` and `timeout_seconds` are optional. `host`/`username` are required
-  **at runtime for PostgreSQL/MySQL only** (SQLite targets a file), so they are
-  not schema-`required`.
+  create requires `name` and `driver`; `database_name` is required for
+  `mysql`/`sqlite` and optional for `postgres` (PRF-01); test requires `driver`
+  (plus `database_name` for `mysql`/`sqlite`); execute requires `connection_id`
+  and `sql`. `port`, `ssl_mode`, `password` and `timeout_seconds` are optional.
+  `host`/`username` are required **at runtime for PostgreSQL/MySQL only**
+  (SQLite targets a file), so they are not schema-`required`.
 
 Still open:
 

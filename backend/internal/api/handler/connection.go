@@ -67,24 +67,29 @@ func NewConnectionHandler(
 // ConnectionRequest is the body for creating a connection profile. The password
 // is write-only: it is encrypted before persistence and never returned by any
 // endpoint.
+//
+// PRF-01: for `postgres`, `database_name` is an optional default database (a
+// PostgreSQL profile may represent a server/instance); for `mysql` and `sqlite`
+// it remains required (database / file path).
 type ConnectionRequest struct {
 	Name         string `json:"name" binding:"required" example:"Local PG"`
 	Driver       string `json:"driver" binding:"required" enums:"postgres,mysql,sqlite" example:"postgres"`
 	Host         string `json:"host" example:"127.0.0.1"`
 	Port         int    `json:"port" example:"5432"`
-	DatabaseName string `json:"database_name" binding:"required" example:"app"`
+	DatabaseName string `json:"database_name" example:"app"`
 	Username     string `json:"username" example:"appuser"`
 	Password     string `json:"password" example:"secret"`
 	SSLMode      string `json:"ssl_mode" enums:"disable,allow,prefer,require,verify-ca,verify-full" example:"disable"`
 }
 
 // ConnectionTestRequest is the body for testing connection parameters. It has no
-// name because nothing is persisted.
+// name because nothing is persisted. `database_name` follows the same
+// per-driver optionality as ConnectionRequest.
 type ConnectionTestRequest struct {
 	Driver       string `json:"driver" binding:"required" enums:"postgres,mysql,sqlite" example:"postgres"`
 	Host         string `json:"host" example:"127.0.0.1"`
 	Port         int    `json:"port" example:"5432"`
-	DatabaseName string `json:"database_name" binding:"required" example:"app"`
+	DatabaseName string `json:"database_name" example:"app"`
 	Username     string `json:"username" example:"appuser"`
 	Password     string `json:"password" example:"secret"`
 	SSLMode      string `json:"ssl_mode" enums:"disable,allow,prefer,require,verify-ca,verify-full" example:"disable"`
@@ -354,7 +359,9 @@ func normalizeRequest(name, driver, host string, port int, databaseName, usernam
 		}
 
 		databaseName = strings.TrimSpace(databaseName)
-		if databaseName == "" {
+		// PRF-01: a PostgreSQL profile may represent a server/instance, so the
+		// database is an optional default. MySQL still binds to one database.
+		if databaseName == "" && driverValue != model.DriverPostgres {
 			return nil, errors.New("database_name is required")
 		}
 

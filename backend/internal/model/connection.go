@@ -30,11 +30,15 @@ func (d Driver) Valid() bool {
 // represented as pointers so the difference between "absent" and "empty" is
 // preserved.
 type ConnectionProfile struct {
-	ID                   string
-	Name                 string
-	Driver               Driver
-	Host                 *string
-	Port                 *int
+	ID     string
+	Name   string
+	Driver Driver
+	Host   *string
+	Port   *int
+	// DatabaseName is the target database. For PostgreSQL (PRF-01) it is an
+	// optional default database: a profile may represent a server/instance and
+	// the empty string means "no default selected yet". MySQL and SQLite keep
+	// requiring a value (database / file path).
 	DatabaseName         string
 	Username             *string
 	EncryptedPassword    *string
