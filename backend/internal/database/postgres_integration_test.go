@@ -59,7 +59,7 @@ func TestPostgresIntegration(t *testing.T) {
 	if db == nil {
 		t.Fatal("Open() returned nil pool")
 	}
-	if _, ok := manager.Get("itest"); !ok {
+	if _, ok := manager.Get("itest", cfg.Database); !ok {
 		t.Error("Get() did not return the active pool")
 	}
 	if err := manager.CloseAll(); err != nil {

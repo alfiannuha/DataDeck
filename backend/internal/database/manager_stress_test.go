@@ -79,11 +79,11 @@ func TestManagerConcurrentLifecycle(t *testing.T) {
 				case 0:
 					_, _ = m.Open(ctx, id, stressConfig(drivers[id]))
 				case 1:
-					_, _ = m.Get(id)
+					_, _ = m.Get(id, "d")
 				case 2:
 					_ = m.Test(ctx, stressConfig(drivers[id]))
 				case 3:
-					_ = m.Close(id)
+					_ = m.CloseConnection(id)
 				case 4:
 					if rng.Intn(20) == 0 {
 						_ = m.CloseAll()
@@ -98,7 +98,7 @@ func TestManagerConcurrentLifecycle(t *testing.T) {
 		t.Fatalf("CloseAll() error = %v", err)
 	}
 	for _, id := range ids {
-		if _, ok := m.Get(id); ok {
+		if _, ok := m.Get(id, "d"); ok {
 			t.Errorf("pool %q still registered after CloseAll", id)
 		}
 	}
@@ -135,7 +135,7 @@ func TestConcurrentFailingOpensAllReturn(t *testing.T) {
 			t.Fatalf("Open[%d] error = nil, want failure", i)
 		}
 	}
-	if _, ok := m.Get("same"); ok {
+	if _, ok := m.Get("same", "d"); ok {
 		t.Error("failed Open left a pool registered")
 	}
 }

@@ -6,18 +6,37 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
 )
 
-// Manager owns the active target database pools, keyed by connection id.
+// PoolKey identifies one managed pool. PRF-01: a PostgreSQL connection profile
+// represents a server, so pools are per (connection, database). For MySQL and
+// SQLite the database component is the profile's database/file, so the key
+// degenerates to the previous connection-id behaviour.
 //
-// A connection id maps to at most one pool. Concurrent Open calls for the same
-// id share a single in-flight attempt instead of opening duplicate pools.
+// A PoolKey never carries credentials or DSN material, so it is safe to log.
+type PoolKey struct {
+	ConnectionID string
+	Database     string
+}
+
+// String renders a credential-free key for logs and error messages.
+func (k PoolKey) String() string { return k.ConnectionID + "/" + k.Database }
+
+// Manager owns the active target database pools, keyed by (connection,
+// database).
+//
+// Concurrent Open calls for the same key share a single in-flight attempt
+// instead of opening duplicate pools. The number of cached pools per connection
+// is bounded (Options.MaxPoolsPerConnection); the least-recently-used pool is
+// evicted when the cap is exceeded.
 type Manager struct {
 	mu         sync.Mutex
-	pools      map[string]*sql.DB
-	opening    map[string]*openCall
+	pools      map[PoolKey]*sql.DB
+	lastUsed   map[PoolKey]time.Time
+	opening    map[PoolKey]*openCall
 	connectors map[model.Driver]Connector
 	opts       Options
 }
@@ -33,32 +52,50 @@ func NewManager(opts Options, connectors ...Connector) *Manager {
 	if opts == (Options{}) {
 		opts = DefaultOptions()
 	}
+	if opts.MaxPoolsPerConnection <= 0 {
+		opts.MaxPoolsPerConnection = DefaultMaxPoolsPerConnection
+	}
 	registry := make(map[model.Driver]Connector, len(connectors))
 	for _, connector := range connectors {
 		registry[connector.Name()] = connector
 	}
 	return &Manager{
-		pools:      make(map[string]*sql.DB),
-		opening:    make(map[string]*openCall),
+		pools:      make(map[PoolKey]*sql.DB),
+		lastUsed:   make(map[PoolKey]time.Time),
+		opening:    make(map[PoolKey]*openCall),
 		connectors: registry,
 		opts:       opts,
 	}
 }
 
-// Open returns the active pool for id, opening and health-checking it on first
-// use. Opening failures are not registered, so a later Open can retry.
+// poolKey derives the (connection, database) identity for a request. The
+// database comes from the resolved connection config; it never contains
+// credentials.
+func poolKey(connectionID string, cfg Config) PoolKey {
+	return PoolKey{ConnectionID: connectionID, Database: cfg.Database}
+}
+
+// Open returns the active pool for (connection id, cfg.Database), opening and
+// health-checking it on first use. Opening failures are not registered, so a
+// later Open can retry.
 func (m *Manager) Open(ctx context.Context, id string, cfg Config) (*sql.DB, error) {
+	key := poolKey(id, cfg)
+
 	m.mu.Lock()
-	if db, ok := m.pools[id]; ok {
+	if db, ok := m.pools[key]; ok {
+		m.lastUsed[key] = time.Now()
 		m.mu.Unlock()
 		return db, nil
 	}
-	if call, ok := m.opening[id]; ok {
+	if call, ok := m.opening[key]; ok {
 		m.mu.Unlock()
 		select {
 		case <-call.done:
 			m.mu.Lock()
-			db, err := m.pools[id], call.err
+			db, err := m.pools[key], call.err
+			if ok := db != nil; ok {
+				m.lastUsed[key] = time.Now()
+			}
 			m.mu.Unlock()
 			return db, err
 		case <-ctx.Done():
@@ -66,28 +103,66 @@ func (m *Manager) Open(ctx context.Context, id string, cfg Config) (*sql.DB, err
 		}
 	}
 	call := &openCall{done: make(chan struct{})}
-	m.opening[id] = call
+	m.opening[key] = call
 	m.mu.Unlock()
 
 	db, err := m.connect(ctx, cfg)
 
 	m.mu.Lock()
 	if err == nil {
-		m.pools[id] = db
+		m.pools[key] = db
+		m.lastUsed[key] = time.Now()
+		m.evictOverCapLocked(id)
 	}
 	call.err = err
-	delete(m.opening, id)
+	delete(m.opening, key)
 	close(call.done)
 	m.mu.Unlock()
 
 	return db, err
 }
 
-// Get returns an already-active pool without opening one.
-func (m *Manager) Get(id string) (*sql.DB, bool) {
+// evictOverCapLocked closes the least-recently-used pools of a connection until
+// the per-connection cap is respected. Callers must hold m.mu.
+func (m *Manager) evictOverCapLocked(connectionID string) {
+	for {
+		var (
+			oldestKey PoolKey
+			oldest    time.Time
+			found     bool
+			count     int
+		)
+		for key := range m.pools {
+			if key.ConnectionID != connectionID {
+				continue
+			}
+			count++
+			used := m.lastUsed[key]
+			if !found || used.Before(oldest) {
+				oldestKey, oldest, found = key, used, true
+			}
+		}
+		if count <= m.opts.MaxPoolsPerConnection || !found {
+			return
+		}
+		db := m.pools[oldestKey]
+		delete(m.pools, oldestKey)
+		delete(m.lastUsed, oldestKey)
+		if db != nil {
+			_ = db.Close()
+		}
+	}
+}
+
+// Get returns an already-active pool for (id, database) without opening one.
+func (m *Manager) Get(id, database string) (*sql.DB, bool) {
+	key := PoolKey{ConnectionID: id, Database: database}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	db, ok := m.pools[id]
+	db, ok := m.pools[key]
+	if ok {
+		m.lastUsed[key] = time.Now()
+	}
 	return db, ok
 }
 
@@ -101,8 +176,9 @@ func (m *Manager) Test(ctx context.Context, cfg Config) error {
 	return db.Close()
 }
 
-// Introspect activates (or reuses) the pool for id and reads the target
-// database schema through the connector for cfg.Driver.
+// Introspect activates (or reuses) the pool for (id, cfg.Database) and reads
+// the target database schema through the connector for cfg.Driver. A lost
+// connection evicts the pool so the next call opens a fresh one.
 func (m *Manager) Introspect(ctx context.Context, id string, cfg Config) ([]model.Database, error) {
 	db, err := m.Open(ctx, id, cfg)
 	if err != nil {
@@ -112,7 +188,11 @@ func (m *Manager) Introspect(ctx context.Context, id string, cfg Config) ([]mode
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDriver, cfg.Driver)
 	}
-	return connector.Introspect(ctx, db)
+	databases, err := connector.Introspect(ctx, db)
+	if err != nil && errors.Is(err, ErrConnection) {
+		m.evict(id, cfg)
+	}
+	return databases, err
 }
 
 // Capabilities returns the advertised capabilities for a driver.
@@ -132,9 +212,7 @@ func (m *Manager) Capabilities(driver model.Driver) (model.Capabilities, bool) {
 // the profile has none, the candidates are tried in order — "postgres", then a
 // database named after the login user. Each candidate probe uses a temporary,
 // unregistered pool that is closed immediately, so discovery never leaves a
-// pool (or one pool per database) behind. `id` is accepted for symmetry with the
-// other manager operations and will key per-database pools once pool identity
-// lands (PRF01-T03+).
+// pool (or one pool per database) behind.
 func (m *Manager) ListDatabases(ctx context.Context, id string, cfg Config) ([]model.DatabaseInfo, error) {
 	connector, ok := m.connectors[cfg.Driver]
 	if !ok {
@@ -186,8 +264,9 @@ func bootstrapCandidates(cfg Config) []string {
 	return candidates
 }
 
-// Execute activates (or reuses) the pool for id and runs one statement through
-// the connector for cfg.Driver.
+// Execute activates (or reuses) the pool for (id, cfg.Database) and runs one
+// statement through the connector for cfg.Driver. A lost connection evicts the
+// pool so the next call opens a fresh one.
 func (m *Manager) Execute(ctx context.Context, id string, cfg Config, sqlText string) (model.QueryResult, error) {
 	db, err := m.Open(ctx, id, cfg)
 	if err != nil {
@@ -197,23 +276,73 @@ func (m *Manager) Execute(ctx context.Context, id string, cfg Config, sqlText st
 	if !ok {
 		return model.QueryResult{}, fmt.Errorf("%w: %s", ErrUnsupportedDriver, cfg.Driver)
 	}
-	return connector.Execute(ctx, db, sqlText)
+	result, err := connector.Execute(ctx, db, sqlText)
+	if err != nil && errors.Is(err, ErrConnection) {
+		m.evict(id, cfg)
+	}
+	return result, err
 }
 
-// Close closes and evicts the pool for id, returning ErrNotFound if none is
-// active.
-func (m *Manager) Close(id string) error {
+// evict removes and closes the pool for the given connection/database. It is
+// used when a pool is known to be unhealthy (connection lost). Concurrent Open
+// waiters may still hold the pointer; their next operation fails and retries via
+// a fresh Open, which is the documented behaviour.
+func (m *Manager) evict(id string, cfg Config) {
+	key := poolKey(id, cfg)
 	m.mu.Lock()
-	db, ok := m.pools[id]
+	db, ok := m.pools[key]
 	if ok {
-		delete(m.pools, id)
+		delete(m.pools, key)
+		delete(m.lastUsed, key)
+	}
+	m.mu.Unlock()
+	if ok && db != nil {
+		_ = db.Close()
+	}
+}
+
+// Close closes and evicts the pool for (id, database), returning ErrNotFound if
+// none is active.
+func (m *Manager) Close(id, database string) error {
+	key := PoolKey{ConnectionID: id, Database: database}
+	m.mu.Lock()
+	db, ok := m.pools[key]
+	if ok {
+		delete(m.pools, key)
+		delete(m.lastUsed, key)
 	}
 	m.mu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
+		return fmt.Errorf("%w: %s", ErrNotFound, key.String())
 	}
 	return db.Close()
+}
+
+// CloseConnection closes and evicts every pool belonging to a connection
+// profile. It is used when a profile is deleted or its credentials or
+// configuration change, so the next operation reconnects with fresh settings.
+// It returns nil when the connection has no active pools.
+func (m *Manager) CloseConnection(id string) error {
+	m.mu.Lock()
+	var closing []*sql.DB
+	for key, db := range m.pools {
+		if key.ConnectionID != id {
+			continue
+		}
+		closing = append(closing, db)
+		delete(m.pools, key)
+		delete(m.lastUsed, key)
+	}
+	m.mu.Unlock()
+
+	var errs []error
+	for _, db := range closing {
+		if err := db.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close %s: %w", id, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // CloseAll closes every active pool. Safe to call on the shutdown path and when
@@ -221,13 +350,14 @@ func (m *Manager) Close(id string) error {
 func (m *Manager) CloseAll() error {
 	m.mu.Lock()
 	pools := m.pools
-	m.pools = make(map[string]*sql.DB)
+	m.pools = make(map[PoolKey]*sql.DB)
+	m.lastUsed = make(map[PoolKey]time.Time)
 	m.mu.Unlock()
 
 	var errs []error
-	for id, db := range pools {
+	for key, db := range pools {
 		if err := db.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close connection %s: %w", id, err))
+			errs = append(errs, fmt.Errorf("close %s: %w", key.String(), err))
 		}
 	}
 	return errors.Join(errs...)

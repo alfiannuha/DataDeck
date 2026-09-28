@@ -101,7 +101,7 @@ func TestPoolLimitsRespectedIntegration(t *testing.T) {
 	}
 	defer func() { _ = m.CloseAll() }()
 
-	db, _ := m.Get("pg")
+	db, _ := m.Get("pg", cfg.Database)
 	const parallel = 8
 	var wg sync.WaitGroup
 	errs := make([]error, parallel)
@@ -153,10 +153,10 @@ func TestDeleteDuringUse(t *testing.T) {
 	}()
 
 	time.Sleep(150 * time.Millisecond)
-	if err := m.Close("pg"); err != nil {
+	if err := m.Close("pg", cfg.Database); err != nil {
 		t.Fatalf("Close during use error = %v", err)
 	}
-	if _, ok := m.Get("pg"); ok {
+	if _, ok := m.Get("pg", cfg.Database); ok {
 		t.Error("pool still registered after Close during use")
 	}
 

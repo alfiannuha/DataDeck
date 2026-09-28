@@ -64,16 +64,24 @@ type Options struct {
 	ConnMaxLifetime time.Duration
 	ConnMaxIdleTime time.Duration
 	PingTimeout     time.Duration
+	// MaxPoolsPerConnection bounds the number of cached per-database pools for
+	// one connection profile (PRF-01). The least-recently-used pool is evicted
+	// when the cap is exceeded. Zero falls back to DefaultMaxPoolsPerConnection.
+	MaxPoolsPerConnection int
 }
+
+// DefaultMaxPoolsPerConnection bounds cached per-database pools per profile.
+const DefaultMaxPoolsPerConnection = 16
 
 // DefaultOptions returns conservative, local-first defaults.
 func DefaultOptions() Options {
 	return Options{
-		MaxOpenConns:    5,
-		MaxIdleConns:    2,
-		ConnMaxLifetime: 30 * time.Minute,
-		ConnMaxIdleTime: 5 * time.Minute,
-		PingTimeout:     5 * time.Second, // PRD §2.1 health check
+		MaxOpenConns:          5,
+		MaxIdleConns:          2,
+		ConnMaxLifetime:       30 * time.Minute,
+		ConnMaxIdleTime:       5 * time.Minute,
+		PingTimeout:           5 * time.Second, // PRD §2.1 health check
+		MaxPoolsPerConnection: DefaultMaxPoolsPerConnection,
 	}
 }
 

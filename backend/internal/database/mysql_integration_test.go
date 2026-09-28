@@ -56,10 +56,10 @@ func TestMySQLIntegration(t *testing.T) {
 	if db == nil {
 		t.Fatal("Open() returned nil pool")
 	}
-	if _, ok := manager.Get("mit"); !ok {
+	if _, ok := manager.Get("mit", cfg.Database); !ok {
 		t.Error("Get() did not return the active pool")
 	}
-	if err := manager.Close("mit"); err != nil {
+	if err := manager.Close("mit", cfg.Database); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
 

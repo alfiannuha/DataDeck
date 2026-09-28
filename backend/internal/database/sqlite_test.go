@@ -82,13 +82,13 @@ func TestSQLiteManagerLifecycle(t *testing.T) {
 	if db == nil {
 		t.Fatal("Open() returned nil")
 	}
-	if _, ok := manager.Get("s1"); !ok {
+	if _, ok := manager.Get("s1", cfg.Database); !ok {
 		t.Error("Get() did not return the open pool")
 	}
-	if err := manager.Close("s1"); err != nil {
+	if err := manager.Close("s1", cfg.Database); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
-	if _, ok := manager.Get("s1"); ok {
+	if _, ok := manager.Get("s1", cfg.Database); ok {
 		t.Error("pool still registered after Close")
 	}
 }
@@ -128,7 +128,7 @@ func TestSQLiteTargetSeparateFromInternalStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("target Open() error = %v", err)
 	}
-	defer func() { _ = manager.Close("s1") }()
+	defer func() { _ = manager.Close("s1", targetPath) }()
 
 	// The target connection must be independent of the internal store.
 	if db == store.DB() {

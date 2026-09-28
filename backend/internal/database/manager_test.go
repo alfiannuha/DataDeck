@@ -54,11 +54,12 @@ func (c fakeSQLConnector) Driver() sqldriver.Driver                        { ret
 
 // fakeConnector implements Connector for manager tests.
 type fakeConnector struct {
-	name      model.Driver
-	openErr   error
-	pingErr   error
-	pingDelay time.Duration
-	opens     atomic.Int64
+	name       model.Driver
+	openErr    error
+	pingErr    error
+	pingDelay  time.Duration
+	executeErr error
+	opens      atomic.Int64
 }
 
 func newFakeConnector() *fakeConnector {
@@ -84,6 +85,9 @@ func (c *fakeConnector) Introspect(context.Context, *sql.DB) ([]model.Database, 
 }
 
 func (c *fakeConnector) Execute(context.Context, *sql.DB, string) (model.QueryResult, error) {
+	if c.executeErr != nil {
+		return model.QueryResult{}, c.executeErr
+	}
 	return model.QueryResult{}, nil
 }
 
@@ -107,7 +111,7 @@ func TestManagerOpenAndGet(t *testing.T) {
 	if db == nil {
 		t.Fatal("Open() returned nil pool")
 	}
-	got, ok := m.Get("c1")
+	got, ok := m.Get("c1", "d")
 	if !ok || got != db {
 		t.Errorf("Get(c1) = %v, %v; want the opened pool", got, ok)
 	}
@@ -178,7 +182,7 @@ func TestManagerFailedOpenIsNotRegistered(t *testing.T) {
 	if _, err := m.Open(ctx, "c1", testConfig()); err == nil {
 		t.Fatal("Open() error = nil, want failure")
 	}
-	if _, ok := m.Get("c1"); ok {
+	if _, ok := m.Get("c1", "d"); ok {
 		t.Error("failed open left a pool registered")
 	}
 }
@@ -192,7 +196,7 @@ func TestManagerPingFailureIsNotRegistered(t *testing.T) {
 	if _, err := m.Open(ctx, "c1", testConfig()); err == nil {
 		t.Fatal("Open() error = nil, want ping failure")
 	}
-	if _, ok := m.Get("c1"); ok {
+	if _, ok := m.Get("c1", "d"); ok {
 		t.Error("failed health check left a pool registered")
 	}
 }
@@ -214,7 +218,7 @@ func TestManagerPingTimeout(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Errorf("Open() took %s, health check did not honor the timeout", elapsed)
 	}
-	if _, ok := m.Get("c1"); ok {
+	if _, ok := m.Get("c1", "d"); ok {
 		t.Error("timed-out connection left a pool registered")
 	}
 }
@@ -227,7 +231,7 @@ func TestManagerTestDoesNotRegister(t *testing.T) {
 	if err := m.Test(ctx, testConfig()); err != nil {
 		t.Fatalf("Test() error = %v", err)
 	}
-	if _, ok := m.Get("c1"); ok {
+	if _, ok := m.Get("c1", "d"); ok {
 		t.Error("Test() registered a pool")
 	}
 
@@ -246,16 +250,16 @@ func TestManagerClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	if err := m.Close("c1"); err != nil {
+	if err := m.Close("c1", "d"); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	if _, ok := m.Get("c1"); ok {
+	if _, ok := m.Get("c1", "d"); ok {
 		t.Error("Get() after Close returned a pool")
 	}
 	if err := db.Ping(); err == nil {
 		t.Error("pool still usable after Close")
 	}
-	if err := m.Close("unknown"); !errors.Is(err, ErrNotFound) {
+	if err := m.Close("unknown", "d"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Close(unknown) error = %v, want ErrNotFound", err)
 	}
 }
@@ -275,7 +279,7 @@ func TestManagerCloseAll(t *testing.T) {
 		t.Fatalf("CloseAll() error = %v", err)
 	}
 	for _, id := range []string{"c1", "c2"} {
-		if _, ok := m.Get(id); ok {
+		if _, ok := m.Get(id, "d"); ok {
 			t.Errorf("Get(%s) after CloseAll returned a pool", id)
 		}
 	}
@@ -296,7 +300,7 @@ func TestManagerUnsupportedDriver(t *testing.T) {
 
 func TestManagerGetUnknown(t *testing.T) {
 	m := NewManager(DefaultOptions())
-	if _, ok := m.Get("nope"); ok {
+	if _, ok := m.Get("nope", "d"); ok {
 		t.Error("Get(unknown) = true, want false")
 	}
 }

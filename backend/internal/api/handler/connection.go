@@ -256,7 +256,7 @@ func (h *ConnectionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.manager.Close(id); err != nil && !errors.Is(err, database.ErrNotFound) {
+	if err := h.manager.CloseConnection(id); err != nil {
 		h.internalError(w, r, "close_connection", err)
 		return
 	}
