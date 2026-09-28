@@ -294,7 +294,9 @@ make check
 
 Frontend lint and tests are configured (ESLint flat config; Vitest + React
 Testing Library). CI additionally runs backend PostgreSQL integration tests
-(`go test -tags=integration ./...`) against a `postgres:17` service.
+(`go test -tags=integration ./... -p 1`) against a `postgres:17` service;
+`-p 1` serializes packages because the database integration tests share one
+server and some create/drop databases.
 
 Frontend API types are generated from the committed OpenAPI document:
 
