@@ -119,6 +119,45 @@ Enforced limits (safe defaults, tested):
 | Target DB pool | `MaxOpenConns 5`, `MaxIdleConns 2` (SQLite: 1) |
 | Credential key | AES-256-GCM, fresh nonce per record |
 
+## Operations
+
+**Install (single binary).** `make build` produces
+`backend/bin/datadeck`; release archives
+(`datadeck_<version>_<os>_<arch>.tar.gz`/`.zip`, containing the binary plus a
+`VERSION` file) are attached to tagged releases. Run `datadeck --version` to
+confirm build metadata.
+
+**Configuration & encryption key.** Provide `ENCRYPTION_KEY` (32 raw bytes or 64
+hex characters) in the environment; startup **refuses to run without a valid
+key** and there is no insecure fallback. Keep the key outside backups and out of
+version control. See [`.env.example`](.env.example).
+
+**Data location.** The embedded store defaults to `./data/datadeck.db`; point
+`STORAGE_PATH` at a user-private directory (e.g. `~/.datadeck/datadeck.db`). The
+directory is created `0700` and the store files are narrowed to `0600`.
+
+**Backup / restore.** Stop DataDeck, then copy `datadeck.db` together with
+`datadeck.db-wal` and `datadeck.db-shm` as a consistent set. Restore by
+replacing those files while stopped. Never store the encryption key beside the
+backup.
+
+**Upgrade / rollback.** Replace the binary and start it against the same
+`STORAGE_PATH`; migrations are applied automatically and are **forward-only**.
+Rollback by restoring a pre-upgrade backup with the previous binary (downgrade
+is not guaranteed once a migration has been applied).
+
+**Docker.** See [`docs/release/docker.md`](docs/release/docker.md). The image
+runs the same single binary as a non-root user, persists `/data`, and requires
+`ENCRYPTION_KEY` at runtime (never baked in).
+
+**Known limitations.** Linux and Windows binaries are cross-compiled but not
+runtime-verified in this repository; the API has no authentication and binds
+loopback by default (but the container image deliberately binds wider inside the
+container — control exposure at the host/network layer); the web build carries
+two build-time-only npm advisories pending a Next.js major upgrade (see
+[`docs/release/licenses.md`](docs/release/licenses.md)); deep pagination uses
+`OFFSET`.
+
 ## Documentation
 
 - [PRD.md](PRD.md) — product requirements and technical blueprint
