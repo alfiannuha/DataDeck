@@ -3,11 +3,13 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
@@ -45,8 +47,28 @@ func (Postgres) Open(_ context.Context, cfg Config, opts Options) (*sql.DB, erro
 }
 
 // Ping verifies the pool can reach the server within ctx's deadline.
+//
+// A missing target database (SQLSTATE 3D000) or a CONNECT privilege denial
+// (SQLSTATE 42501) is surfaced as a distinct sentinel so the API can return an
+// actionable, sanitized error instead of a generic connection failure.
 func (Postgres) Ping(ctx context.Context, db *sql.DB) error {
-	return db.PingContext(ctx)
+	if err := db.PingContext(ctx); err != nil {
+		return postgresConnectError(err)
+	}
+	return nil
+}
+
+func postgresConnectError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "3D000": // invalid_catalog_name: database does not exist
+			return fmt.Errorf("%w: %s", ErrDatabaseNotFound, pgErr.Message)
+		case "42501": // insufficient_privilege: no CONNECT on the database
+			return fmt.Errorf("%w: %s", ErrDatabaseConnectDenied, pgErr.Message)
+		}
+	}
+	return err
 }
 
 // postgresDSN builds a postgres:// URL. The result contains the password and

@@ -37,7 +37,10 @@ func (MySQL) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.Que
 	result.ExecutionTimeMS = time.Since(start).Milliseconds()
 	if err != nil {
 		converted := mysqlSQLError(err)
-		if _, ok := asSQLError(converted); !ok && isConnectionLoss(converted) {
+		if _, ok := asSQLError(converted); !ok &&
+			(isConnectionLoss(converted) || errors.Is(converted, gosqlmysql.ErrInvalidConn)) {
+			// ErrInvalidConn is go-sql-driver's "invalid connection" signal; it
+			// is what a broken connection frequently surfaces as (M6-T00).
 			return result, fmt.Errorf("%w: %w", ErrConnection, converted)
 		}
 		return result, converted

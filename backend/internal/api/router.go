@@ -71,6 +71,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/connections/test", connections.Test)
 		r.Delete("/connections/{id}", connections.Delete)
 		r.Get("/connections/{id}/schemas", connections.Schemas)
+		r.Get("/connections/{id}/databases", connections.Databases)
 
 		r.Post("/query/execute", queries.Execute)
 		r.Get("/query/history", queries.History)

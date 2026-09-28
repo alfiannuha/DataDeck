@@ -216,6 +216,10 @@
                         "example": "9f1c7d2e4a6b4e89b88ad5f356bf7312",
                         "type": "string"
                     },
+                    "database": {
+                        "example": "app",
+                        "type": "string"
+                    },
                     "sql": {
                         "example": "SELECT 1",
                         "type": "string"
@@ -329,6 +333,18 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "model.DatabaseInfo": {
+                "properties": {
+                    "bootstrap_candidate": {
+                        "description": "BootstrapCandidate marks the conventional maintenance database (e.g.\nPostgreSQL \"postgres\") used when a profile has no default database.",
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -814,6 +830,106 @@
                 "summary": "Delete a connection profile",
                 "tags": [
                     "connections"
+                ]
+            }
+        },
+        "/connections/{id}/databases": {
+            "get": {
+                "description": "Discovers the databases available on a server-level connection (PostgreSQL). Not supported for MySQL/SQLite.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "List selectable databases",
+                "tags": [
+                    "schema"
                 ]
             }
         },

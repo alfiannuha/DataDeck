@@ -171,6 +171,21 @@ compatible extensions and are marked **Recommended**/**Needs Validation**.
 - Return `502` with `CONNECTION_ERROR`.
 - Never include the password in the message.
 
+### 5.6 Database Selection Errors (PRF-01)
+
+- `DATABASE_REQUIRED` (`400`) — a PostgreSQL server-level profile is used without
+  an explicit or default database. The request is rejected rather than silently
+  choosing a database; use `GET /connections/{id}/databases` to pick one.
+- `DATABASE_NOT_FOUND` (`400`) — the requested PostgreSQL database does not exist
+  (SQLSTATE `3D000`).
+- `DATABASE_CONNECT_DENIED` (`400`) — the credentials lack `CONNECT` on the
+  requested database (SQLSTATE `42501`).
+- `BOOTSTRAP_DATABASE_UNAVAILABLE` (`502`) — no bootstrap/default database could
+  be reached for discovery.
+- `DISCOVERY_TIMEOUT` (`504`) — database discovery exceeded its deadline.
+- MySQL/SQLite are single-database: a `database` value that differs from the
+  profile database is rejected with `400 VALIDATION_ERROR`.
+
 ---
 
 ## 6. Query Execution Contract
@@ -191,6 +206,7 @@ Request:
 |---|---|---|---|
 | `connection_id` | string | yes | Existing profile id |
 | `sql` | string | yes | Raw SQL, executed as provided (single statement) |
+| `database` | string | no | PRF-01: target database on a server-level PostgreSQL profile. Precedence: request `database` → profile default; if neither exists the request is rejected with `DATABASE_REQUIRED`. Never used to redirect an existing tab — the client sends the tab's bound database. Ignored for MySQL/SQLite unless it differs from the profile database (then `VALIDATION_ERROR`). |
 | `timeout_seconds` | int | no | Defaults to 30 (PRD §11.3); server clamps to a 300s maximum |
 
 Success data (`200`):
@@ -365,7 +381,8 @@ here without an explicit requirement.
 | `POST` | `/api/v1/connections` | Persist a new connection profile |
 | `POST` | `/api/v1/connections/test` | Verify connection parameters before saving |
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |
-| `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations) |
+| `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
+| `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `POST` | `/api/v1/query/execute` | Synchronous raw SQL execution |
 | `GET` | `/api/v1/query/history` | Audit log of executed queries |
 | `POST` | `/api/v1/queries/saved` | Save a query snippet (PRD) |
@@ -391,11 +408,19 @@ here without an explicit requirement.
   pool. Errors: unknown id → `404 NOT_FOUND`; unsupported driver →
   `400 VALIDATION_ERROR`; unreachable or permission-restricted catalog read →
   `502 INTROSPECTION_ERROR`; timeout → `504 INTROSPECTION_TIMEOUT`. Caching
-  semantics remain **Needs Validation.**
+  semantics remain **Needs Validation.** PRF-01: an optional `database` query
+  parameter selects the database; omitted → profile default; a server-level
+  profile without either yields `400 DATABASE_REQUIRED`.
+- `GET /api/v1/connections/{id}/databases` — PRF-01. Returns lightweight
+  metadata (`{name, bootstrap_candidate?}`) read from a single catalog query.
+  Errors: unknown id → `404 NOT_FOUND`; MySQL/SQLite → `501 NOT_IMPLEMENTED`;
+  no bootstrap database → `502 BOOTSTRAP_DATABASE_UNAVAILABLE`; timeout →
+  `504 DISCOVERY_TIMEOUT`.
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
-  `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`. Every
-  attempt is recorded in history.
+  `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds
+  `400 DATABASE_REQUIRED` / `DATABASE_NOT_FOUND` / `DATABASE_CONNECT_DENIED` and
+  `502 BOOTSTRAP_DATABASE_UNAVAILABLE`. Every attempt is recorded in history.
 - `GET /api/v1/query/history` — implemented in M1-T08; newest-first with an
   optional `connection_id` filter. Paging remains **Needs Validation** (a
   default limit of 100 rows applies).

@@ -331,6 +331,39 @@ func isJSONContentType(raw string) bool {
 	return mediaType == "application/json"
 }
 
+// Sentinel validation failures for database binding (PRF-01).
+var (
+	errDatabaseRequired = errors.New("database is required for this connection; select one from GET /connections/{id}/databases")
+	errDatabaseMismatch = errors.New("database does not match this connection's database")
+)
+
+// resolveTargetDatabase determines the effective database for an operation.
+//
+// PostgreSQL profiles may bind per request/tab; an explicit request database
+// always wins, then the profile's default. When neither exists the request is
+// rejected (never silently substituted). MySQL/SQLite are bound to the profile's
+// database: a differing request value is rejected as a mismatch.
+func resolveTargetDatabase(profile *model.ConnectionProfile, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	profileDatabase := strings.TrimSpace(profile.DatabaseName)
+
+	switch profile.Driver {
+	case model.DriverPostgres:
+		if requested != "" {
+			return requested, nil
+		}
+		if profileDatabase != "" {
+			return profileDatabase, nil
+		}
+		return "", errDatabaseRequired
+	default:
+		if requested != "" && requested != profileDatabase {
+			return "", errDatabaseMismatch
+		}
+		return profileDatabase, nil
+	}
+}
+
 // normalizeRequest validates input and maps it into a profile. name is required
 // only for the create endpoint (requireName); /test does not persist a name.
 func normalizeRequest(name, driver, host string, port int, databaseName, username, sslMode string, requireName bool) (*model.ConnectionProfile, error) {

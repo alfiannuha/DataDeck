@@ -166,8 +166,11 @@ PoolKey = { connection_id, database }
 
 `GET /api/v1/connections/{id}/schemas` gains an optional `database` query
 parameter; introspection returns the schemas **of that one database** only
-(never a merged tree across databases). Omitted → profile default → bootstrap
-resolution as in §3. Response model is unchanged
+(never a merged tree across databases). Precedence: request `database` → profile
+default → `400 DATABASE_REQUIRED`. **Clarification (PRF01-T04):** bootstrap
+resolution (§3) is used for *discovery only*; user operations (query,
+introspection) never silently substitute the bootstrap database, because that
+would make the target database ambiguous. Response model is unchanged
 (`model.Database{schemas,tables}`), with `Database.Name` set to the database
 name.
 

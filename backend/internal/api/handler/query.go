@@ -51,9 +51,15 @@ func NewQueryHandler(
 }
 
 // QueryRequest is the body for the query execution endpoint.
+//
+// PRF-01: `database` optionally selects the target database on a server-level
+// PostgreSQL connection. It must not be used to redirect an existing tab: the
+// client sends the tab's bound database. MySQL/SQLite ignore it unless it
+// equals the profile's database; a mismatch is a validation error.
 type QueryRequest struct {
 	ConnectionID   string `json:"connection_id" binding:"required" example:"9f1c7d2e4a6b4e89b88ad5f356bf7312"`
 	SQL            string `json:"sql" binding:"required" example:"SELECT 1"`
+	Database       string `json:"database" example:"app"`
 	TimeoutSeconds int    `json:"timeout_seconds" example:"30"`
 }
 
@@ -130,10 +136,18 @@ func (h *QueryHandler) Execute(w http.ResponseWriter, r *http.Request) {
 		password = string(plaintext)
 	}
 
+	effectiveDatabase, err := resolveTargetDatabase(profile, req.Database)
+	if err != nil {
+		response.ValidationError(w, err.Error())
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	result, execErr := h.manager.Execute(ctx, connectionID, toDatabaseConfig(profile, password), req.SQL)
+	cfg := toDatabaseConfig(profile, password)
+	cfg.Database = effectiveDatabase
+	result, execErr := h.manager.Execute(ctx, connectionID, cfg, req.SQL)
 	h.recordHistory(r, connectionID, req.SQL, result, execErr)
 
 	if execErr != nil {
@@ -253,6 +267,12 @@ func (h *QueryHandler) executionError(w http.ResponseWriter, r *http.Request, er
 		response.WriteError(w, http.StatusGatewayTimeout, "QUERY_TIMEOUT", "query exceeded the timeout")
 	case errors.Is(err, context.Canceled):
 		response.WriteError(w, 499, "QUERY_CANCELED", "query was canceled")
+	case errors.Is(err, database.ErrDatabaseNotFound):
+		response.WriteError(w, http.StatusBadRequest, "DATABASE_NOT_FOUND", "the requested database does not exist")
+	case errors.Is(err, database.ErrDatabaseConnectDenied):
+		response.WriteError(w, http.StatusBadRequest, "DATABASE_CONNECT_DENIED", "the connection has no CONNECT permission on that database")
+	case errors.Is(err, database.ErrNoBootstrapDatabase):
+		response.WriteError(w, http.StatusBadGateway, "BOOTSTRAP_DATABASE_UNAVAILABLE", "no usable database: select one explicitly")
 	case errors.Is(err, database.ErrUnsupportedDriver):
 		response.ValidationError(w, "the connection driver is not supported yet")
 	case errors.Is(err, database.ErrNotImplemented):

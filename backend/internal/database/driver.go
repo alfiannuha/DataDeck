@@ -27,6 +27,12 @@ var (
 	// profile has no database and none of the bootstrap candidates ("postgres",
 	// the login-named database) is reachable (PRF-01/ADR-009).
 	ErrNoBootstrapDatabase = errors.New("database: no bootstrap database available")
+	// ErrDatabaseNotFound marks a PostgreSQL connect failure because the target
+	// database does not exist (SQLSTATE 3D000).
+	ErrDatabaseNotFound = errors.New("database: target database does not exist")
+	// ErrDatabaseConnectDenied marks a PostgreSQL connect failure because the
+	// credentials lack CONNECT on the target database (SQLSTATE 42501).
+	ErrDatabaseConnectDenied = errors.New("database: CONNECT permission denied")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

@@ -79,6 +79,7 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 		"/connections",
 		"/connections/test",
 		"/connections/{id}",
+		"/connections/{id}/databases",
 		"/connections/{id}/schemas",
 		"/health",
 		"/queries/saved",
