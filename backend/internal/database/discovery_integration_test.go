@@ -179,10 +179,12 @@ func TestPostgresDatabaseDiscoveryIntegration(t *testing.T) {
 		if !errors.Is(err, database.ErrConnection) {
 			t.Fatalf("error = %v, want ErrConnection", err)
 		}
-		message := err.Error()
-		for _, leak := range []string{"discovery-secret", "password", "postgres://"} {
-			if strings.Contains(strings.ToLower(message), strings.ToLower(leak)) {
-				t.Errorf("error message leaked %q: %s", leak, message)
+		// The driver phrase "password authentication failed" is not a secret;
+		// assert the credential VALUE and any credential-bearing DSN are absent.
+		message := strings.ToLower(err.Error())
+		for _, leak := range []string{"discovery-secret", "postgres://", "postgresql://"} {
+			if strings.Contains(message, leak) {
+				t.Errorf("error message leaked %q: %s", leak, err.Error())
 			}
 		}
 	})
