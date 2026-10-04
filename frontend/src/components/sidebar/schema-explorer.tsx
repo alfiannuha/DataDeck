@@ -1,104 +1,117 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useConnections } from "@/hooks/use-connections";
+import { useDatabases } from "@/hooks/use-databases";
+import { useOnline } from "@/hooks/use-online";
 import { useSchema } from "@/hooks/use-schema";
 import { ApiClientError } from "@/lib/api-client";
+import { buildCopyDdlQuery, buildCountRows, buildSelectTop100, extractDdl, identifierQuoteFor, supportsCopyDdl } from "@/lib/sql/identifiers";
 import { executeQuery } from "@/lib/api/endpoints";
 import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
-import {
-  buildCopyDdlQuery,
-  buildCountRows,
-  buildSelectTop100,
-  extractDdl,
-  identifierQuoteFor,
-  supportsCopyDdl,
-} from "@/lib/sql/identifiers";
+import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
-import { SchemaTree } from "./schema-tree";
-
-const DDL_TIMEOUT_SECONDS = 30;
-
-interface Notice {
-  kind: "success" | "error";
-  text: string;
-}
+import { DatabaseChildren, SchemaTree, TreeRow, type TableActionHandler } from "./schema-tree";
 
 /**
- * Schema explorer container. Fetches the real introspection endpoint for the
- * active connection and owns loading/error/empty states plus refresh.
+ * Schema explorer container. Two modes:
  *
- * Table context actions generate driver-aware SQL: Select Top 100 and Count
- * Rows insert statements into a query tab (never auto-execute). Copy DDL runs
- * only an engine-native DDL retrieval statement, on explicit user action, and
- * is hidden for drivers without an accurate mechanism (PostgreSQL).
+ * - Server-level PostgreSQL profile (PRF-01): lists databases from the real
+ *   discovery endpoint, then lazily loads each database's schema tree only when
+ *   the database node is expanded. Metadata is keyed by connection + database.
+ * - MySQL/SQLite (and legacy PostgreSQL profiles): the original single-database
+ *   tree, fetched once for the connection.
  */
 export function SchemaExplorer({
   connectionId,
 }: {
   connectionId: string | null;
 }) {
-  const query = useSchema(connectionId);
   const queryClient = useQueryClient();
   const insertQuerySql = useWorkspaceStore((state) => state.insertQuerySql);
   const { data: connections } = useConnections();
+  const online = useOnline();
   const connection = connections?.find((candidate) => candidate.id === connectionId);
   const driver = connection?.driver ?? null;
+  // A PostgreSQL profile with no default database is a server-level connection
+  // (PRF-01): it uses database discovery. A PostgreSQL profile that carries a
+  // database_name keeps the legacy single-database tree (backward compatible).
+  const serverLevel = driver === "postgres" && !connection?.database_name;
   const identifierQuote = identifierQuoteFor(driver);
 
-  const [notice, setNotice] = useState<Notice | null>(null);
+  // Legacy/MySQL/SQLite connections use the original single-database query.
+  const query = useSchema(connectionId, null, {
+    enabled: Boolean(connectionId) && !serverLevel,
+  });
+
+  const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const noticeTimer = useRef<number | null>(null);
 
-  // MySQL has no schema level: tables live in the connection's database, which
-  // is the correct qualifier. PostgreSQL uses the table's schema; SQLite is
-  // unqualified (schema is empty).
-  function namespaceFor(schema: string): string {
-    return driver === "mysql" ? connection?.database_name ?? schema : schema;
+  function namespaceFor(schema: string, database: string): string {
+    return driver === "mysql" ? database : schema;
   }
 
-  function showNotice(kind: Notice["kind"], text: string) {
+  function showNotice(kind: "success" | "error", text: string) {
     setNotice({ kind, text });
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 2500);
   }
 
-  function refresh() {
-    void query.refetch();
-  }
+  const handleSelectTop100: TableActionHandler = (schema, table) =>
+    insertQuerySql(
+      buildSelectTop100(namespaceFor(schema, connection?.database_name ?? ""), table, 100, identifierQuote),
+      connectionId,
+    );
 
-  async function copyDdl(schema: string, table: string) {
-    const ddlQuery = buildCopyDdlQuery(driver, namespaceFor(schema), table);
-    if (!ddlQuery || !connectionId) return;
-    try {
-      const result = await executeQuery({
-        connection_id: connectionId,
-        sql: ddlQuery.sql,
-        timeout_seconds: DDL_TIMEOUT_SECONDS,
-      });
-      const ddl = extractDdl(result.rows, ddlQuery.ddlColumnIndex);
-      if (!ddl) {
-        showNotice("error", "No DDL returned for this object.");
-        return;
+  const handleCountRows: TableActionHandler = (schema, table) =>
+    insertQuerySql(
+      buildCountRows(namespaceFor(schema, connection?.database_name ?? ""), table, identifierQuote),
+      connectionId,
+    );
+
+  const handleCopyDdl: TableActionHandler | undefined = supportsCopyDdl(driver)
+    ? (schema, table) => {
+        const ddlQuery = buildCopyDdlQuery(
+          driver,
+          namespaceFor(schema, connection?.database_name ?? ""),
+          table,
+        );
+        if (!ddlQuery || !connectionId) return;
+        void executeQuery({
+          connection_id: connectionId,
+          sql: ddlQuery.sql,
+          timeout_seconds: 30,
+        })
+          .then(async (result) => {
+            const ddl = extractDdl(result.rows, ddlQuery.ddlColumnIndex);
+            if (!ddl) {
+              showNotice("error", "No DDL returned for this object.");
+              return;
+            }
+            const copied = await copyText(ddl);
+            showNotice(copied ? "success" : "error", copied ? "DDL copied" : "Copy failed");
+            void queryClient.invalidateQueries({ queryKey: queryKeys.queryHistoryRoot });
+          })
+          .catch((error) => {
+            showNotice(
+              "error",
+              error instanceof ApiClientError ? error.message : "DDL retrieval failed",
+            );
+          });
       }
-      const copied = await copyText(ddl);
-      showNotice(
-        copied ? "success" : "error",
-        copied ? "DDL copied" : "Copy failed",
-      );
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.queryHistoryRoot,
-      });
-    } catch (error) {
-      const message =
-        error instanceof ApiClientError ? error.message : "DDL retrieval failed";
-      showNotice("error", message);
+    : undefined;
+
+  function refresh() {
+    if (serverLevel) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.databases(connectionId ?? "") });
+      return;
     }
+    void query.refetch();
   }
 
   return (
@@ -111,11 +124,7 @@ export function SchemaExplorer({
           {notice && (
             <span
               role={notice.kind === "error" ? "alert" : "status"}
-              className={
-                notice.kind === "error"
-                  ? "text-[10px] text-destructive"
-                  : "text-[10px] text-emerald-400"
-              }
+              className={notice.kind === "error" ? "text-[10px] text-destructive" : "text-[10px] text-emerald-400"}
             >
               {notice.text}
             </span>
@@ -126,13 +135,9 @@ export function SchemaExplorer({
               size="icon"
               aria-label="Refresh schema"
               onClick={refresh}
-              disabled={query.isFetching}
+              disabled={serverLevel ? false : query.isFetching}
             >
-              <RefreshCw
-                size={13}
-                aria-hidden="true"
-                className={query.isFetching ? "animate-spin" : undefined}
-              />
+              <RefreshCw size={13} aria-hidden="true" />
             </Button>
           )}
         </div>
@@ -143,10 +148,15 @@ export function SchemaExplorer({
           <p className="px-1 text-xs text-muted-foreground">
             Select a connection to browse its schema.
           </p>
+        ) : serverLevel ? (
+          <DatabaseExplorer
+            connectionId={connectionId}
+            onSelectTop100={handleSelectTop100}
+            onCountRows={handleCountRows}
+            onCopyDdl={handleCopyDdl}
+          />
         ) : query.isLoading ? (
-          <p className="px-1 text-xs text-muted-foreground">
-            Loading schema…
-          </p>
+          <p className="px-1 text-xs text-muted-foreground">Loading schema…</p>
         ) : query.isError ? (
           <div role="alert" className="flex flex-col gap-2 px-1">
             <p className="text-xs text-destructive">
@@ -163,36 +173,157 @@ export function SchemaExplorer({
             key={connectionId}
             databases={query.data ?? []}
             connectionId={connectionId}
-            onSelectTop100={(schema, table) =>
-              insertQuerySql(
-                buildSelectTop100(
-                  namespaceFor(schema),
-                  table,
-                  100,
-                  identifierQuote,
-                ),
-                connectionId,
-              )
-            }
-            onCountRows={(schema, table) =>
-              insertQuerySql(
-                buildCountRows(namespaceFor(schema), table, identifierQuote),
-                connectionId,
-              )
-            }
-            onCopyDdl={
-              supportsCopyDdl(driver)
-                ? (schema, table) => void copyDdl(schema, table)
-                : undefined
-            }
+            onSelectTop100={handleSelectTop100}
+            onCountRows={handleCountRows}
+            onCopyDdl={handleCopyDdl}
           />
         ) : (
-          <p className="px-1 text-xs text-muted-foreground">
-            No schema objects found.
+          <p className="px-1 text-xs text-muted-foreground">No schema objects found.</p>
+        )}
+        {!online && serverLevel && (
+          <p className="px-1 pt-1 text-[10px] text-amber-400">
+            Offline: database discovery is unavailable.
           </p>
         )}
       </div>
     </div>
+  );
+}
+
+/** Number of database nodes rendered before a "show more" control. */
+export const DATABASE_BATCH_SIZE = 50;
+
+/** Lists databases for a server-level connection (PRF-01) with lazy expansion. */
+function DatabaseExplorer({
+  connectionId,
+  onSelectTop100,
+  onCountRows,
+  onCopyDdl,
+}: {
+  connectionId: string;
+  onSelectTop100?: TableActionHandler;
+  onCountRows?: TableActionHandler;
+  onCopyDdl?: TableActionHandler;
+}) {
+  const databases = useDatabases(connectionId, true);
+  const [visible, setVisible] = useState(DATABASE_BATCH_SIZE);
+
+  if (databases.isLoading) {
+    return <p className="px-1 text-xs text-muted-foreground">Loading databases…</p>;
+  }
+  if (databases.isError) {
+    return (
+      <div role="alert" className="flex flex-col gap-2 px-1">
+        <p className="text-xs text-destructive">
+          {databases.error instanceof ApiClientError
+            ? `${databases.error.message} (${databases.error.code})`
+            : "Could not list databases."}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => void databases.refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+  const list = databases.data ?? [];
+  if (list.length === 0) {
+    return <p className="px-1 text-xs text-muted-foreground">No databases found.</p>;
+  }
+
+  const shown = list.slice(0, visible);
+  const remaining = list.length - shown.length;
+  return (
+    <ul aria-label="Databases" className="flex flex-col gap-0.5 py-1">
+      {shown.map((database) => (
+        <LazyDatabaseNode
+          key={database.name}
+          connectionId={connectionId}
+          database={database.name ?? ""}
+          onSelectTop100={onSelectTop100}
+          onCountRows={onCountRows}
+          onCopyDdl={onCopyDdl}
+        />
+      ))}
+      {remaining > 0 && (
+        <li>
+          <div className="px-1 py-0.5">
+            <button
+              type="button"
+              onClick={() => setVisible((value) => value + DATABASE_BATCH_SIZE)}
+              className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+            >
+              Show {Math.min(DATABASE_BATCH_SIZE, remaining)} more ({remaining} remaining)
+            </button>
+          </div>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+/**
+ * One database node. Schemas are fetched only when the node is expanded
+ * (`enabled: open`), so opening a connection never introspects every database.
+ * A failing database shows a localized error and does not affect siblings.
+ */
+function LazyDatabaseNode({
+  connectionId,
+  database,
+  onSelectTop100,
+  onCountRows,
+  onCopyDdl,
+}: {
+  connectionId: string;
+  database: string;
+  onSelectTop100?: TableActionHandler;
+  onCountRows?: TableActionHandler;
+  onCopyDdl?: TableActionHandler;
+}) {
+  const [open, setOpen] = useState(false);
+  const schema = useSchema(connectionId, database, { enabled: open });
+  const tree = schema.data?.[0];
+
+  return (
+    <li>
+      <TreeRow
+        depth={0}
+        label={database}
+        secondary={open && schema.isSuccess ? undefined : "database"}
+        expandable
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
+      {open &&
+        (schema.isLoading ? (
+          <p className="px-1 py-0.5 text-[10px] text-muted-foreground">
+            Loading schemas…
+          </p>
+        ) : schema.isError ? (
+          <div role="alert" className="flex flex-col gap-1 px-1 py-0.5">
+            <p className="text-[10px] text-destructive">
+              {schema.error instanceof ApiClientError
+                ? `${schema.error.message} (${schema.error.code})`
+                : "Could not load this database."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void schema.refetch()}
+              className="self-start rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <DatabaseChildren
+            schemas={tree?.schemas ?? []}
+            tables={tree?.tables ?? []}
+            depth={0}
+            onSelectTop100={onSelectTop100}
+            onCountRows={onCountRows}
+            onCopyDdl={onCopyDdl}
+          />
+        ))}
+    </li>
   );
 }
 
@@ -205,8 +336,6 @@ function hasIntrospectableTables(
   return databases.some(
     (database) =>
       (database.tables ?? []).length > 0 ||
-      (database.schemas ?? []).some(
-        (schema) => (schema.tables ?? []).length > 0,
-      ),
+      (database.schemas ?? []).some((schema) => (schema.tables ?? []).length > 0),
   );
 }

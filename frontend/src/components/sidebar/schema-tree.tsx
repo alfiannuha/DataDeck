@@ -86,29 +86,61 @@ const DatabaseNode = memo(function DatabaseNode({
         onToggle={() => setOpen((value) => !value)}
       />
       {open && childCount > 0 && (
-        <ul>
-          {schemas.map((schema, index) => (
-            <SchemaNode
-              key={`${schema.name ?? index}`}
-              schema={schema}
-              depth={depth + 1}
-              onSelectTop100={onSelectTop100}
-              onCountRows={onCountRows}
-              onCopyDdl={onCopyDdl}
-            />
-          ))}
-          <TableList
-            tables={tables}
-            depth={depth + 1}
-            onSelectTop100={onSelectTop100}
-            onCountRows={onCountRows}
-            onCopyDdl={onCopyDdl}
-          />
-        </ul>
+        <DatabaseChildren
+          schemas={schemas}
+          tables={tables}
+          depth={depth}
+          onSelectTop100={onSelectTop100}
+          onCountRows={onCountRows}
+          onCopyDdl={onCopyDdl}
+        />
       )}
     </li>
   );
 });
+
+/**
+ * Renders the contents of a database node (schemas first, then any tables that
+ * hang directly off the database). Exported so the PRF-01 database explorer can
+ * reuse it for lazily-loaded per-database subtrees.
+ */
+export function DatabaseChildren({
+  schemas,
+  tables,
+  depth,
+  onSelectTop100,
+  onCountRows,
+  onCopyDdl,
+}: {
+  schemas: IntrospectedSchema[];
+  tables: IntrospectedTable[];
+  depth: number;
+  onSelectTop100?: TableActionHandler;
+  onCountRows?: TableActionHandler;
+  onCopyDdl?: TableActionHandler;
+}) {
+  return (
+    <ul>
+      {schemas.map((schema, index) => (
+        <SchemaNode
+          key={`${schema.name ?? index}`}
+          schema={schema}
+          depth={depth + 1}
+          onSelectTop100={onSelectTop100}
+          onCountRows={onCountRows}
+          onCopyDdl={onCopyDdl}
+        />
+      ))}
+      <TableList
+        tables={tables}
+        depth={depth + 1}
+        onSelectTop100={onSelectTop100}
+        onCountRows={onCountRows}
+        onCopyDdl={onCopyDdl}
+      />
+    </ul>
+  );
+}
 
 const SchemaNode = memo(function SchemaNode({
   schema,
@@ -357,7 +389,7 @@ const ColumnRow = memo(function ColumnRow({
   );
 });
 
-function TreeRow({
+export function TreeRow({
   depth,
   label,
   secondary,

@@ -99,5 +99,8 @@ describe("connection hooks", () => {
     expect(removeSpy).toHaveBeenCalledWith({
       queryKey: ["connections", "c1", "schema"],
     });
+    expect(removeSpy).toHaveBeenCalledWith({
+      queryKey: ["connections", "c1", "databases"],
+    });
   });
 });

@@ -44,8 +44,12 @@ export function useDeleteConnection() {
     mutationFn: (connectionId: string) => deleteConnection(connectionId),
     onSuccess: (_result, connectionId) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.connections });
+      // Drop every cached schema subtree (all databases) and the database list.
       void queryClient.removeQueries({
-        queryKey: queryKeys.schema(connectionId),
+        queryKey: queryKeys.schemaRoot(connectionId),
+      });
+      void queryClient.removeQueries({
+        queryKey: queryKeys.databases(connectionId),
       });
     },
   });

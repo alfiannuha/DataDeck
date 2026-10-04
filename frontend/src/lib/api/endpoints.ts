@@ -1,6 +1,7 @@
 import { apiFetch, apiFetchMeta, type Paginated } from "@/lib/api-client";
 import type {
   ConnectionCreateRequest,
+  DatabaseInfo,
   ConnectionResponse,
   ConnectionTestRequest,
   DatabaseSchemaTree,
@@ -56,12 +57,30 @@ export function deleteConnection(
   );
 }
 
+/**
+ * Schema tree for a connection, optionally scoped to one database on a
+ * server-level PostgreSQL connection (PRF-01).
+ */
 export function getSchemas(
   connectionId: string,
-  signal?: AbortSignal,
+  options?: { database?: string; signal?: AbortSignal },
 ): Promise<DatabaseSchemaTree[]> {
+  const query = options?.database
+    ? `?database=${encodeURIComponent(options.database)}`
+    : "";
   return apiFetch<DatabaseSchemaTree[]>(
-    `/connections/${encodeURIComponent(connectionId)}/schemas`,
+    `/connections/${encodeURIComponent(connectionId)}/schemas${query}`,
+    { signal: options?.signal },
+  );
+}
+
+/** Selectable databases for a server-level connection (PostgreSQL; PRF-01). */
+export function listDatabases(
+  connectionId: string,
+  signal?: AbortSignal,
+): Promise<DatabaseInfo[]> {
+  return apiFetch<DatabaseInfo[]>(
+    `/connections/${encodeURIComponent(connectionId)}/databases`,
     { signal },
   );
 }

@@ -63,6 +63,7 @@ export type SavedQueryResponse = Schemas["handler.SavedQueryResponse"];
 export type SavedQueryRequest = Schemas["handler.SavedQueryRequest"];
 
 export type DatabaseSchemaTree = Schemas["model.Database"];
+export type DatabaseInfo = Schemas["model.DatabaseInfo"];
 export type IntrospectedSchema = Schemas["model.Schema"];
 export type IntrospectedTable = Schemas["model.Table"];
 export type IntrospectedColumn = Schemas["model.Column"];

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "@/lib/api-client";
-import { executeQuery, getSchemas, listConnections } from "@/lib/api/endpoints";
+import { executeQuery, getSchemas, listConnections, listDatabases } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
@@ -15,6 +15,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
   getSchemas: vi.fn(),
+  listDatabases: vi.fn().mockResolvedValue([]),
   executeQuery: vi.fn(),
   getQueryHistory: vi.fn(),
   getHealth: vi.fn(),
@@ -391,5 +392,184 @@ describe("SchemaExplorer", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("no such table");
+  });
+
+});
+
+describe("SchemaExplorer database discovery (PRF-01)", () => {
+  function serverConnection(id = "c1", name = "Server") {
+    return {
+      id,
+      name,
+      driver: "postgres",
+      database_name: "",
+      host: "127.0.0.1",
+      port: 5432,
+      username: "u",
+      ssl_mode: "disable",
+    } as never;
+  }
+
+  /** A per-database tree with tables directly on the database (no schema level). */
+  function databaseTree(database: string) {
+    return [
+      {
+        name: database,
+        tables: [
+          {
+            schema: "",
+            name: `table_in_${database}`,
+            type: "BASE TABLE",
+            columns: [],
+          },
+        ],
+      },
+    ];
+  }
+
+  it("lists databases and lazy-loads schemas per database with isolation", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([
+      { name: "alpha" },
+      { name: "beta" },
+    ] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    expect(await screen.findByRole("button", { name: /^alpha/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^beta/ })).toBeInTheDocument();
+    // No per-database introspection until a database is expanded.
+    expect(
+      vi.mocked(getSchemas).mock.calls.every((call) => !call[1]?.database),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /^alpha/ }));
+    await screen.findByText("table_in_alpha");
+    expect(getSchemas).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ database: "alpha" }),
+    );
+    expect(screen.queryByText("table_in_beta")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^beta/ }));
+    await screen.findByText("table_in_beta");
+    expect(screen.getByText("table_in_alpha")).toBeInTheDocument();
+  });
+
+  it("localizes an inaccessible database error without breaking siblings", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "denied" }, { name: "ok" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) => {
+      if (options?.database === "denied") {
+        return Promise.reject(
+          new ApiClientError("no CONNECT permission", "DATABASE_CONNECT_DENIED", 400),
+        );
+      }
+      return Promise.resolve(databaseTree(options?.database ?? "none") as never);
+    });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^denied/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("DATABASE_CONNECT_DENIED");
+
+    fireEvent.click(screen.getByRole("button", { name: /^ok/ }));
+    expect(await screen.findByText("table_in_ok")).toBeInTheDocument();
+  });
+
+  it("shows a loading state per database", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      options?.database ? (new Promise(() => {}) as never) : Promise.resolve([] as never),
+    );
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    expect(await screen.findByText("Loading schemas…")).toBeInTheDocument();
+  });
+
+  it("shows database loading and empty states", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockReturnValue(new Promise(() => {}) as never);
+    const { unmount } = renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    expect(await screen.findByText("Loading databases…")).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(listDatabases).mockResolvedValue([] as never);
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    expect(await screen.findByText("No databases found.")).toBeInTheDocument();
+  });
+
+  it("shows a connection-level discovery error with retry", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockRejectedValue(
+      new ApiClientError("no bootstrap database", "BOOTSTRAP_DATABASE_UNAVAILABLE", 502),
+    );
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "BOOTSTRAP_DATABASE_UNAVAILABLE",
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("bounds rendering of very large database lists", { timeout: 20000 }, async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue(
+      Array.from({ length: 120 }, (_, i) => ({ name: `db_${i}` })) as never,
+    );
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    await screen.findByRole("button", { name: /^db_0/ });
+    expect(screen.queryByRole("button", { name: /^db_119/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show 50 more/ }));
+    expect(await screen.findByRole("button", { name: /^db_99/ })).toBeInTheDocument();
+  });
+
+  it("resets expansion when switching to another connection", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      serverConnection("c1", "Server 1"),
+      serverConnection("c2", "Server 2"),
+    ]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+
+    const { rerender } = renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    await screen.findByText("table_in_alpha");
+
+    rerender(<SchemaExplorer connectionId="c2" />);
+    await waitFor(() =>
+      expect(listDatabases).toHaveBeenLastCalledWith("c2", expect.anything()),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("table_in_alpha")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("does not call discovery for MySQL connections", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      {
+        id: "c1",
+        name: "MySQL",
+        driver: "mysql",
+        database_name: "app",
+        host: "127.0.0.1",
+        port: 3306,
+        username: "u",
+        ssl_mode: "disable",
+      } as never,
+    ]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    expect(listDatabases).not.toHaveBeenCalled();
   });
 });

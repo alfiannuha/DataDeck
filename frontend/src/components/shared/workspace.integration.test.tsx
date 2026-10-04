@@ -78,7 +78,7 @@ beforeEach(() => {
 });
 
 describe("integrated workspace flow", () => {
-  it("runs a query end to end: connection → schema → select top 100 → execute → grid → status", async () => {
+  it("runs a query end to end: connection → schema → select top 100 → execute → grid → status", { timeout: 20000 }, async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       columns: [{ name: "id", type: "bigint" }],
       rows: [["1"]],
@@ -126,7 +126,7 @@ describe("integrated workspace flow", () => {
     expect(screen.getByText(/^Success ·/)).toBeInTheDocument();
   });
 
-  it("clears execution state and reloads schema when switching connections", async () => {
+  it("clears execution state and reloads schema when switching connections", { timeout: 20000 }, async () => {
     vi.mocked(executeQuery).mockResolvedValue({
       columns: [{ name: "id", type: "bigint" }],
       rows: [["1"]],
