@@ -28,12 +28,21 @@ test("single-binary release flow: shell, connection, query, result, PWA", async 
 
   await page.goto("/");
   await expect(page).toHaveTitle("DataDeck");
+
+  // The workspace starts with zero tabs and shows the empty state (PRF02-T02).
+  await expect(page.getByTestId("workspace-empty-state")).toBeVisible();
+  await expect(page.getByText("No tabs open")).toBeVisible();
+
+  // Select the connection (activates it for the workspace) — this must NOT
+  // create a tab by itself.
+  await page.getByRole("button", { name: /^E2E SQLite/ }).first().click();
+  await expect(page.getByTestId("workspace-empty-state")).toBeVisible();
+
+  // Explicitly open a Query tab.
+  await page.getByRole("button", { name: "New Query" }).click();
   await expect(
     page.getByRole("region", { name: "SQL editor" }),
   ).toBeVisible();
-
-  // Select the connection (activates it for the workspace).
-  await page.getByRole("button", { name: /^E2E SQLite/ }).first().click();
 
   // Run a query through the editor and assert the virtualized result grid.
   const editor = page.locator(".cm-content");

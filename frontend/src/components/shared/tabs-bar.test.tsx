@@ -163,4 +163,20 @@ describe("TabsBar", () => {
     expect(state.tabs[0].kind).toBe("query");
     expect(screen.queryByText(/unsaved changes/i)).not.toBeInTheDocument();
   });
+
+  it("handles zero tabs without crashing or faking a tab", () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    renderWithProviders(<TabsBar />);
+
+    // No tab buttons, but the New Query control remains available.
+    expect(
+      screen.queryByRole("button", { name: /^Query 1/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "New query tab" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New query tab" }));
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(1);
+  });
 });

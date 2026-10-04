@@ -15,29 +15,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useConnections } from "@/hooks/use-connections";
+import { useNewQueryTab } from "@/hooks/use-new-query-tab";
 import { cn } from "@/lib/utils";
-import { useConnectionStore } from "@/store/useConnectionStore";
-import {
-  useWorkspaceStore,
-  type WorkspaceTab,
-} from "@/store/useWorkspaceStore";
+import { useWorkspaceStore, type WorkspaceTab } from "@/store/useWorkspaceStore";
 
 /** Query tab strip: switch, close (with unsaved confirmation) and add tabs. */
 export function TabsBar() {
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabId = useWorkspaceStore((state) => state.activeTabId);
   const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
-  const addTab = useWorkspaceStore((state) => state.addTab);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
-  const activeConnectionId = useConnectionStore(
-    (state) => state.activeConnectionId,
-  );
-  const activeDatabaseByConnection = useConnectionStore(
-    (state) => state.activeDatabaseByConnection,
-  );
-  const activeDatabase = activeConnectionId
-    ? activeDatabaseByConnection[activeConnectionId] ?? null
-    : null;
+  const newQueryTab = useNewQueryTab();
   const { data: connections } = useConnections();
 
   const [pendingClose, setPendingClose] = useState<WorkspaceTab | null>(null);
@@ -125,9 +113,10 @@ export function TabsBar() {
         size="icon"
         aria-label="New query tab"
         onClick={() => {
-          // A new tab inherits the explorer's selected database; existing tabs
-          // are never modified (PRF-01).
-          addTab(activeConnectionId, activeDatabase);
+          // Canonical New Query action: inherits the explorer's selected
+          // database for the active connection; existing tabs are never
+          // modified (PRF-01).
+          newQueryTab();
           focusActiveTab();
         }}
       >

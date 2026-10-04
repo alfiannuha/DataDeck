@@ -247,11 +247,14 @@ function sameTableBinding(
   );
 }
 
-const initialTab = newQueryTab("Query 1", null);
+const initialTabs: WorkspaceTab[] = [];
 
 /**
  * Client workspace state: sidebar collapse and the typed tab workspace. Server
  * data lives in TanStack Query; tab state is transient and never persisted.
+ *
+ * The workspace starts with zero tabs (PRF02-T02); tabs are created only by
+ * explicit user actions, never by connection/database selection or at startup.
  */
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   sidebarCollapsed: false,
@@ -259,8 +262,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
 
-  tabs: [initialTab],
-  activeTabId: initialTab.id,
+  tabs: initialTabs,
+  activeTabId: null,
   setActiveTab: (id) =>
     set((state) =>
       state.tabs.some((tab) => tab.id === id) ? { activeTabId: id } : state,
@@ -398,9 +401,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       const index = state.tabs.findIndex((tab) => tab.id === id);
       if (index === -1) return state;
 
-      let tabs: WorkspaceTab[] = state.tabs.filter((tab) => tab.id !== id);
+      const tabs = state.tabs.filter((tab) => tab.id !== id);
+      // Closing the final tab leaves an empty workspace (PRF02-T02): no tab is
+      // recreated implicitly.
       if (tabs.length === 0) {
-        tabs = [newQueryTab("Query 1", null)];
+        return { tabs, activeTabId: null };
       }
 
       let activeTabId = state.activeTabId;

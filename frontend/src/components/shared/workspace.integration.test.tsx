@@ -6,6 +6,7 @@ import {
   executeQuery,
   getSchemas,
   listConnections,
+  listDatabases,
 } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
@@ -425,5 +426,109 @@ describe("integrated workspace flow", () => {
     expect(await screen.findByTestId("table-structure-panel")).toBeInTheDocument();
     expect(screen.getByTestId("table-structure-binding")).toHaveTextContent("other");
     expect(screen.getByText("public.orders")).toBeInTheDocument();
+  });
+
+  it("starts with zero tabs, hides the tab strip, and opens a Query on demand", async () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "app" },
+    });
+
+    renderWithProviders(<AppShell />);
+
+    expect(await screen.findByTestId("workspace-empty-state")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Query tabs" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New Query" }));
+
+    expect(await screen.findByTestId("editor-value")).toBeInTheDocument();
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.connectionId).toBe("c1");
+    expect(tab.database).toBe("app");
+  });
+
+  it("closing the final tab returns to the empty workspace", async () => {
+    useConnectionStore.setState({ activeConnectionId: "c1" });
+    renderWithProviders(<AppShell />);
+    await screen.findByTestId("editor-value");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Query 1" }));
+
+    expect(await screen.findByTestId("workspace-empty-state")).toBeInTheDocument();
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(0);
+    expect(state.activeTabId).toBeNull();
+  });
+
+  it("selecting a connection does not create a workspace tab", async () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useConnectionStore.setState({ activeConnectionId: null });
+
+    renderWithProviders(<AppShell />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Grid Demo/ }),
+    );
+
+    await waitFor(() =>
+      expect(useConnectionStore.getState().activeConnectionId).toBe("c1"),
+    );
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(useWorkspaceStore.getState().activeTabId).toBeNull();
+  });
+
+  it("renders the empty state instead of crashing on a stale activeTabId", async () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        {
+          kind: "query",
+          id: "t1",
+          title: "Query 1",
+          sql: "SELECT 1;",
+          connectionId: "c1",
+          database: "app",
+          dirty: false,
+        },
+      ],
+      activeTabId: "does-not-exist",
+    });
+
+    renderWithProviders(<AppShell />);
+
+    expect(await screen.findByTestId("workspace-empty-state")).toBeInTheDocument();
+    // The strip remains so the user can recover to the existing tab.
+    expect(screen.getByRole("button", { name: /^Query 1/ })).toBeInTheDocument();
+  });
+
+  it("binds New Query to the selected database and never rebinds on explorer changes (PRF-01)", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      { id: "srv", name: "Server", driver: "postgres", host: "127.0.0.1", port: 5432, database_name: "" },
+    ] as never);
+    vi.mocked(listDatabases).mockResolvedValue([
+      { name: "alpha" },
+      { name: "beta" },
+    ] as never);
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useConnectionStore.setState({
+      activeConnectionId: "srv",
+      activeDatabaseByConnection: {},
+    });
+
+    renderWithProviders(<AppShell />);
+
+    // Select a database in the explorer; the workspace stays empty.
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+
+    // Explicit New Query binds the selected database.
+    fireEvent.click(screen.getByRole("button", { name: "New Query" }));
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.connectionId).toBe("srv");
+    expect(tab.database).toBe("alpha");
+
+    // Changing the explorer selection must not rebind the existing tab.
+    fireEvent.click(await screen.findByRole("button", { name: /^beta/ }));
+    expect(useConnectionStore.getState().activeDatabaseByConnection.srv).toBe("beta");
+    expect(useWorkspaceStore.getState().tabs[0].database).toBe("alpha");
   });
 });

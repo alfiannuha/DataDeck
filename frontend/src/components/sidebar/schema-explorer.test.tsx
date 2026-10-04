@@ -636,4 +636,28 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
       expect(vi.mocked(listDatabases).mock.calls.length).toBeGreaterThan(before),
     );
   });
+
+  it("selecting a database and expanding tables never creates a workspace tab", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: {},
+    });
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    // Expand the discovered table to exercise tree interaction too.
+    const tableButtons = await screen.findAllByRole("button", {
+      name: /table_in_alpha/,
+    });
+    fireEvent.click(tableButtons[0]);
+
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(useWorkspaceStore.getState().activeTabId).toBeNull();
+  });
 });

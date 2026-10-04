@@ -14,11 +14,11 @@ beforeEach(() => {
 });
 
 describe("useWorkspaceStore", () => {
-  it("starts with a single active tab", () => {
+  it("supports an empty workspace with zero tabs", () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
     const state = useWorkspaceStore.getState();
-    expect(state.tabs).toHaveLength(1);
-    expect(state.activeTabId).toBe("t1");
-    expect(state.tabs[0].connectionId).toBeNull();
+    expect(state.tabs).toHaveLength(0);
+    expect(state.activeTabId).toBeNull();
   });
 
   it("updates the active tab SQL and marks it dirty", () => {
@@ -116,11 +116,40 @@ describe("useWorkspaceStore", () => {
     expect(state.activeTabId).toBe(secondId);
   });
 
-  it("keeps at least one tab when closing the last one", () => {
+  it("returns to an empty workspace when the last tab closes", () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useWorkspaceStore.getState().addTab("c1");
+    const id = useWorkspaceStore.getState().activeTabId!;
+
+    useWorkspaceStore.getState().closeTab(id);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(0);
+    expect(state.activeTabId).toBeNull();
+  });
+
+  it("returns to an empty workspace when the last table tab closes", () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useWorkspaceStore.getState().openTableData("c1", "ccm", "public", "users");
+    const id = useWorkspaceStore.getState().activeTabId!;
+
+    useWorkspaceStore.getState().closeTab(id);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(0);
+    expect(state.activeTabId).toBeNull();
+  });
+
+  it("preserves the active tab when closing a non-active tab", () => {
+    useWorkspaceStore.getState().addTab("c1");
+    const secondId = useWorkspaceStore.getState().tabs[1].id;
+    useWorkspaceStore.setState({ activeTabId: secondId });
+
     useWorkspaceStore.getState().closeTab("t1");
+
     const state = useWorkspaceStore.getState();
     expect(state.tabs).toHaveLength(1);
-    expect(state.activeTabId).not.toBeNull();
+    expect(state.activeTabId).toBe(secondId);
   });
 
   it("clears dirty state", () => {
