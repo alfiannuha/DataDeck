@@ -228,12 +228,24 @@ func (h *ConnectionHandler) Test(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.manager.Test(ctx, toDatabaseConfig(profile, req.Password)); err != nil {
 		h.logger.Warn("connection_test_failed",
-			slog.String("request_id", chimiddleware.GetReqID(r.Context())),
-			slog.String("driver", string(profile.Driver)),
-			slog.String("error", err.Error()),
+			"request_id", chimiddleware.GetReqID(r.Context()),
+			"driver", string(profile.Driver),
+			"error", err.Error(),
 		)
-		response.WriteError(w, http.StatusBadGateway, "CONNECTION_ERROR",
-			"failed to connect with the provided parameters")
+		switch {
+		case errors.Is(err, database.ErrNoBootstrapDatabase):
+			response.WriteError(w, http.StatusBadGateway, "BOOTSTRAP_DATABASE_UNAVAILABLE",
+				"no bootstrap database is reachable; provide a database")
+		case errors.Is(err, database.ErrDatabaseNotFound):
+			response.WriteError(w, http.StatusBadRequest, "DATABASE_NOT_FOUND",
+				"the database does not exist")
+		case errors.Is(err, database.ErrDatabaseConnectDenied):
+			response.WriteError(w, http.StatusBadRequest, "DATABASE_CONNECT_DENIED",
+				"the credentials cannot connect to that database")
+		default:
+			response.WriteError(w, http.StatusBadGateway, "CONNECTION_ERROR",
+				"failed to connect with the provided parameters")
+		}
 		return
 	}
 	response.Success(w, TestConnectionResponse{Status: "ok"})

@@ -131,7 +131,11 @@ export function ConnectionList() {
                     <span className="w-full truncate text-xs text-muted-foreground">
                       {connection.driver === "sqlite"
                         ? `sqlite · ${connection.database_name}`
-                        : `${connection.driver} · ${connection.host ?? "—"}:${connection.port ?? "—"}/${connection.database_name}`}
+                        : `${connection.driver} · ${connection.host ?? "—"}:${connection.port ?? "—"}${
+                            connection.database_name
+                              ? `/${connection.database_name}`
+                              : ""
+                          }`}
                     </span>
                   </button>
                   <Button

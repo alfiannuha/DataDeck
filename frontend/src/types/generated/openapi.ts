@@ -248,6 +248,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/{id}/databases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List selectable databases
+         * @description Discovers the databases available on a server-level connection (PostgreSQL). Not supported for MySQL/SQLite.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Implemented */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connections/{id}/schemas": {
         parameters: {
             query?: never;
@@ -814,7 +908,7 @@ export interface components {
         };
         "handler.ConnectionRequest": {
             /** @example app */
-            database_name: string;
+            database_name?: string;
             /**
              * @example postgres
              * @enum {string}
@@ -861,7 +955,7 @@ export interface components {
         };
         "handler.ConnectionTestRequest": {
             /** @example app */
-            database_name: string;
+            database_name?: string;
             /**
              * @example postgres
              * @enum {string}
@@ -898,6 +992,8 @@ export interface components {
         "handler.QueryRequest": {
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */
             connection_id: string;
+            /** @example app */
+            database?: string;
             /** @example SELECT 1 */
             sql: string;
             /** @example 30 */
@@ -937,6 +1033,14 @@ export interface components {
             name?: string;
             schemas?: components["schemas"]["model.Schema"][];
             tables?: components["schemas"]["model.Table"][];
+        };
+        "model.DatabaseInfo": {
+            /**
+             * @description BootstrapCandidate marks the conventional maintenance database (e.g.
+             *     PostgreSQL "postgres") used when a profile has no default database.
+             */
+            bootstrap_candidate?: boolean;
+            name?: string;
         };
         "model.ForeignKey": {
             columns?: string[];

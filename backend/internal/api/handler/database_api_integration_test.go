@@ -308,3 +308,60 @@ func encryptedOrNil(t *testing.T, cipher *security.Cipher, plaintext string) *st
 	}
 	return &value
 }
+
+// TestTestConnectionBootstrapIntegration verifies "Test connection" on a
+// PostgreSQL server-level profile (empty database) using real bootstrap rules.
+func TestTestConnectionBootstrapIntegration(t *testing.T) {
+	host := envOr("DATADECK_TEST_PG_HOST", "")
+	if host == "" {
+		t.Skip("DATADECK_TEST_PG_HOST not set")
+	}
+	h, _, _ := newTestHandler(t)
+
+	port := envOr("DATADECK_TEST_PG_PORT", "5432")
+	user := envOr("DATADECK_TEST_PG_USER", "")
+	password := envOr("DATADECK_TEST_PG_PASSWORD", "")
+	database := envOr("DATADECK_TEST_PG_DATABASE", "postgres")
+
+	body := func(fields string) string {
+		return `{"driver":"postgres","host":"` + host + `","port":` + port + `,"username":"` + user + `",` + fields + `"ssl_mode":"disable"}`
+	}
+
+	t.Run("empty database uses bootstrap", func(t *testing.T) {
+		rec := doRequest(h.Test, http.MethodPost, "/api/v1/connections/test", body(`"password":"`+password+`",`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("explicit database", func(t *testing.T) {
+		rec := doRequest(h.Test, http.MethodPost, "/api/v1/connections/test",
+			body(`"database_name":"`+database+`","password":"`+password+`",`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("unreachable bootstrap database is explicit", func(t *testing.T) {
+		bad := `{"driver":"postgres","host":"127.0.0.1","port":1,"username":"u","password":"x","ssl_mode":"disable"}`
+		rec := doRequest(h.Test, http.MethodPost, "/api/v1/connections/test", bad)
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, want 502 (body=%s)", rec.Code, rec.Body.String())
+		}
+		if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "BOOTSTRAP_DATABASE_UNAVAILABLE" {
+			t.Errorf("error = %+v, want BOOTSTRAP_DATABASE_UNAVAILABLE", env.Error)
+		}
+	})
+
+	t.Run("bad credentials are sanitized", func(t *testing.T) {
+		secret := "wrong-password-should-not-leak"
+		rec := doRequest(h.Test, http.MethodPost, "/api/v1/connections/test",
+			body(`"username":"dd_no_such_role_api","password":"`+secret+`",`))
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, want 502 (body=%s)", rec.Code, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Error("response leaked the password")
+		}
+	})
+}

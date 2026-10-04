@@ -50,7 +50,8 @@ describe("NewConnectionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Name is required.")).toBeInTheDocument();
-    expect(screen.getByText("Database is required.")).toBeInTheDocument();
+    // PostgreSQL profiles are server-level: database is optional (PRF-01).
+    expect(screen.queryByText("Database is required.")).not.toBeInTheDocument();
     expect(screen.getByText("Username is required.")).toBeInTheDocument();
     expect(createConnection).not.toHaveBeenCalled();
   });
@@ -59,7 +60,7 @@ describe("NewConnectionModal", () => {
     vi.mocked(testConnection).mockResolvedValue({ status: "ok" } as never);
     renderModal();
 
-    fireEvent.change(screen.getByLabelText("Database"), {
+    fireEvent.change(screen.getByLabelText("Database (optional)"), {
       target: { value: "app" },
     });
     fireEvent.change(screen.getByLabelText("Username"), {
@@ -83,7 +84,7 @@ describe("NewConnectionModal", () => {
     );
     renderModal();
 
-    fireEvent.change(screen.getByLabelText("Database"), {
+    fireEvent.change(screen.getByLabelText("Database (optional)"), {
       target: { value: "app" },
     });
     fireEvent.change(screen.getByLabelText("Username"), {
@@ -106,7 +107,7 @@ describe("NewConnectionModal", () => {
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "New PG" },
     });
-    fireEvent.change(screen.getByLabelText("Database"), {
+    fireEvent.change(screen.getByLabelText("Database (optional)"), {
       target: { value: "app" },
     });
     fireEvent.change(screen.getByLabelText("Username"), {
@@ -238,5 +239,100 @@ describe("NewConnectionModal", () => {
     expect(
       screen.getByText(/Backend unavailable — reconnect to test or save/),
     ).toBeInTheDocument();
+  });
+
+  it("allows a PostgreSQL profile with no database", async () => {
+    vi.mocked(createConnection).mockResolvedValue({ id: "p1", name: "Server" } as never);
+    const { onSaved } = renderModal();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Server" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+
+    // Helper text explains the server-level behaviour.
+    expect(
+      screen.getByText(/Leave empty to connect to the server/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ driver: "postgres", database_name: "" }),
+      ),
+    );
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("still sends an explicit PostgreSQL database when provided", async () => {
+    vi.mocked(createConnection).mockResolvedValue({ id: "p1", name: "CCM" } as never);
+    renderModal();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "CCM" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Database (optional)"), {
+      target: { value: "CCM" },
+    });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ driver: "postgres", database_name: "CCM" }),
+      ),
+    );
+  });
+
+  it("tests a PostgreSQL connection with an empty database", async () => {
+    vi.mocked(testConnection).mockResolvedValue({ status: "ok" } as never);
+    renderModal();
+
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() =>
+      expect(testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ driver: "postgres", database_name: "" }),
+      ),
+    );
+    expect(await screen.findByText("Connection successful.")).toBeInTheDocument();
+  });
+
+  it("tests a PostgreSQL connection with an explicit database", async () => {
+    vi.mocked(testConnection).mockResolvedValue({ status: "ok" } as never);
+    renderModal();
+
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Database (optional)"), {
+      target: { value: "reporting" },
+    });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() =>
+      expect(testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ database_name: "reporting" }),
+      ),
+    );
+  });
+
+  it("requires a database for MySQL and labels it without the optional hint", async () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "mysql" } });
+    expect(screen.getByLabelText("Database")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Database (optional)")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "MySQL" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Database is required.")).toBeInTheDocument();
+    expect(createConnection).not.toHaveBeenCalled();
   });
 });

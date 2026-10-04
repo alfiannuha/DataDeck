@@ -93,9 +93,13 @@ function validate(form: FormState, requireName: boolean): FieldErrors {
 
   const database = form.database.trim();
   if (!database) {
-    errors.database = isFileDriver(form.driver)
-      ? "Database file path is required."
-      : "Database is required.";
+    if (isFileDriver(form.driver)) {
+      errors.database = "Database file path is required.";
+    } else if (form.driver === "mysql") {
+      // MySQL binds to one database; PostgreSQL profiles are server-level and
+      // may omit the database (PRF-01).
+      errors.database = "Database is required.";
+    }
   }
   if (isFileDriver(form.driver)) {
     return errors; // SQLite: no host/port/credentials/SSL.
@@ -300,17 +304,31 @@ export function NewConnectionModal({
                 />
               </Field>
               <Field
-                label="Database"
+                label={
+                  form.driver === "postgres"
+                    ? "Database (optional)"
+                    : "Database"
+                }
                 id="conn-database"
                 error={errors.database}
                 className="col-span-2"
               >
                 <Input
                   id="conn-database"
+                  placeholder={
+                    form.driver === "postgres" ? "Discover after connecting" : ""
+                  }
                   value={form.database}
                   onChange={(e) => update("database", e.target.value)}
                   aria-invalid={Boolean(errors.database)}
                 />
+                {form.driver === "postgres" && !errors.database && (
+                  <span className="text-xs text-muted-foreground">
+                    Leave empty to connect to the server. DataDeck uses a
+                    PostgreSQL bootstrap database internally and lets you choose
+                    a database after saving.
+                  </span>
+                )}
               </Field>
               <Field
                 label="Username"

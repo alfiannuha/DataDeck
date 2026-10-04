@@ -431,8 +431,9 @@ func TestCreatePostgresProfileWithDatabasePreserved(t *testing.T) {
 	}
 }
 
-// PRF-01: /test accepts a PostgreSQL profile without a database and fails on
-// connectivity (502), never on validation (400).
+// PRF-01: /test accepts a PostgreSQL profile without a database and probes the
+// bootstrap candidates; when none is reachable it reports an explicit bootstrap
+// failure (never a validation error).
 func TestTestPostgresConnectionWithoutDatabase(t *testing.T) {
 	h, _, _ := newTestHandler(t)
 
@@ -442,7 +443,7 @@ func TestTestPostgresConnectionWithoutDatabase(t *testing.T) {
 		t.Fatalf("status = %d, want 502 (body=%s)", rec.Code, rec.Body.String())
 	}
 	env := decodeEnvelope(t, rec)
-	if env.Error == nil || env.Error.Code != "CONNECTION_ERROR" {
-		t.Errorf("error = %+v, want CONNECTION_ERROR", env.Error)
+	if env.Error == nil || env.Error.Code != "BOOTSTRAP_DATABASE_UNAVAILABLE" {
+		t.Errorf("error = %+v, want BOOTSTRAP_DATABASE_UNAVAILABLE", env.Error)
 	}
 }

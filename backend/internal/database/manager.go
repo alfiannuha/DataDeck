@@ -168,7 +168,33 @@ func (m *Manager) Get(id, database string) (*sql.DB, bool) {
 
 // Test opens, health-checks and closes a temporary pool. It never registers the
 // pool, so it is safe for validating parameters before saving a profile.
+//
+// PRF-01: a PostgreSQL profile without a database has no single target, so the
+// bootstrap candidates are probed; the test succeeds if any candidate connects.
+// It never claims the credentials can reach every database on the server.
 func (m *Manager) Test(ctx context.Context, cfg Config) error {
+	if cfg.Database == "" {
+		if _, ok := m.connectors[cfg.Driver].(DatabaseLister); ok {
+			var lastErr error
+			for _, candidate := range bootstrapCandidates(cfg) {
+				probe := cfg
+				probe.Database = candidate
+				if err := m.testOnce(ctx, probe); err != nil {
+					lastErr = err
+					continue
+				}
+				return nil
+			}
+			if lastErr == nil {
+				lastErr = errors.New("no bootstrap database candidate")
+			}
+			return fmt.Errorf("%w: %w", ErrNoBootstrapDatabase, lastErr)
+		}
+	}
+	return m.testOnce(ctx, cfg)
+}
+
+func (m *Manager) testOnce(ctx context.Context, cfg Config) error {
 	db, err := m.connect(ctx, cfg)
 	if err != nil {
 		return err

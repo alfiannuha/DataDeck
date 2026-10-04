@@ -111,4 +111,23 @@ describe("ConnectionList", () => {
     expect(screen.getByText(/sqlite · \/tmp\/user\.db/)).toBeInTheDocument();
     expect(document.body.innerHTML).not.toMatch(/password/i);
   });
+
+  it("renders a server-level PostgreSQL profile without a trailing slash", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      { ...savedConnection, id: "srv", name: "Server", database_name: "" },
+    ] as never);
+    renderWithProviders(<ConnectionList />);
+
+    expect(await screen.findByText("Server")).toBeInTheDocument();
+    expect(screen.getByText("postgres · db.internal:5432")).toBeInTheDocument();
+    expect(screen.queryByText(/db\.internal:5432\//)).not.toBeInTheDocument();
+  });
+
+  it("still renders a legacy PostgreSQL profile with its database", async () => {
+    vi.mocked(listConnections).mockResolvedValue([savedConnection as never]);
+    renderWithProviders(<ConnectionList />);
+
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("postgres · db.internal:5432/app")).toBeInTheDocument();
+  });
 });
