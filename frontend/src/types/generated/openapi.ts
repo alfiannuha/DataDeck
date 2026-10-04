@@ -427,6 +427,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/{id}/table-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse table data
+         * @description Returns one bounded, paginated page of rows from a specific table without requiring the caller to write SQL. The target is the explicit connection + database + schema + table; global/explorer selection is never used.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Target database (required for server-level PostgreSQL) */
+                    database?: string;
+                    /** @description Schema (required for PostgreSQL) */
+                    schema?: string;
+                    /** @description Table or view name */
+                    table: string;
+                    /** @description 1-based page number (default 1) */
+                    page?: number;
+                    /** @description Rows per page (default 100, max 200) */
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1086,6 +1182,29 @@ export interface components {
             primary_key?: components["schemas"]["model.PrimaryKey"];
             schema?: string;
             type?: string;
+        };
+        "model.TableColumnInfo": {
+            database_type?: string;
+            name?: string;
+            nullable?: boolean;
+            ordinal_position?: number;
+            primary_key?: boolean;
+        };
+        "model.TableDataPage": {
+            columns?: components["schemas"]["model.TableColumnInfo"][];
+            database?: string;
+            object_type?: string;
+            pagination?: components["schemas"]["model.TablePagination"];
+            rows?: unknown[][];
+            schema?: string;
+            table?: string;
+            /** @description Truncated is true when the shared 50 MB result cap stopped the page short. */
+            truncated?: boolean;
+        };
+        "model.TablePagination": {
+            has_more?: boolean;
+            page?: number;
+            page_size?: number;
         };
         "response.APIError": {
             code?: string;

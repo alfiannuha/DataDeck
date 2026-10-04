@@ -112,6 +112,7 @@ Rules:
 | `INTROSPECTION_TIMEOUT` | 504 | Timeout | Schema introspection exceeded its deadline |
 | `NOT_IMPLEMENTED` | 501 | Capability | Operation not implemented for this driver yet |
 | `NOT_FOUND` | 404 | Resource | Unknown connection id / resource |
+| `TABLE_NOT_FOUND` | 404 | Resource | PRF-02: Table Data target not found in metadata |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -389,6 +390,7 @@ here without an explicit requirement.
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
+| `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
 | `POST` | `/api/v1/query/execute` | Synchronous raw SQL execution |
 | `GET` | `/api/v1/query/history` | Audit log of executed queries |
 | `POST` | `/api/v1/queries/saved` | Save a query snippet (PRD) |
@@ -422,6 +424,24 @@ here without an explicit requirement.
   Errors: unknown id → `404 NOT_FOUND`; MySQL/SQLite → `501 NOT_IMPLEMENTED`;
   no bootstrap database → `502 BOOTSTRAP_DATABASE_UNAVAILABLE`; timeout →
   `504 DISCOVERY_TIMEOUT`.
+- `GET /api/v1/connections/{id}/table-data` — **PRF-02**. Query parameters:
+  `database` (required for server-level PostgreSQL, else profile default),
+  `schema` (required for PostgreSQL; ignored for MySQL/SQLite), `table`
+  (required), `page` (default 1, max 1,000,000) and `page_size` (default 100,
+  max 200, clamped). The backend resolves the relation against introspection
+  metadata and generates an explicit, dialect-quoted `SELECT … LIMIT n+1
+  OFFSET m`; it never accepts SQL, a `WHERE` clause, or a sort expression.
+  Response `data`: `{ database, schema?, table, object_type, columns[]
+  (name/database_type/nullable/ordinal_position/primary_key), rows (array of
+  arrays, same BIGINT-as-string/NULL/bytea/JSON rules as query execution),
+  pagination{page,page_size,has_more}, truncated }`; `meta` mirrors
+  `page/page_size/has_more`. There is no `total`/`COUNT(*)` by design (ADR-010
+  §6); `has_more` comes from fetching one extra row. Errors: `400
+  VALIDATION_ERROR` (missing/invalid args, missing database → `DATABASE_REQUIRED`),
+  `404 NOT_FOUND` (unknown connection) / `TABLE_NOT_FOUND`, `400
+  DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502 CONNECTION_ERROR`, `504
+  QUERY_TIMEOUT`. Deep OFFSET can be slow on very large tables (documented
+  limitation; keyset pagination is future work).
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
   `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds

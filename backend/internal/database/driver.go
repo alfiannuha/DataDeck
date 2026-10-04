@@ -33,6 +33,9 @@ var (
 	// ErrDatabaseConnectDenied marks a PostgreSQL connect failure because the
 	// credentials lack CONNECT on the target database (SQLSTATE 42501).
 	ErrDatabaseConnectDenied = errors.New("database: CONNECT permission denied")
+	// ErrTableNotFound marks a Table Data request whose schema/table did not
+	// resolve in the target database's metadata (PRF-02).
+	ErrTableNotFound = errors.New("database: table not found")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

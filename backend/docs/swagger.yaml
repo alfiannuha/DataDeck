@@ -361,6 +361,56 @@ components:
         type:
           type: string
       type: object
+    model.TableColumnInfo:
+      properties:
+        database_type:
+          type: string
+        name:
+          type: string
+        nullable:
+          type: boolean
+        ordinal_position:
+          type: integer
+        primary_key:
+          type: boolean
+      type: object
+    model.TableDataPage:
+      properties:
+        columns:
+          items:
+            $ref: '#/components/schemas/model.TableColumnInfo'
+          type: array
+          uniqueItems: false
+        database:
+          type: string
+        object_type:
+          type: string
+        pagination:
+          $ref: '#/components/schemas/model.TablePagination'
+        rows:
+          items:
+            items: {}
+            type: array
+          type: array
+          uniqueItems: false
+        schema:
+          type: string
+        table:
+          type: string
+        truncated:
+          description: Truncated is true when the shared 50 MB result cap stopped
+            the page short.
+          type: boolean
+      type: object
+    model.TablePagination:
+      properties:
+        has_more:
+          type: boolean
+        page:
+          type: integer
+        page_size:
+          type: integer
+      type: object
     response.APIError:
       properties:
         code:
@@ -642,6 +692,89 @@ paths:
       summary: Get database schema
       tags:
       - schema
+  /connections/{id}/table-data:
+    get:
+      description: Returns one bounded, paginated page of rows from a specific table
+        without requiring the caller to write SQL. The target is the explicit connection
+        + database + schema + table; global/explorer selection is never used.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Target database (required for server-level PostgreSQL)
+        in: query
+        name: database
+        schema:
+          type: string
+      - description: Schema (required for PostgreSQL)
+        in: query
+        name: schema
+        schema:
+          type: string
+      - description: Table or view name
+        in: query
+        name: table
+        required: true
+        schema:
+          type: string
+      - description: 1-based page number (default 1)
+        in: query
+        name: page
+        schema:
+          type: integer
+      - description: Rows per page (default 100, max 200)
+        in: query
+        name: page_size
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Gateway Timeout
+      summary: Browse table data
+      tags:
+      - table-data
   /connections/test:
     post:
       description: Validates parameters and attempts a temporary connection. Nothing
