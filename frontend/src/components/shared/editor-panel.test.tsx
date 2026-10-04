@@ -499,4 +499,29 @@ describe("EditorPanel execution", () => {
       ),
     );
   });
+
+  it("keyboard run uses the tab's database, not the explorer selection", async () => {
+    vi.mocked(executeQuery).mockResolvedValue(result as never);
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "reporting" },
+    });
+    useWorkspaceStore.setState({
+      tabs: [tab({ database: "CCM" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled(),
+    );
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+
+    await waitFor(() =>
+      expect(executeQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ database: "CCM" }),
+        expect.anything(),
+      ),
+    );
+  });
 });

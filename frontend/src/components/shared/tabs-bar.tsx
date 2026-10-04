@@ -29,6 +29,12 @@ export function TabsBar() {
   const activeConnectionId = useConnectionStore(
     (state) => state.activeConnectionId,
   );
+  const activeDatabaseByConnection = useConnectionStore(
+    (state) => state.activeDatabaseByConnection,
+  );
+  const activeDatabase = activeConnectionId
+    ? activeDatabaseByConnection[activeConnectionId] ?? null
+    : null;
   const { data: connections } = useConnections();
 
   const [pendingClose, setPendingClose] = useState<QueryTab | null>(null);
@@ -81,7 +87,9 @@ export function TabsBar() {
                 <button
                   type="button"
                   aria-current={isActive ? "true" : undefined}
-                  title={`Connection: ${connectionLabel(tab.connectionId)}`}
+                  title={`Connection: ${connectionLabel(tab.connectionId)}${
+                    tab.database ? ` / ${tab.database}` : ""
+                  }`}
                   onClick={() => setActiveTab(tab.id)}
                   className="flex items-center gap-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                 >
@@ -114,7 +122,9 @@ export function TabsBar() {
         size="icon"
         aria-label="New query tab"
         onClick={() => {
-          addTab(activeConnectionId);
+          // A new tab inherits the explorer's selected database; existing tabs
+          // are never modified (PRF-01).
+          addTab(activeConnectionId, activeDatabase);
           focusActiveTab();
         }}
       >

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "@/lib/api-client";
 import { executeQuery, getSchemas, listConnections, listDatabases } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
+import { useConnectionStore } from "@/store/useConnectionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
 
@@ -589,5 +590,49 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
     const tab = useWorkspaceStore.getState().tabs[0];
     expect(tab.connectionId).toBe("c1");
     expect(tab.database).toBe("alpha");
+  });
+
+  it("marks the explorer selection without rebinding existing tabs", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }, { name: "beta" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: {},
+    });
+    useWorkspaceStore.setState({
+      tabs: [{ id: "t1", title: "Query 1", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: true }],
+      activeTabId: "t1",
+    });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^beta/ }));
+
+    expect(useConnectionStore.getState().activeDatabaseByConnection.c1).toBe("beta");
+    // The query tab binding is untouched (selection ≠ binding).
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.database).toBe("CCM");
+    expect(tab.sql).toBe("SELECT 1;");
+    expect(tab.dirty).toBe(true);
+  });
+
+  it("offers a database refresh when the selected database disappears", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "gone" }] as never);
+    vi.mocked(getSchemas).mockRejectedValue(
+      new ApiClientError("the requested database does not exist", "DATABASE_NOT_FOUND", 400),
+    );
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^gone/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("DATABASE_NOT_FOUND");
+
+    const before = vi.mocked(listDatabases).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh databases" }));
+    await waitFor(() =>
+      expect(vi.mocked(listDatabases).mock.calls.length).toBeGreaterThan(before),
+    );
   });
 });

@@ -140,7 +140,9 @@ describe("NewConnectionModal", () => {
     expect(storeState).not.toContain("s3cret");
     expect(Object.keys(useConnectionStore.getState())).toEqual([
       "activeConnectionId",
+      "activeDatabaseByConnection",
       "setActiveConnection",
+      "setActiveDatabase",
     ]);
   });
 

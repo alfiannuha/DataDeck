@@ -113,4 +113,23 @@ describe("TabsBar", () => {
       expect(document.activeElement?.textContent).toContain("Query 1"),
     );
   });
+
+  it("new tabs inherit the explorer-selected database without touching others", () => {
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "reporting" },
+    });
+    useWorkspaceStore.setState({
+      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: "c1", database: "CCM", dirty: false }],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<TabsBar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New query tab" }));
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs[0].database).toBe("CCM");
+    expect(state.tabs[1].database).toBe("reporting");
+    expect(state.tabs[1].connectionId).toBe("c1");
+  });
 });

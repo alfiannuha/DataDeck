@@ -1,9 +1,17 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { renderWithProviders } from "@/test/render";
+import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useExecutionStore } from "@/store/useExecutionStore";
 
 import { StatusBar } from "./status-bar";
+
+vi.mock("@/lib/api/endpoints", () => ({
+  listConnections: vi.fn().mockResolvedValue([
+    { id: "c1", name: "CCM DEV", driver: "postgres", database_name: "" },
+  ]),
+}));
 
 function setOnline(online: boolean) {
   Object.defineProperty(window.navigator, "onLine", {
@@ -17,17 +25,21 @@ afterEach(() => setOnline(true));
 
 beforeEach(() => {
   useExecutionStore.getState().reset();
+  useWorkspaceStore.setState({
+    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: "c1", database: "CCM", dirty: false }],
+    activeTabId: "t1",
+  });
 });
 
 describe("StatusBar", () => {
   it("shows Ready when idle", () => {
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Ready")).toBeInTheDocument();
   });
 
   it("shows a running indicator", () => {
     useExecutionStore.getState().start("SELECT 1");
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Running query…")).toBeInTheDocument();
   });
 
@@ -39,7 +51,7 @@ describe("StatusBar", () => {
       execution_time_ms: 17,
       truncated: false,
     });
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Success · 17 ms · 3 rows")).toBeInTheDocument();
   });
 
@@ -51,7 +63,7 @@ describe("StatusBar", () => {
       execution_time_ms: 42,
       truncated: true,
     });
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Partial result (50 MB limit)")).toBeInTheDocument();
   });
 
@@ -59,21 +71,28 @@ describe("StatusBar", () => {
     useExecutionStore
       .getState()
       .reject({ code: "SQL_SYNTAX_ERROR", message: "syntax error" });
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Error · SQL_SYNTAX_ERROR")).toBeInTheDocument();
   });
 
   it("shows cancellation", () => {
     useExecutionStore.getState().canceled();
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(screen.getByText("Query canceled")).toBeInTheDocument();
   });
 
   it("reports the offline backend state", () => {
     setOnline(false);
-    render(<StatusBar />);
+    renderWithProviders(<StatusBar />);
     expect(
       screen.getByText("Offline — backend unavailable"),
     ).toBeInTheDocument();
+  });
+
+  it("shows the active tab's execution context (connection / database)", async () => {
+    renderWithProviders(<StatusBar />);
+    expect(
+      await screen.findByLabelText("Execution context"),
+    ).toHaveTextContent("CCM DEV / CCM");
   });
 });

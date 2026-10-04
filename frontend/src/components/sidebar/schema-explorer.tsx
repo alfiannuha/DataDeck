@@ -14,6 +14,7 @@ import { executeQuery } from "@/lib/api/endpoints";
 import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
+import { useConnectionStore } from "@/store/useConnectionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { DatabaseChildren, SchemaTree, TreeRow } from "./schema-tree";
@@ -37,6 +38,9 @@ export function SchemaExplorer({
 }) {
   const queryClient = useQueryClient();
   const insertQuerySql = useWorkspaceStore((state) => state.insertQuerySql);
+  const setActiveDatabase = useConnectionStore(
+    (state) => state.setActiveDatabase,
+  );
   const { data: connections } = useConnections();
   const online = useOnline();
   const connection = connections?.find((candidate) => candidate.id === connectionId);
@@ -164,6 +168,7 @@ export function SchemaExplorer({
         ) : serverLevel ? (
           <DatabaseExplorer
             connectionId={connectionId}
+            onSelectDatabase={setActiveDatabase}
             onSelectTop100={handleSelectTop100}
             onCountRows={handleCountRows}
             onCopyDdl={handleCopyDdl}
@@ -213,16 +218,21 @@ export const DATABASE_BATCH_SIZE = 50;
 /** Lists databases for a server-level connection (PRF-01) with lazy expansion. */
 function DatabaseExplorer({
   connectionId,
+  onSelectDatabase,
   onSelectTop100,
   onCountRows,
   onCopyDdl,
 }: {
   connectionId: string;
+  onSelectDatabase: (connectionId: string, database: string | null) => void;
   onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
 }) {
   const databases = useDatabases(connectionId, true);
+  const activeDatabase = useConnectionStore(
+    (state) => state.activeDatabaseByConnection[connectionId] ?? null,
+  );
   const [visible, setVisible] = useState(DATABASE_BATCH_SIZE);
 
   if (databases.isLoading) {
@@ -256,6 +266,9 @@ function DatabaseExplorer({
           key={database.name}
           connectionId={connectionId}
           database={database.name ?? ""}
+          selected={activeDatabase === database.name}
+          onSelect={onSelectDatabase}
+          onRefreshDatabases={() => void databases.refetch()}
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
@@ -286,12 +299,18 @@ function DatabaseExplorer({
 function LazyDatabaseNode({
   connectionId,
   database,
+  selected,
+  onSelect,
+  onRefreshDatabases,
   onSelectTop100,
   onCountRows,
   onCopyDdl,
 }: {
   connectionId: string;
   database: string;
+  selected: boolean;
+  onSelect: (connectionId: string, database: string | null) => void;
+  onRefreshDatabases: () => void;
   onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
@@ -299,6 +318,16 @@ function LazyDatabaseNode({
   const [open, setOpen] = useState(false);
   const schema = useSchema(connectionId, database, { enabled: open });
   const tree = schema.data?.[0];
+
+  function toggle() {
+    setOpen((value) => {
+      const next = !value;
+      // Selecting (opening) a database only changes the EXPLORER selection; it
+      // never rebinds an existing query tab (PRF-01/T09).
+      if (next) onSelect(connectionId, database);
+      return next;
+    });
+  }
 
   return (
     <li>
@@ -308,7 +337,8 @@ function LazyDatabaseNode({
         secondary={open && schema.isSuccess ? undefined : "database"}
         expandable
         open={open}
-        onToggle={() => setOpen((value) => !value)}
+        selected={selected}
+        onToggle={toggle}
       />
       {open &&
         (schema.isLoading ? (
@@ -322,13 +352,27 @@ function LazyDatabaseNode({
                 ? `${schema.error.message} (${schema.error.code})`
                 : "Could not load this database."}
             </p>
-            <button
-              type="button"
-              onClick={() => void schema.refetch()}
-              className="self-start rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-            >
-              Retry
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void schema.refetch()}
+                className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              >
+                Retry
+              </button>
+              {(schema.error instanceof ApiClientError &&
+                ["DATABASE_NOT_FOUND", "CONNECTION_ERROR", "BOOTSTRAP_DATABASE_UNAVAILABLE"].includes(
+                  schema.error.code,
+                )) && (
+                <button
+                  type="button"
+                  onClick={onRefreshDatabases}
+                  className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                >
+                  Refresh databases
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <DatabaseChildren

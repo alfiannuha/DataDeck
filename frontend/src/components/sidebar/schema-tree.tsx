@@ -397,6 +397,7 @@ export function TreeRow({
   open,
   onToggle,
   actions,
+  selected,
 }: {
   depth: number;
   label: string;
@@ -405,11 +406,17 @@ export function TreeRow({
   open?: boolean;
   onToggle?: () => void;
   actions?: ReactNode;
+  /** Marks the explorer's currently selected database (not a query binding). */
+  selected?: boolean;
 }) {
   return (
     <div
       style={indent(depth)}
-      className="group flex items-center gap-1 rounded py-0.5 pr-1 hover:bg-panel-raised"
+      aria-current={selected ? "true" : undefined}
+      className={cn(
+        "group flex items-center gap-1 rounded py-0.5 pr-1 hover:bg-panel-raised",
+        selected && "bg-panel-raised",
+      )}
     >
       {expandable ? (
         <button
@@ -426,7 +433,11 @@ export function TreeRow({
               open && "rotate-90",
             )}
           />
-          <span className="truncate font-medium">{label}</span>
+          <span
+            className={cn("truncate font-medium", selected && "text-accent")}
+          >
+            {label}
+          </span>
           {secondary && (
             <span className="shrink-0 text-[10px] text-subtle-foreground">
               {secondary}
