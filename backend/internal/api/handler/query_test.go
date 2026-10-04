@@ -183,3 +183,25 @@ func TestHistoryPagination(t *testing.T) {
 		t.Errorf("invalid page status = %d, want 400", bad.Code)
 	}
 }
+
+func TestExecuteServerProfileWithoutDatabaseRequiresDatabase(t *testing.T) {
+	h, db := newQueryHandler(t)
+	seedProfile(t, db, &model.ConnectionProfile{
+		ID:       "srv",
+		Name:     "Server",
+		Driver:   model.DriverPostgres,
+		Host:     strPtr("127.0.0.1"),
+		Port:     intPtr(5432),
+		Username: strPtr("appuser"),
+	})
+
+	rec := doRequest(h.Execute, http.MethodPost, "/api/v1/query/execute",
+		`{"connection_id":"srv","sql":"SELECT 1"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+	env := decodeEnvelope(t, rec)
+	if env.Error == nil || env.Error.Code != "DATABASE_REQUIRED" {
+		t.Fatalf("error = %+v, want DATABASE_REQUIRED", env.Error)
+	}
+}

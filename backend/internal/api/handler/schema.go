@@ -61,7 +61,7 @@ func (h *ConnectionHandler) Schemas(w http.ResponseWriter, r *http.Request) {
 
 	effectiveDatabase, err := resolveTargetDatabase(profile, r.URL.Query().Get("database"))
 	if err != nil {
-		response.ValidationError(w, err.Error())
+		writeResolveDatabaseError(w, err)
 		return
 	}
 

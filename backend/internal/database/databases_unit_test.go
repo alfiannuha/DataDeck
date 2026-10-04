@@ -87,6 +87,7 @@ type candidateConnector struct {
 	name  model.Driver
 	fail  map[string]bool
 	tried []string
+	list  []model.DatabaseInfo
 	mu    sync.Mutex
 	opens int
 }
@@ -120,7 +121,7 @@ func (c *candidateConnector) Execute(context.Context, *sql.DB, string) (model.Qu
 }
 func (c *candidateConnector) Capabilities() model.Capabilities { return model.Capabilities{} }
 func (c *candidateConnector) ListDatabases(context.Context, *sql.DB) ([]model.DatabaseInfo, error) {
-	return nil, nil
+	return c.list, nil
 }
 
 func TestTestConnectionUsesBootstrapWhenDatabaseEmpty(t *testing.T) {
@@ -171,4 +172,26 @@ func TestTestConnectionUsesBootstrapWhenDatabaseEmpty(t *testing.T) {
 			t.Errorf("candidates tried = %v, want [app]", fc.tried)
 		}
 	})
+}
+
+// TestListDatabasesDoesNotRegisterPools proves discovery is lazy: listing a
+// large number of databases must not create or keep one pool per database.
+func TestListDatabasesDoesNotRegisterPools(t *testing.T) {
+	ctx := context.Background()
+	fc := newCandidateConnector()
+	for i := 0; i < 200; i++ {
+		fc.list = append(fc.list, model.DatabaseInfo{Name: "db_" + string(rune('a'+i%26))})
+	}
+	m := NewManager(DefaultOptions(), fc)
+
+	got, err := m.ListDatabases(ctx, "conn", Config{Driver: model.DriverPostgres, Host: "h", Port: 5432, Username: "u"})
+	if err != nil {
+		t.Fatalf("ListDatabases() error = %v", err)
+	}
+	if len(got) != 200 {
+		t.Fatalf("ListDatabases() returned %d, want 200", len(got))
+	}
+	if len(m.pools) != 0 {
+		t.Errorf("discovery registered %d pools, want 0", len(m.pools))
+	}
 }

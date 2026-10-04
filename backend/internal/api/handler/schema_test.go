@@ -89,3 +89,25 @@ func TestSchemasUnreachableDatabase(t *testing.T) {
 		t.Error("success = true, want false")
 	}
 }
+
+func TestSchemasServerProfileWithoutDatabaseRequiresDatabase(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedProfile(t, db, &model.ConnectionProfile{
+		ID:       "srv",
+		Name:     "Server",
+		Driver:   model.DriverPostgres,
+		Host:     strPtr("127.0.0.1"),
+		Port:     intPtr(5432),
+		Username: strPtr("appuser"),
+	})
+
+	rec := httptest.NewRecorder()
+	h.Schemas(rec, schemasRequest("srv"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+	env := decodeEnvelope(t, rec)
+	if env.Error == nil || env.Error.Code != "DATABASE_REQUIRED" {
+		t.Errorf("error = %+v, want DATABASE_REQUIRED", env.Error)
+	}
+}

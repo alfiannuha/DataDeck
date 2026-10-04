@@ -37,6 +37,13 @@ func (Postgres) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.
 
 	conn, err := db.Conn(ctx)
 	if err != nil {
+		// A cached pool can outlive its target database (dropped after the pool
+		// was created). Classify the acquire failure the same way Ping does so
+		// the API still returns DATABASE_NOT_FOUND / DATABASE_CONNECT_DENIED
+		// instead of an internal error.
+		if classified := postgresConnectError(err); !errors.Is(classified, err) {
+			return result, classified
+		}
 		if isConnectionLoss(err) {
 			return result, fmt.Errorf("%w: %w", ErrConnection, err)
 		}
@@ -71,6 +78,12 @@ func postgresSQLError(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
+		// Server-side connection termination (e.g. the target database was
+		// dropped with FORCE) must not surface as a SQL error: map it to
+		// ErrConnection so the manager can evict the pool and reclassify.
+		if isPGConnectionClass(pgErr.Code) {
+			return fmt.Errorf("%w: %s", ErrConnection, pgErr.Message)
+		}
 		return &SQLError{
 			Driver:   model.DriverPostgres,
 			Code:     pgErr.Code,
@@ -80,6 +93,17 @@ func postgresSQLError(err error) error {
 		}
 	}
 	return err
+}
+
+// isPGConnectionClass reports SQLSTATEs that mean the session connection was
+// terminated or could not be established, rather than a statement failure.
+func isPGConnectionClass(code string) bool {
+	switch code {
+	case "08000", "08001", "08003", "08006", "08007", // connection exceptions
+		"57P01", "57P02", "57P03": // admin/crash shutdown, cannot connect now
+		return true
+	}
+	return false
 }
 
 func executePostgresQuery(ctx context.Context, conn *pgx.Conn, sqlText string, result *model.QueryResult) error {

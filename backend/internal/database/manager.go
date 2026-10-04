@@ -303,10 +303,34 @@ func (m *Manager) Execute(ctx context.Context, id string, cfg Config, sqlText st
 		return model.QueryResult{}, fmt.Errorf("%w: %s", ErrUnsupportedDriver, cfg.Driver)
 	}
 	result, err := connector.Execute(ctx, db, sqlText)
-	if err != nil && errors.Is(err, ErrConnection) {
+	if err != nil && (errors.Is(err, ErrConnection) || errors.Is(err, ErrDatabaseNotFound) || errors.Is(err, ErrDatabaseConnectDenied)) {
 		m.evict(id, cfg)
 	}
+	// A cache pool can lose a connection because its database was dropped or its
+	// CONNECT grant revoked. That surfaces as a generic connection loss, so probe
+	// a fresh connection once (no SQL is re-executed) to recover the precise,
+	// actionable classification when possible.
+	if err != nil && errors.Is(err, ErrConnection) {
+		if classified := m.classifyConnect(ctx, cfg); classified != nil {
+			return result, classified
+		}
+	}
 	return result, err
+}
+
+// classifyConnect opens a temporary, unregistered pool and returns the
+// database-specific sentinel (missing database / denied CONNECT) when the
+// failure is distinguishable, or nil otherwise. It never runs user SQL.
+func (m *Manager) classifyConnect(ctx context.Context, cfg Config) error {
+	db, err := m.connect(ctx, cfg)
+	if err == nil {
+		_ = db.Close()
+		return nil
+	}
+	if errors.Is(err, ErrDatabaseNotFound) || errors.Is(err, ErrDatabaseConnectDenied) {
+		return err
+	}
+	return nil
 }
 
 // evict removes and closes the pool for the given connection/database. It is

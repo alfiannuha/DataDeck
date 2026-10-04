@@ -376,6 +376,18 @@ func resolveTargetDatabase(profile *model.ConnectionProfile, requested string) (
 	}
 }
 
+// writeResolveDatabaseError maps a resolveTargetDatabase failure to the contract
+// error: a missing PostgreSQL database is DATABASE_REQUIRED (documented in
+// docs/api-contract.md §5.6), everything else is a validation error (e.g. a
+// MySQL/SQLite database mismatch).
+func writeResolveDatabaseError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errDatabaseRequired) {
+		response.WriteError(w, http.StatusBadRequest, "DATABASE_REQUIRED", err.Error())
+		return
+	}
+	response.ValidationError(w, err.Error())
+}
+
 // normalizeRequest validates input and maps it into a profile. name is required
 // only for the create endpoint (requireName); /test does not persist a name.
 func normalizeRequest(name, driver, host string, port int, databaseName, username, sslMode string, requireName bool) (*model.ConnectionProfile, error) {

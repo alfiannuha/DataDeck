@@ -142,3 +142,31 @@ func TestMySQLConnectionLossMapped(t *testing.T) {
 	proxy.cut()
 	assertConnectionLossMapped(t, manager, "my", cfg)
 }
+
+// TestPostgresDroppedDatabaseAfterPoolClassified reproduces the stale-pool case:
+// a pool is opened for a database that is then dropped. The next execution must
+// still be classified as ErrDatabaseNotFound (not an internal error).
+func TestPostgresDroppedDatabaseAfterPoolClassified(t *testing.T) {
+	cfg := pgConfig(t)
+	const dbName = "datadeck_drop_race"
+	ctx := context.Background()
+
+	manager := database.NewManager(database.DefaultOptions(), database.Postgres{})
+	defer func() { _ = manager.CloseAll() }()
+	admin := adminDB(t, manager, cfg)
+	t.Cleanup(func() { _ = dbExec(admin, "DROP DATABASE IF EXISTS "+dbName+" WITH (FORCE)") })
+
+	_ = dbExec(admin, "DROP DATABASE IF EXISTS "+dbName+" WITH (FORCE)")
+	mustExec(t, admin, "CREATE DATABASE "+dbName)
+
+	target := cfg
+	target.Database = dbName
+	if _, err := manager.Execute(ctx, "drop-race", target, `SELECT 1`); err != nil {
+		t.Fatalf("baseline execute: %v", err)
+	}
+
+	mustExec(t, admin, "DROP DATABASE "+dbName+" WITH (FORCE)")
+	if _, err := manager.Execute(ctx, "drop-race", target, `SELECT 1`); !errors.Is(err, database.ErrDatabaseNotFound) {
+		t.Fatalf("error = %v (%T), want ErrDatabaseNotFound", err, err)
+	}
+}

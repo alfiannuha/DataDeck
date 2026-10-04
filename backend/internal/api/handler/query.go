@@ -139,7 +139,7 @@ func (h *QueryHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 	effectiveDatabase, err := resolveTargetDatabase(profile, req.Database)
 	if err != nil {
-		response.ValidationError(w, err.Error())
+		writeResolveDatabaseError(w, err)
 		return
 	}
 
