@@ -6,6 +6,13 @@ Proposed — UX and architecture locked for implementation planning. Several
 parameters are marked **Needs Validation**; no production code is changed by
 this ADR. Implementation begins only in PRF02-T01+.
 
+**Amendment (PRF02-T00A):** PRF-02 scope is intentionally expanded to include
+**safe single-row CRUD** (Insert, Update, Delete, Duplicate). Row editing is no
+longer a non-goal. The amendment adds row identity, mutation API, concurrency,
+transaction, capability, error, security, testing, and acceptance requirements
+in §§29–38 and updates §§5, 10, 18, 22, 24, 26, 27, 28 and the open
+questions/risks.
+
 ## Context
 
 DataDeck today is **query-first**: the only data surface is a raw `SELECT`
@@ -22,6 +29,13 @@ PRF-02 turns DataDeck into a **database-client workspace**: users browse table
 data in dedicated tabs while explicit SQL query tabs remain first-class. This
 requires a typed tab model, a structured (non-SQL-text) table-data API, typed
 filters/sorting/pagination, context menus, and carefully bounded import/export.
+
+**Scope expansion (PRF02-T00A):** PRF-02 also provides **safe single-row CRUD**.
+Users may Insert, Update, Delete, and Duplicate individual rows with explicit
+mutation dialogs. This is enabled only when DataDeck can identify a row through
+backend-verified metadata (primary key / proven unique key); otherwise the table
+remains read-only. Bulk mutations and spreadsheet-style auto-save remain
+non-goals.
 
 ### Current UX (as implemented)
 
@@ -78,6 +92,10 @@ data/database import-export, and capabilities invisible to the client.
    tools such as TablePlus but with original implementation and assets.
 7. Right-clicking a **table** opens management actions.
 8. Right-clicking a **database** opens database actions.
+9. A writable table exposes **Add Row**, **Edit Row**, **Duplicate Row**, and
+   **Delete Row**; all mutations use explicit dialogs/drawers and go through
+   backend-generated, parameterized SQL (no cell auto-save, §29–38).
+
 
 ### 3. Workspace / Tab Model
 
@@ -131,6 +149,10 @@ Rules:
   `openTableStructure(...)`, `updateTableData(id, patch)` (filters/sort/page),
   and `openQueryForTable(...)` (generates SQL into a **new** Query tab, never
   auto-executes).
+- Row mutation is **not** stored in the tab: the tab holds only the browse
+  binding; a row's identity is derived per result from backend-verified metadata
+  and sent explicitly with each mutation request (§30). The tab never caches a
+  client-decided identity.
 - `setTabConnection`/`setTabDatabase` (PRF01-FIX-01) keep their semantics and
   apply to all tab kinds; clearing a connection clears the database.
 - `closeTab` allows the list to reach zero and sets `activeTabId: null`
@@ -173,13 +195,20 @@ POST /api/v1/connections/{id}/table-data/query
     has_more: boolean,
     total?: number, total_exact?: boolean,
     truncated: boolean,
-    execution_time_ms: number
+    execution_time_ms: number,
+    // Row-CRUD metadata (PRF02-T00A, §30): derived server-side, never trusted
+    // from the client.
+    identity: { kind: "primary_key" | "unique", columns: string[] } | null,
+    row_mutable: { insert: boolean, update: boolean, delete: boolean }
   }
   meta: { page, page_size, total?, has_more }
 ```
 
 ```
 GET  /api/v1/connections/{id}/table-data/row-count?database=&schema=&table=&filters=
+POST /api/v1/connections/{id}/table-data/rows          (INSERT; §32)
+PATCH /api/v1/connections/{id}/table-data/rows         (UPDATE; §33)
+DELETE /api/v1/connections/{id}/table-data/rows        (DELETE with body identity; §34)
 POST /api/v1/connections/{id}/table-data/export   (CSV | SQL | XLSX; streamed)
 POST /api/v1/connections/{id}/table-data/import   (multipart: CSV | SQL | XLSX)
 GET  /api/v1/connections/{id}/capabilities        (capability descriptor, §18)
@@ -191,6 +220,12 @@ POST /api/v1/connections/{id}/database/drop       (destructive, §17)
 `table-data/query` is a read-only projection of one table/view. It never accepts
 SQL text. It reuses the managed pool for `(connectionId, database)` — the same
 identity PRF-01 uses — so table browsing and query tabs share database isolation.
+
+Mutation endpoints (`rows`) are defined fully in §29–38. They never accept SQL
+text, a raw `WHERE` clause, or a client-decided identity: as with `query`, the
+backend re-validates `database`/`schema`/`table` against introspection and
+composes parameterised SQL. `DELETE` carries its target in the JSON body (never
+the URL) so the identity is explicit and auditable.
 
 ### 6. Pagination Model
 
@@ -311,6 +346,12 @@ implementation) shows, gated by capabilities:
 
 “Drop Table” (mentioned in PRD §7.2) is intentionally **not** part of PRF-02
 (non-goal); if added later it follows the §17 destructive pattern.
+
+**Row context menu** (inside a Table Data tab, §31): Edit Row, Duplicate Row,
+Copy Row, Copy as JSON, Delete Row. Edit/Delete/Duplicate are shown only when
+the table is writable and a safe row identity was resolved by the backend
+(§30); otherwise the menu items are disabled with an explanation. The table
+toolbar additionally exposes **Add Row**, **Filter**, **Sort**, and **Refresh**.
 
 ### 11. Database Context Menu
 
@@ -455,6 +496,10 @@ DatabaseExport   bool
 DatabaseImport   bool
 Reconnect        bool
 DropDatabase     bool
+RowInsert        bool
+RowUpdate        bool
+RowDelete        bool
+RowDuplicate     bool
 ExportFormats    []string // e.g. ["csv","sql","xlsx"]
 ImportFormats    []string
 ```
@@ -471,6 +516,24 @@ ImportFormats    []string
 | database import | yes | yes | n/a (single file) |
 | reconnect | yes | yes | yes |
 | delete database | yes | yes | no (`NOT_IMPLEMENTED`) |
+| row insert | yes | yes | yes |
+| row update | yes | yes | yes |
+| row delete | yes | yes | yes |
+| row duplicate (via insert) | yes | yes | yes |
+
+Engine-level CRUD capabilities are necessary but **not sufficient**; the actual
+table-level mutability is derived from introspection metadata (§30). Expected
+object-level behavior:
+
+| Object | PG | MySQL | SQLite |
+|---|---|---|---|
+| base table with PK | CRUD | CRUD | CRUD |
+| composite PK | CRUD (identity = all PK columns) | CRUD | CRUD |
+| table without PK/unique | read-only for Update/Delete; Insert may be allowed | read-only for Update/Delete; Insert may be allowed | read-only for Update/Delete; Insert may be allowed |
+| generated / identity / autoincrement column | insertable only per metadata; never updatable; generated always read-only | same | same |
+| view | read-only by default; CRUD only if engine reports updatable and identity exists | read-only by default; CRUD only if updatable + identity | read-only (SQLite views are not directly updatable without triggers) |
+| materialized view | read-only | n/a | n/a |
+| foreign table | insert/update/delete only if the foreign table exposes a safe identity and the FDW permits it; otherwise read-only | n/a | n/a |
 
 \* XLSX is advertised only after the library is validated (see §15); otherwise
 `xlsx` is omitted and the UI hides it. SQLite “database” actions are limited to
@@ -483,13 +546,19 @@ pool `(connectionId, database)`; table data for a database requires an explicit
 or profile-default database and otherwise returns `DATABASE_REQUIRED`. `schema`
 is meaningful (`public` etc.). Views/matviews/foreign tables are browsable when
 introspected, read-only. DROP DATABASE must run from a maintenance database.
+Row CRUD uses `INSERT … RETURNING` / `UPDATE … WHERE pk=$n` / `DELETE … WHERE
+pk=$n`; `RETURNING` is native and is used to return the mutated row (§32);
+identity columns come from `table.PrimaryKey` or a validated unique index.
 
 ### 20. MySQL Behavior
 
 Single database per profile (unchanged). `schema` is `null`; the catalog is the
 profile database. Capabilities already mark `schemas=false`. Multi-statement SQL
 import shares MySQL's implicit-commit caveats (documented). DROP DATABASE is
-supported with sufficient privileges and is capability-gated.
+supported with sufficient privileges and is capability-gated. Row CRUD relies on
+affected-row counts and a follow-up `SELECT` keyed by the identity (MySQL lacks
+portable `RETURNING`); `LAST_INSERT_ID()` is used for single auto-increment
+inserts.
 
 ### 21. SQLite Behavior
 
@@ -497,7 +566,10 @@ Single file; `schema` is `null` (or `main`). Writes serialize through the
 existing single-connection pool (`SetMaxOpenConns(1)`), so a long import blocks
 other operations — documented and covered by timeouts. `DROP DATABASE` is
 unsupported. Table data/filter/sort/export/import are supported against the
-connected file.
+connected file. Row CRUD is supported for tables with a PK/`rowid`; SQLite
+3.35+ `RETURNING` is used when available, otherwise the identity is resolved via
+`last_insert_rowid()` / a keyed `SELECT` after the write. Writes serialize
+through the single connection.
 
 ### 22. Security Threat Model (untrusted file input + new endpoints)
 
@@ -518,6 +590,22 @@ connected file.
 | Credential leakage | Unchanged: credentials decrypted only in memory, never logged/returned; export filenames contain no secrets |
 | PWA caching API | Unchanged: `/api/` bypasses the service worker cache; import/export responses use no-store |
 
+CRUD-specific threats (PRF02-T00A):
+
+| Threat | Mitigation |
+|---|---|
+| SQL injection via column/value | Identifiers validated against introspection and dialect-quoted; all mutation values bound as parameters; no raw `WHERE` accepted |
+| Forged identity metadata | The client cannot declare an identity: the backend resolves identity columns from PK/unique metadata and rejects unknown/non-unique columns |
+| Mass update | UPDATE/DELETE require a resolved unique identity and verify exactly one affected row (`MUTATION_AFFECTED_MULTIPLE_ROWS`) |
+| Mass delete | Same as mass update; DML without a validated identity is rejected before execution |
+| Wrong-database mutation | Mutation target is the request's explicit `connectionId`+`database`; explorer selection is never mutation authority |
+| Stale row | Optimistic concurrency via affected-row verification and original-value predicates; `ROW_NOT_FOUND`/`ROW_CONFLICT` surfaced, never silent overwrite |
+| Race / concurrent update | Optional original-value predicates and documented lost-update behavior; engine version columns when available |
+| Generated-column mutation | Generated/read-only columns rejected with `COLUMN_READ_ONLY`; identity/auto columns follow metadata insertability |
+| Oversized field values | Per-field and per-request size caps; `PAYLOAD_TOO_LARGE`/`INVALID_COLUMN_VALUE` |
+| Sensitive values in logs/errors | Mutation values are never logged; errors are sanitized (no values, SQL text, or DSN) |
+| DML in read-only objects | Tables/views without safe identity remain read-only; engine object type gates capability |
+
 ### 23. Performance Strategy
 
 - The grid renders only the bounded current page; existing TanStack Virtual
@@ -530,6 +618,9 @@ connected file.
 - Connection pools reuse PRF-01 identities; table browsing adds no new pool
   dimension beyond `(connectionId, database)`.
 - Indexes/PK ordering used for default sort where available.
+- A mutation never reloads the whole table: it targets one row by identity and,
+  on success, invalidates/refetches only the current bounded page (or re-reads
+  the mutated row by identity when `RETURNING` is unavailable).
 
 ### 24. Error Model
 
@@ -548,6 +639,18 @@ before use):
 | `IMPORT_TOO_LARGE` / `EXPORT_TOO_LARGE` | 413 | Byte/row caps exceeded |
 | `PAYLOAD_TOO_LARGE` | 413 | Existing recommended code, now used for uploads |
 | `DESTRUCTIVE_CONFIRMATION_MISMATCH` | 400 | Typed name mismatch on drop |
+| `ROW_NOT_FOUND` | 404 | Target row no longer exists (0 affected rows) |
+| `ROW_NOT_MUTABLE` | 400 | Object/table is read-only (view, no identity, engine) |
+| `ROW_IDENTITY_REQUIRED` | 400 | Update/Delete without a resolved safe identity |
+| `ROW_IDENTITY_INVALID` | 400 | Identity columns not the verified PK/unique key |
+| `ROW_CONFLICT` | 409 | Row changed/deleted concurrently (original-value/affected-row check failed) |
+| `COLUMN_READ_ONLY` | 400 | Attempt to write a generated/read-only/identity column |
+| `INVALID_COLUMN_VALUE` | 400 | Type/length/constraint validation failure on a provided value |
+| `MUTATION_AFFECTED_MULTIPLE_ROWS` | 500 | Safety failure: DML matched more than one row; rolled back |
+
+`ROW_CONFLICT`, `ROW_NOT_FOUND`, and `MUTATION_AFFECTED_MULTIPLE_ROWS` map to
+distinct user-facing guidance; `MUTATION_AFFECTED_MULTIPLE_ROWS` is a server-side
+safety abort and is never reported as success.
 
 Existing `DATABASE_*`, `CONNECTION_ERROR`, `QUERY_TIMEOUT`, `NOT_IMPLEMENTED`,
 `INTROSPECTION_*`, `VALIDATION_ERROR`, `INTERNAL_ERROR` remain authoritative.
@@ -584,6 +687,23 @@ Errors are sanitized (no SQL text, no DSN, no credentials).
   alpha never reads beta); export download; no auto-execution on “New Query”.
 - **Security tests:** formula-injection export, malicious CSV/XLSX fixtures,
   oversized uploads, SQL-import rollback, `%`/`_` escaping, DSN non-leakage.
+- **CRUD backend unit:** identifier/identity validation, SQL generation and
+  parameter binding, generated/read-only column rejection, affected-row
+  verification (0/1/>1), injection corpus, NULL-vs-DEFAULT-vs-value encoding.
+- **CRUD integration (per engine, `-tags=integration`, `-p 1`):** insert,
+  update, delete, duplicate, composite PK, no-PK read-only, NULL/default,
+  generated/identity columns, stale row (`ROW_CONFLICT`/`ROW_NOT_FOUND`),
+  wrong-database attempt, rollback on validation failure, PG `RETURNING`,
+  MySQL affected-rows + `LAST_INSERT_ID()`, SQLite `last_insert_rowid()`.
+- **CRUD frontend:** Add Row, Edit Row, Delete confirmation (identity shown),
+  Duplicate Row (opens insert form, no immediate insert), read-only state,
+  mutation error surfaces, filters/sort/page/tab binding preserved after a
+  mutation, no automatic cell writes.
+- **CRUD E2E (Playwright, BLOCKER gate):** databases `alpha` and `beta` contain
+  identically named tables with different marker values; open
+  `TableDataTab → alpha.users`, change explorer selection to `beta`, then
+  UPDATE/DELETE/INSERT from the alpha tab and assert the mutation affected
+  **alpha only**. Any mutation against beta is a BLOCKER.
 - **Regression:** full PRF-01 suite stays green (binding, discovery, migration,
   history/saved); browser release flow stays green.
 
@@ -607,13 +727,256 @@ Errors are sanitized (no SQL text, no DSN, no credentials).
     and leaves bound tabs in a safe unavailable state with no fallback.
 14. Capability matrix exposed and honest per engine.
 15. PRF-01 guarantees and MySQL/SQLite behavior remain intact.
+16. Safe row INSERT supported (metadata-driven columns, DEFAULT/NULL/value
+    distinguishable, parameterized).
+17. Safe row UPDATE supported (changed fields only, generated/read-only
+    protected, PK policy documented, exactly one intended row).
+18. Safe row DELETE supported with explicit confirmation showing row identity.
+19. Duplicate Row supported through the reviewed INSERT flow (no immediate
+    insert; identity/generated columns not copied unless insertable).
+20. Update/Delete require a backend-verified safe row identity; composite PK
+    supported; no-PK tables are not UPDATE/DELETE targets.
+21. Generated/read-only columns cannot be mutated.
+22. Mutation SQL is backend-generated and fully parameterized; no raw `WHERE`
+    input is accepted anywhere.
+23. Wrong-database mutation is impossible under tested PRF-01 binding guarantees.
+24. Affected-row safety is verified (0 = not found, 1 = success, >1 = safety
+    failure rolled back).
+25. Concurrent/stale mutation behavior is documented and surfaces
+    `ROW_CONFLICT`/`ROW_NOT_FOUND`.
+26. CRUD errors are sanitized; mutation UI is explicit with no automatic
+    cell-write behavior.
+27. PG/MySQL/SQLite regression remains intact.
 
 ### 28. Explicit Non-Goals
 
 No production code in this task; no authentication; no SSH tunneling; no cloud
-sync; no table row editing; no `CREATE DATABASE`; no `ALTER TABLE`/schema
-designer; no `DROP TABLE`; no change to PRF-01 database/tab binding; no
-replacement of selected technologies; no native CLI tool assumptions.
+sync; no bulk UPDATE/DELETE; no spreadsheet-style auto-save; no schema designer;
+no `ALTER TABLE`; no `DROP TABLE`; no `CREATE DATABASE`; no change to PRF-01
+database/tab binding; no replacement of selected technologies; no native CLI
+tool assumptions.
+
+## Table Row CRUD (PRF-02 Amendment)
+
+### 29. Row CRUD Scope & UX Flows
+
+Supported operations on a row: Insert, Update (Edit), Delete, Duplicate. All are
+single-row; bulk mutations and cell-level auto-save are non-goals. A mutation is
+allowed only when the table is writable **and** a safe identity is resolvable
+(§30); otherwise the UI disables Update/Delete and explains why.
+
+```
+Add Row     → insert form → validate → Insert → refresh page
+Edit Row    → form/drawer → validate → Save   → mutation → refresh row/page
+Delete Row  → confirmation (row identity shown) → explicit mutation → refresh
+Duplicate   → insert form (prefilled, identity/generated omitted) → Insert
+```
+
+The toolbar exposes `Add Row`, `Filter`, `Sort`, `Refresh`. The row context menu
+exposes `Edit Row`, `Duplicate Row`, `Copy Row`, `Copy as JSON`, `Delete Row`.
+No spreadsheet-style "write on every keystroke": a database write happens only
+when the user confirms a dialog/drawer. A failed mutation must preserve the
+tab's filters, sorting, page, and binding (§38).
+
+### 30. Row Identity Model
+
+Mutations need a **backend-verified** identity. The client may send identity
+columns/values, but the backend independently validates them against introspected
+metadata:
+
+1. **Primary key** — preferred. Identity = all PK columns in order.
+2. **Composite primary key** — supported; identity includes every PK column
+   (e.g. `{order_id, product_id}`).
+3. **Stable unique key** — only if a unique constraint/index is proven safe by
+   metadata (single non-null unique column, or a unique index whose columns are
+   all non-nullable) and the ADR explicitly approves it. Otherwise unavailable
+   for v0.1.0 (**Needs Validation**).
+4. **Otherwise mutation is unavailable** (read-only).
+
+Hard rules:
+
+- Never identify a row for UPDATE/DELETE using an arbitrary non-unique column.
+- Never fall back to "all displayed values" as an implicit identity.
+- `identity.columns` must equal the metadata-derived identity column set exactly;
+  extra, missing, or renamed columns → `ROW_IDENTITY_INVALID`.
+- The request `identity` is a hint; the backend derives the canonical identity
+  set from metadata and rejects mismatches.
+
+Resolution output is exposed to the UI in `table-data/query`
+(`identity: {kind, columns} | null` and `row_mutable`), so the client cannot
+invent one.
+
+If no safe identity exists:
+
+| Operation | Allowed? |
+|---|---|
+| Browse | yes |
+| Filter | yes |
+| Sort | yes |
+| Export | yes |
+| Insert | yes, if the target is insertable (no identity needed) |
+| Duplicate | yes, as INSERT, if safe |
+| Update | disabled |
+| Delete | disabled |
+
+### 31. TableDataTab CRUD UX
+
+- Toolbar: `Add Row`, `Filter`, `Sort`, `Refresh`.
+- Row context menu: `Edit Row`, `Duplicate Row`, `Copy Row`, `Copy as JSON`,
+  `Delete Row`; disabled items carry an explanation (e.g. “No primary key”).
+- Dialogs/drawers are explicit for v0.1.0 (no inline grid editing). Closing a
+  dirty form asks for confirmation.
+- View objects (view/matview/foreign) default to read-only unless engine
+  metadata proves updatability and a safe identity exists.
+- After any successful mutation: refetch only the bounded current page, keeping
+  filter/sort/page state. No full-table reload.
+
+### 32. Insert Row
+
+Request (`POST .../table-data/rows`):
+
+```json
+{
+  "database": "ccm", "schema": "public", "table": "users",
+  "values": {
+    "name": { "mode": "value", "value": "Alfian" },
+    "nickname": { "mode": "null" },
+    "created_at": { "mode": "default" }
+  }
+}
+```
+
+- Every provided value uses an explicit `mode`: `value` | `null` | `default`.
+  Omitted keys are also treated as `default`. This preserves the
+  DISTINCT/NULL/default distinction end-to-end; it is never collapsed.
+- Column list is metadata-driven; unknown columns → `COLUMN_NOT_FOUND`.
+- Generated/always-computed columns reject `value` (`COLUMN_READ_ONLY`);
+  identity/autoincrement columns accept `default`/`null` per metadata but not an
+  arbitrary value unless the engine allows explicit insert into them (documented
+  per engine).
+- Types are validated against column metadata (`INVALID_COLUMN_VALUE`).
+- All values are bound parameters; DEFAULT is rendered as the dialect keyword,
+  never as a client string.
+
+Result behavior per engine (RETURNING is **not** assumed portable):
+
+- **PostgreSQL:** `INSERT … RETURNING <identity/columns>` when available; return
+  the created row.
+- **MySQL:** execute insert, read `LAST_INSERT_ID()` for a single auto-increment
+  key, then `SELECT` the row by identity. Composite/PK-less/default-identity
+  inserts may return only the echoed submitted values plus affected rows.
+- **SQLite:** `INSERT … RETURNING` on 3.35+, else `last_insert_rowid()` +
+  keyed `SELECT`.
+- Response: `{ row?: unknown[], affected_rows: 1 }`; the client refetches the
+  page regardless.
+
+### 33. Update Row
+
+Request (`PATCH .../table-data/rows`):
+
+```json
+{
+  "database": "ccm", "schema": "public", "table": "users",
+  "identity": { "columns": { "id": 10 } },
+  "changes": { "name": { "mode": "value", "value": "Alfian" } },
+  "expected": { "name": { "mode": "value", "value": "Old" } }
+}
+```
+
+- Only columns present in `changes` are updated (SQL sets only changed fields).
+- Generated/read-only columns → `COLUMN_READ_ONLY`; identity/auto columns are
+  read-only.
+- **PK editing policy (v0.1.0):** primary-key columns are **read-only** in the
+  Edit form. Changing a PK is a delete+insert semantically and is explicitly out
+  of scope; a future safe cross-engine design may revisit this (Needs
+  Validation).
+- The UPDATE targets exactly the identity row. `expected` (original values) is
+  optional but recommended for optimistic concurrency (§36); when supplied it is
+  added to the predicate with bound parameters.
+- Affected-row verification: `0` → `ROW_NOT_FOUND`/`ROW_CONFLICT` (stale),
+  `1` → success, `>1` → `MUTATION_AFFECTED_MULTIPLE_ROWS` safety failure and
+  rollback. A `>1` result is never reported as success.
+
+### 34. Delete Row
+
+Request (`DELETE .../table-data/rows`, identity in the body):
+
+```json
+{
+  "database": "ccm", "schema": "public", "table": "users",
+  "identity": { "columns": { "id": 10 } },
+  "expected": { "name": { "mode": "value", "value": "Old" } }
+}
+```
+
+- Requires explicit user confirmation that displays enough identity to
+  understand what is deleted (identity column values, and for composite keys all
+  of them).
+- Backend DELETE uses the validated safe identity; no raw `WHERE`; never
+  `DELETE … LIMIT 1` as a substitute for a real identity.
+- Affected-row verification identical to Update (0/1/>1).
+- Soft-delete is not assumed (it is a per-table behavior, not a generic feature).
+
+### 35. Duplicate Row
+
+- Duplicate is an INSERT derived from an existing row.
+- It must **not** copy auto-increment identity values, generated, or computed
+  columns unless the engine metadata explicitly marks them insertable.
+- Clicking “Duplicate Row” opens a prefilled **Insert Row form**; it does not
+  insert immediately. The user reviews/edits and confirms.
+- The new row’s identity is engine-assigned; the original is untouched.
+
+### 36. Concurrency / Stale Data
+
+Bounded cross-engine v0.1.0 strategy:
+
+- **Affected-row verification** is always performed for UPDATE/DELETE.
+- **Original-value predicates (`expected`)** are supported for both; when
+  provided, the DML predicate includes the original values, so a concurrent
+  change yields 0 affected rows (`ROW_CONFLICT`).
+- **Version/timestamp columns** (if present and known) may be added to the
+  predicate as an engine-specific enhancement (Needs Validation).
+- Detects: row deleted after browsing (`ROW_NOT_FOUND`), row changed after
+  browsing (`ROW_CONFLICT`), identity changed externally (`ROW_CONFLICT` /
+  `ROW_NOT_FOUND`).
+- **Documented default:** without `expected`, a concurrent update is last-write-
+  wins; this is explicitly surfaced in the UI and never silent. The UI can offer
+  “compare original values” for safer writes.
+
+### 37. Transactions
+
+Each mutation:
+
+```
+BEGIN
+  execute parameterised DML
+  verify affected rows
+  if verification fails: ROLLBACK  (when the engine allows)
+COMMIT
+```
+
+- A single-row mutation is its own transaction. If affected-row safety
+  validation fails, roll back where possible.
+- `MUTATION_AFFECTED_MULTIPLE_ROWS` aborts and rolls back.
+- MySQL caveat: DDL/implicit-commit statements do not participate in row DML,
+  but row INSERT/UPDATE/DELETE are explicit; SQLite `BEGIN IMMEDIATE` is used
+  where needed to avoid lock-upgrade surprises (Needs Validation).
+- Mutations respect the existing statement timeout.
+
+### 38. Mutation SQL Generation & Wrong-Database Safety
+
+- SQL is generated **only** by the backend, reusing the §9 identifier
+  validation/quoting and value-binding rules:
+  `UPDATE <q schema>.<q table> SET <q col> = $n … WHERE <identity/expected>
+  predicates`; `DELETE FROM … WHERE …`; `INSERT INTO … (cols) VALUES (…)`.
+- No endpoint accepts a raw `WHERE` clause, raw SQL text, or a client table
+  name outside the introspected `(connectionId, database)`.
+- Wrong-database safety (PRF-01 preserved): the mutation target is the request’s
+  explicit `connectionId`+`database`+`schema`+`table`. Explorer selection is
+  **never** mutation authority and cannot redirect an existing `TableDataTab`.
+  After a database is dropped, stale-tab mutations fail safely
+  (`DATABASE_NOT_FOUND`) and must never fall back to another database.
+- Errors are sanitized: no SQL text, no values, no DSN.
 
 ## Consequences
 
@@ -625,6 +988,10 @@ replacement of selected technologies; no native CLI tool assumptions.
   must be migrated in the implementation tasks.
 - Server-side filtering/sorting/pagination centralizes SQL generation in the
   backend, improving safety at the cost of new backend surface area.
+- Row CRUD adds mutation surface: it is gated by backend-verified identity,
+  affected-row verification, and per-engine RETURNING/affected-row differences;
+  no-PK objects stay read-only, and wrong-database mutation is prevented by the
+  PRF-01 binding.
 
 ## Alternatives Considered
 
@@ -641,6 +1008,15 @@ replacement of selected technologies; no native CLI tool assumptions.
   is required (Needs Validation).
 - **Right-click only (no hover actions).** Rejected: keep existing hover actions
   for discoverability, add context menus without removing them.
+- **Client-generated UPDATE/DELETE SQL.** Rejected: would make the browser the
+  authority for row identity and SQL safety; the backend must derive identity
+  from metadata and bind all values.
+- **Implicit identity from displayed values.** Rejected: unsafe, and can update
+  or delete multiple rows.
+- **Spreadsheet-style auto-save.** Rejected for v0.1.0: explicit dialogs avoid
+  accidental writes and preserve auditability.
+- **Universal `RETURNING`.** Rejected: not portable (MySQL); per-engine follow-up
+  read by identity is used where needed.
 
 ## Constraints
 
@@ -668,15 +1044,33 @@ replacement of selected technologies; no native CLI tool assumptions.
 8. Whether capability descriptor is a new endpoint or embedded in the
    connection response.
 9. Multi-statement SQL import splitting rules per dialect.
+10. Whether a single non-null stable unique key (absent a PK) is approved as a
+    safe row identity for Update/Delete in v0.1.0.
+11. Optimistic-concurrency scope: mandatory `expected` predicates vs opt-in, and
+    whether version/timestamp columns are auto-detected.
+12. PK-editing policy beyond v0.1.0 (insert+delete vs a safe cross-engine
+    approach).
+13. Whether Duplicate is allowed for tables without a safe identity (INSERT-only)
+    and how prefilled defaults are chosen.
+14. View updatability detection per engine (which metadata proves a view is
+    writable).
+15. Import default handling for CSV/XLSX and whether `default` mode is supported
+    on import or only on manual Insert.
 
 ## Risks
 
-- **HIGH if mishandled:** destructive DROP DATABASE and SQL import — mitigated by
-  explicit targets, typed confirmation, capability gating, and transactions.
+- **HIGH if mishandled:** destructive DROP DATABASE, SQL import, and row
+  mutations — mitigated by explicit targets, typed confirmation, capability
+  gating, transactions, and affected-row safety checks.
+- **HIGH if mishandled:** mass UPDATE/DELETE through a bad identity — mitigated
+  by backend-derived identity, unique-key validation, and the >1-affected-row
+  abort.
 - **MEDIUM:** untrusted XLSX parsing and ZIP bombs — mitigated by a vetted
   library and hard expansion caps.
 - **MEDIUM:** OFFSET deep scans / count cost — mitigated by depth guard and
   opt-in counts; keyset path documented.
+- **MEDIUM:** engine divergence in RETURNING/affected-rows/generated-column
+  semantics — mitigated by per-engine integration tests and documented behavior.
 - **LOW:** new context-menu dependency; UI test churn from the empty-state
   change.
 
@@ -698,3 +1092,9 @@ replacement of selected technologies; no native CLI tool assumptions.
 - **PRF-01 preservation:** pool identity, discovery, `DATABASE_REQUIRED`/
   `DATABASE_NOT_FOUND`, history/saved-query attribution, migration 002, and
   MySQL/SQLite semantics are untouched.
+- **Row CRUD safety:** identity is derived from PK/unique metadata and
+  re-validated server-side; SQL is backend-generated with bound parameters; no
+  raw `WHERE`; >1 affected rows aborts; generated/read-only columns are
+  protected; stale/deleted rows surface `ROW_CONFLICT`/`ROW_NOT_FOUND`; explorer
+  selection is never mutation authority and dropped-database tabs fail safely
+  without fallback.
