@@ -179,4 +179,31 @@ describe("SavedQueriesDialog pagination and state", () => {
       screen.queryByText("Loading saved queries…"),
     ).not.toBeInTheDocument();
   });
+
+  it("restores the saved database binding on open", async () => {
+    vi.mocked(listSavedQueries).mockResolvedValue({
+      items: [entry({ database_name: "reporting" })],
+      meta: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    } as never);
+    renderWithProviders(<SavedQueriesDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
+    const state = useWorkspaceStore.getState();
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    expect(tab?.database).toBe("reporting");
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("leaves legacy saved queries without database context unbound", async () => {
+    vi.mocked(listSavedQueries).mockResolvedValue({
+      items: [entry()],
+      meta: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    } as never);
+    renderWithProviders(<SavedQueriesDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
+    const state = useWorkspaceStore.getState();
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    expect(tab?.database ?? null).toBeNull();
+  });
 });

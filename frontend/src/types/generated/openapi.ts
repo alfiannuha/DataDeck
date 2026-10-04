@@ -980,6 +980,7 @@ export interface components {
         };
         "handler.HistoryRecord": {
             connection_id?: string;
+            database_name?: string;
             error_message?: string;
             executed_at?: string;
             execution_time_ms?: number;
@@ -1002,6 +1003,8 @@ export interface components {
         "handler.SavedQueryRequest": {
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */
             connection_id?: string;
+            /** @example app */
+            database_name?: string;
             /** @example SELECT * FROM users WHERE status = 'active' */
             sql_text: string;
             /** @example users,report */
@@ -1012,6 +1015,7 @@ export interface components {
         "handler.SavedQueryResponse": {
             connection_id?: string;
             created_at?: string;
+            database_name?: string;
             id?: string;
             sql_text?: string;
             tags?: string;

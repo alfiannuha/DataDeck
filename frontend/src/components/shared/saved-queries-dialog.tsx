@@ -64,7 +64,11 @@ export function SavedQueriesDialog({
     if (!sql) return;
     useExecutionStore.getState().reset();
     const stillExists = connections?.some((c) => c.id === entry.connection_id);
-    insertQuerySql(sql, stillExists ? entry.connection_id ?? null : null);
+    insertQuerySql(
+      sql,
+      stillExists ? entry.connection_id ?? null : null,
+      stillExists ? entry.database_name ?? null : null,
+    );
     const activeTabId = useWorkspaceStore.getState().activeTabId;
     if (activeTabId) {
       setTabSavedQuery(activeTabId, {

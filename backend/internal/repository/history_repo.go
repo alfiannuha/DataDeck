@@ -34,8 +34,8 @@ func NewQueryHistoryRepository(db *sql.DB) *QueryHistoryRepository {
 	return &QueryHistoryRepository{db: db}
 }
 
-const historyColumns = `id, connection_id, sql_text, status, execution_time_ms,
-	rows_affected, error_message, executed_at`
+const historyColumns = `id, connection_id, database_name, sql_text, status,
+	execution_time_ms, rows_affected, error_message, executed_at`
 
 // Create inserts an audit record, assigning ExecutedAt when unset. A missing
 // referenced connection is reported as ErrNotFound (foreign key violation).
@@ -48,9 +48,10 @@ func (r *QueryHistoryRepository) Create(ctx context.Context, history *model.Quer
 	}
 
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO query_history (`+historyColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		history.ID, history.ConnectionID, history.SQLText, string(history.Status),
-		history.ExecutionTimeMS, history.RowsAffected, nullString(history.ErrorMessage), history.ExecutedAt)
+		`INSERT INTO query_history (`+historyColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		history.ID, history.ConnectionID, nullString(history.DatabaseName), history.SQLText,
+		string(history.Status), history.ExecutionTimeMS, history.RowsAffected,
+		nullString(history.ErrorMessage), history.ExecutedAt)
 	if err != nil {
 		if isForeignKeyViolation(err) {
 			return fmt.Errorf("connection %q: %w", history.ConnectionID, ErrNotFound)
@@ -98,11 +99,13 @@ func (r *QueryHistoryRepository) List(ctx context.Context, filter HistoryFilter)
 			status   string
 			errorMsg sql.NullString
 		)
-		if err := rows.Scan(&history.ID, &history.ConnectionID, &history.SQLText, &status,
+		var database sql.NullString
+		if err := rows.Scan(&history.ID, &history.ConnectionID, &database, &history.SQLText, &status,
 			&history.ExecutionTimeMS, &history.RowsAffected, &errorMsg, &history.ExecutedAt); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}
 		history.Status = model.QueryStatus(status)
+		history.DatabaseName = stringPtr(database)
 		history.ErrorMessage = stringPtr(errorMsg)
 		records = append(records, history)
 	}

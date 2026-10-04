@@ -130,4 +130,47 @@ describe("SaveQueryDialog", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("My query");
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
+
+  it("persists the database context when provided", async () => {
+    vi.mocked(createSavedQuery).mockResolvedValue({ id: "s1", title: "DB", tags: null } as never);
+    renderWithProviders(
+      <SaveQueryDialog
+        open
+        onOpenChange={vi.fn()}
+        sql="SELECT 1"
+        connectionId="c1"
+        databaseName="CCM"
+        onSaved={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "DB" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createSavedQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ database_name: "CCM" }),
+      ),
+    );
+  });
+
+  it("omits database_name when no context is provided", async () => {
+    vi.mocked(createSavedQuery).mockResolvedValue({ id: "s1", title: "NoDB", tags: null } as never);
+    renderWithProviders(
+      <SaveQueryDialog
+        open
+        onOpenChange={vi.fn()}
+        sql="SELECT 1"
+        connectionId="c1"
+        onSaved={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "NoDB" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createSavedQuery).toHaveBeenCalled());
+    const body = vi.mocked(createSavedQuery).mock.calls[0][0] as Record<string, unknown>;
+    expect(body.database_name).toBeUndefined();
+  });
 });

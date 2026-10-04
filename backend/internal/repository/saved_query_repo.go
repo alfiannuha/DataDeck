@@ -21,7 +21,7 @@ func NewSavedQueryRepository(db *sql.DB) *SavedQueryRepository {
 	return &SavedQueryRepository{db: db}
 }
 
-const savedQueryColumns = `id, connection_id, title, sql_text, tags, created_at, updated_at`
+const savedQueryColumns = `id, connection_id, database_name, title, sql_text, tags, created_at, updated_at`
 
 // Create inserts a snippet, assigning timestamps when unset. A non-nil
 // ConnectionID that does not exist is reported as ErrNotFound.
@@ -38,9 +38,9 @@ func (r *SavedQueryRepository) Create(ctx context.Context, query *model.SavedQue
 	}
 
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO saved_queries (`+savedQueryColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		query.ID, nullString(query.ConnectionID), query.Title, query.SQLText,
-		nullString(query.Tags), query.CreatedAt, query.UpdatedAt)
+		`INSERT INTO saved_queries (`+savedQueryColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		query.ID, nullString(query.ConnectionID), nullString(query.DatabaseName),
+		query.Title, query.SQLText, nullString(query.Tags), query.CreatedAt, query.UpdatedAt)
 	if err != nil {
 		if isForeignKeyViolation(err) {
 			if query.ConnectionID != nil {
@@ -128,8 +128,9 @@ func (r *SavedQueryRepository) Update(ctx context.Context, query *model.SavedQue
 	query.UpdatedAt = time.Now().UTC()
 
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE saved_queries SET connection_id = ?, title = ?, sql_text = ?, tags = ?, updated_at = ? WHERE id = ?`,
-		nullString(query.ConnectionID), query.Title, query.SQLText, nullString(query.Tags), query.UpdatedAt, query.ID)
+		`UPDATE saved_queries SET connection_id = ?, database_name = ?, title = ?, sql_text = ?, tags = ?, updated_at = ? WHERE id = ?`,
+		nullString(query.ConnectionID), nullString(query.DatabaseName), query.Title,
+		query.SQLText, nullString(query.Tags), query.UpdatedAt, query.ID)
 	if err != nil {
 		if isForeignKeyViolation(err) {
 			if query.ConnectionID != nil {
@@ -190,13 +191,15 @@ func scanSavedQuery(s scanner) (*model.SavedQuery, error) {
 	var (
 		query      model.SavedQuery
 		connection sql.NullString
+		database   sql.NullString
 		tags       sql.NullString
 	)
-	if err := s.Scan(&query.ID, &connection, &query.Title, &query.SQLText, &tags,
-		&query.CreatedAt, &query.UpdatedAt); err != nil {
+	if err := s.Scan(&query.ID, &connection, &database, &query.Title, &query.SQLText,
+		&tags, &query.CreatedAt, &query.UpdatedAt); err != nil {
 		return nil, err
 	}
 	query.ConnectionID = stringPtr(connection)
+	query.DatabaseName = stringPtr(database)
 	query.Tags = stringPtr(tags)
 	return &query, nil
 }

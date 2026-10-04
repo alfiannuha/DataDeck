@@ -154,3 +154,49 @@ func TestSavedQueryRepositoryNotFound(t *testing.T) {
 		t.Errorf("Update() error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestSavedQueryRepositoryDatabaseContext(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	seedConnection(t, db, "c1")
+	repo := NewSavedQueryRepository(db)
+
+	database := "reporting"
+	bound := &model.SavedQuery{
+		ID: "s-db", ConnectionID: ptr("c1"), DatabaseName: &database,
+		Title: "Bound", SQLText: "SELECT 1",
+	}
+	if err := repo.Create(ctx, bound); err != nil {
+		t.Fatalf("Create(bound) error = %v", err)
+	}
+	legacy := &model.SavedQuery{ID: "s-legacy", ConnectionID: ptr("c1"), Title: "Legacy", SQLText: "SELECT 2"}
+	if err := repo.Create(ctx, legacy); err != nil {
+		t.Fatalf("Create(legacy) error = %v", err)
+	}
+
+	got, err := repo.Get(ctx, "s-db")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.DatabaseName == nil || *got.DatabaseName != "reporting" {
+		t.Errorf("database context = %v, want reporting", got.DatabaseName)
+	}
+
+	gotLegacy, err := repo.Get(ctx, "s-legacy")
+	if err != nil {
+		t.Fatalf("Get(legacy) error = %v", err)
+	}
+	if gotLegacy.DatabaseName != nil {
+		t.Errorf("legacy database context = %v, want nil", gotLegacy.DatabaseName)
+	}
+
+	// Update preserves/changes the context.
+	*got.DatabaseName = "analytics"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	updated, _ := repo.Get(ctx, "s-db")
+	if updated.DatabaseName == nil || *updated.DatabaseName != "analytics" {
+		t.Errorf("updated database context = %v, want analytics", updated.DatabaseName)
+	}
+}

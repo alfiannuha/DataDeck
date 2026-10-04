@@ -478,4 +478,25 @@ describe("EditorPanel execution", () => {
       ),
     );
   });
+
+  it("saves the tab's database context with the query", async () => {
+    vi.mocked(createSavedQuery).mockResolvedValue({ id: "s1", title: "CCM query", tags: null } as never);
+    useWorkspaceStore.setState({
+      tabs: [tab({ database: "CCM", sql: "SELECT 1;" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save query" }));
+    fireEvent.change(await screen.findByLabelText("Title"), {
+      target: { value: "CCM query" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createSavedQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ database_name: "CCM" }),
+      ),
+    );
+  });
 });

@@ -249,7 +249,9 @@ Serialization rules (PRD §11.4):
   JSON-encoded row payload) and sets `truncated: true`.
 
 `GET /api/v1/query/history` returns the audit log newest-first; an optional
-`connection_id` query parameter filters by connection. Unspecified paging is
+`connection_id` query parameter filters by connection. Each record carries an
+optional `database_name` (PRF-01: the database the query executed against; null
+for legacy rows and implicit-database engines). Unspecified paging is
 **Needs Validation.**
 
 ---
@@ -273,6 +275,10 @@ Request body for `POST /api/v1/connections` and `POST /api/v1/connections/test`:
 
 - `name` is required for create, ignored/optional for `/test`.
 - `driver` is one of `postgres`, `mysql`, `sqlite`.
+- Saved queries accept an optional `database_name` (PRF-01) recording the
+  intended database context; it is returned on read and restored when opening a
+  snippet. A server-level PostgreSQL snippet without `database_name` stays
+  unbound and prompts for a database rather than inheriting the current one.
 - `postgres`/`mysql` require `host` and `username`; `port` defaults to `5432`
   (PostgreSQL) or `3306` (MySQL).
 - `database_name` is **required** for `mysql` and `sqlite`, and **optional** for

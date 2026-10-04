@@ -144,3 +144,41 @@ func TestQueryHistoryRepositoryStatusConstraint(t *testing.T) {
 		t.Fatal("Create() with invalid status error = nil, want constraint error")
 	}
 }
+
+func TestHistoryRepositoryDatabaseContext(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	seedConnection(t, db, "c1")
+	repo := NewQueryHistoryRepository(db)
+
+	database := "CCM"
+	withContext := &model.QueryHistory{
+		ID: "h-db", ConnectionID: "c1", DatabaseName: &database,
+		SQLText: "SELECT 1", Status: model.QueryStatusSuccess,
+	}
+	if err := repo.Create(ctx, withContext); err != nil {
+		t.Fatalf("Create(with database) error = %v", err)
+	}
+	legacy := &model.QueryHistory{
+		ID: "h-legacy", ConnectionID: "c1",
+		SQLText: "SELECT 2", Status: model.QueryStatusSuccess,
+	}
+	if err := repo.Create(ctx, legacy); err != nil {
+		t.Fatalf("Create(legacy) error = %v", err)
+	}
+
+	records, err := repo.List(ctx, HistoryFilter{ConnectionID: "c1"})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	byID := map[string]*string{}
+	for _, record := range records {
+		byID[record.ID] = record.DatabaseName
+	}
+	if got := byID["h-db"]; got == nil || *got != "CCM" {
+		t.Errorf("database context = %v, want CCM", got)
+	}
+	if got, ok := byID["h-legacy"]; !ok || got != nil {
+		t.Errorf("legacy database context = %v, want nil (never inferred)", got)
+	}
+}

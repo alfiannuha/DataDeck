@@ -29,6 +29,7 @@ export function SaveQueryDialog({
   onOpenChange,
   sql,
   connectionId,
+  databaseName,
   existing,
   onSaved,
 }: {
@@ -36,6 +37,8 @@ export function SaveQueryDialog({
   onOpenChange: (open: boolean) => void;
   sql: string;
   connectionId: string | null;
+  /** Database context to persist with the snippet (PRF-01). */
+  databaseName?: string | null;
   existing?: { id: string; title: string; tags: string | null } | null;
   onSaved: (saved: SavedQueryResponse) => void;
 }) {
@@ -70,6 +73,7 @@ export function SaveQueryDialog({
       sql_text: sql,
       tags: tags.trim() ? tags.trim() : undefined,
       connection_id: connectionId ?? undefined,
+      database_name: databaseName ?? undefined,
     };
     try {
       const saved = existing

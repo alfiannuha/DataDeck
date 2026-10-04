@@ -340,6 +340,7 @@ export function EditorPanel() {
         onOpenChange={setSaveOpen}
         sql={activeTab?.sql ?? ""}
         connectionId={effectiveConnectionId}
+        databaseName={tabDatabase}
         existing={
           activeTab?.savedQueryId
             ? {

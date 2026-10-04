@@ -182,6 +182,9 @@
                     "connection_id": {
                         "type": "string"
                     },
+                    "database_name": {
+                        "type": "string"
+                    },
                     "error_message": {
                         "type": "string"
                     },
@@ -241,6 +244,10 @@
                         "example": "9f1c7d2e4a6b4e89b88ad5f356bf7312",
                         "type": "string"
                     },
+                    "database_name": {
+                        "example": "app",
+                        "type": "string"
+                    },
                     "sql_text": {
                         "example": "SELECT * FROM users WHERE status = 'active'",
                         "type": "string"
@@ -266,6 +273,9 @@
                         "type": "string"
                     },
                     "created_at": {
+                        "type": "string"
+                    },
+                    "database_name": {
                         "type": "string"
                     },
                     "id": {

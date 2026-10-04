@@ -57,7 +57,11 @@ export function HistoryDialog({
     useExecutionStore.getState().reset();
     // Preserve the original connection when it still exists; otherwise leave
     // the tab unbound so the user must choose before executing.
-    insertQuerySql(sql, stillExists ? entry.connection_id ?? null : null);
+    insertQuerySql(
+      sql,
+      stillExists ? entry.connection_id ?? null : null,
+      stillExists ? entry.database_name ?? null : null,
+    );
     onOpenChange(false);
   }
 

@@ -40,6 +40,10 @@ func TestDatabaseAwareAPIIntegration(t *testing.T) {
 		cipher,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
+	savedH := NewSavedQueryHandler(
+		repository.NewSavedQueryRepository(db),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 
 	const (
 		dbA  = "datadeck_api_alpha"
@@ -269,12 +273,77 @@ func TestDatabaseAwareAPIIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("history records the executed database", func(t *testing.T) {
+		if status, code, _ := exec("srv", dbA, "SELECT 1"); status != http.StatusOK {
+			t.Fatalf("execute status=%d code=%s", status, code)
+		}
+		rec := doRequest(queryH.History, http.MethodGet, "/api/v1/query/history?connection_id=srv", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("history status = %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		var records []HistoryRecord
+		if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &records); err != nil {
+			t.Fatalf("decode history: %v", err)
+		}
+		if len(records) == 0 || records[0].DatabaseName == nil || *records[0].DatabaseName != dbA {
+			t.Fatalf("newest history database = %+v, want %q", records[0].DatabaseName, dbA)
+		}
+	})
+
+	t.Run("saved queries preserve database context", func(t *testing.T) {
+		create := doRequest(savedH.Create, http.MethodPost, "/api/v1/queries/saved",
+			`{"title":"DB bound","sql_text":"SELECT 1","connection_id":"srv","database_name":"`+dbA+`"}`)
+		if create.Code != http.StatusOK {
+			t.Fatalf("create status = %d (body=%s)", create.Code, create.Body.String())
+		}
+		var bound SavedQueryResponse
+		if err := json.Unmarshal(decodeEnvelope(t, create).Data, &bound); err != nil {
+			t.Fatalf("decode saved query: %v", err)
+		}
+		if bound.DatabaseName == nil || *bound.DatabaseName != dbA {
+			t.Fatalf("saved database = %v, want %q", bound.DatabaseName, dbA)
+		}
+
+		update := doRequestWithID(savedH.Update, http.MethodPut, bound.ID,
+			`{"title":"DB bound","sql_text":"SELECT 1","connection_id":"srv","database_name":"reporting"}`)
+		if update.Code != http.StatusOK {
+			t.Fatalf("update status = %d (body=%s)", update.Code, update.Body.String())
+		}
+		var updated SavedQueryResponse
+		if err := json.Unmarshal(decodeEnvelope(t, update).Data, &updated); err != nil {
+			t.Fatalf("decode updated saved query: %v", err)
+		}
+		if updated.DatabaseName == nil || *updated.DatabaseName != "reporting" {
+			t.Fatalf("updated database = %v, want reporting", updated.DatabaseName)
+		}
+
+		legacy := doRequest(savedH.Create, http.MethodPost, "/api/v1/queries/saved",
+			`{"title":"Legacy","sql_text":"SELECT 2","connection_id":"srv"}`)
+		var legacyResponse SavedQueryResponse
+		if err := json.Unmarshal(decodeEnvelope(t, legacy).Data, &legacyResponse); err != nil {
+			t.Fatalf("decode legacy saved query: %v", err)
+		}
+		if legacyResponse.DatabaseName != nil {
+			t.Errorf("legacy saved database = %v, want nil", legacyResponse.DatabaseName)
+		}
+	})
+
 	t.Run("mysql rejects a mismatched database", func(t *testing.T) {
 		status, code, _ := exec("my", "other_db", "SELECT 1")
 		if status != http.StatusBadRequest || code != "VALIDATION_ERROR" {
 			t.Fatalf("status=%d code=%s, want 400 VALIDATION_ERROR", status, code)
 		}
 	})
+}
+
+func doRequestWithID(h func(http.ResponseWriter, *http.Request), method, id, body string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, "/api/v1/queries/saved/"+id, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	h(rec, req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
+	return rec
 }
 
 func databasesRequest(id string) *http.Request {

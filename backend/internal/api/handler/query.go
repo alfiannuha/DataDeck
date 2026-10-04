@@ -67,6 +67,7 @@ type QueryRequest struct {
 type HistoryRecord struct {
 	ID              string    `json:"id"`
 	ConnectionID    string    `json:"connection_id"`
+	DatabaseName    *string   `json:"database_name,omitempty"`
 	SQLText         string    `json:"sql_text"`
 	Status          string    `json:"status" enums:"SUCCESS,ERROR"`
 	ExecutionTimeMS int64     `json:"execution_time_ms"`
@@ -148,7 +149,7 @@ func (h *QueryHandler) Execute(w http.ResponseWriter, r *http.Request) {
 	cfg := toDatabaseConfig(profile, password)
 	cfg.Database = effectiveDatabase
 	result, execErr := h.manager.Execute(ctx, connectionID, cfg, req.SQL)
-	h.recordHistory(r, connectionID, req.SQL, result, execErr)
+	h.recordHistory(r, connectionID, effectiveDatabase, req.SQL, result, execErr)
 
 	if execErr != nil {
 		h.executionError(w, r, execErr)
@@ -196,6 +197,7 @@ func (h *QueryHandler) History(w http.ResponseWriter, r *http.Request) {
 		out = append(out, HistoryRecord{
 			ID:              record.ID,
 			ConnectionID:    record.ConnectionID,
+			DatabaseName:    record.DatabaseName,
 			SQLText:         record.SQLText,
 			Status:          string(record.Status),
 			ExecutionTimeMS: record.ExecutionTimeMS,
@@ -209,7 +211,7 @@ func (h *QueryHandler) History(w http.ResponseWriter, r *http.Request) {
 
 // recordHistory persists the audit record. A history write failure is logged
 // but never changes the query response the client receives.
-func (h *QueryHandler) recordHistory(r *http.Request, connectionID, sqlText string, result model.QueryResult, execErr error) {
+func (h *QueryHandler) recordHistory(r *http.Request, connectionID, databaseName, sqlText string, result model.QueryResult, execErr error) {
 	status := model.QueryStatusSuccess
 	var errorMessage *string
 	if execErr != nil {
@@ -232,9 +234,14 @@ func (h *QueryHandler) recordHistory(r *http.Request, connectionID, sqlText stri
 	ctx, cancel := context.WithTimeout(context.Background(), historyWriteTimeout)
 	defer cancel()
 
+	var database *string
+	if databaseName != "" {
+		database = &databaseName
+	}
 	record := &model.QueryHistory{
 		ID:              id,
 		ConnectionID:    connectionID,
+		DatabaseName:    database,
 		SQLText:         sqlText,
 		Status:          status,
 		ExecutionTimeMS: result.ExecutionTimeMS,

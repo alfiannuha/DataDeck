@@ -11,9 +11,14 @@ const (
 )
 
 // QueryHistory is a persisted audit record of one query execution.
+//
+// DatabaseName records the target database for server-level PostgreSQL
+// connections (PRF-01). It is nil for legacy rows and for engines where the
+// profile database is implicit.
 type QueryHistory struct {
 	ID              string
 	ConnectionID    string
+	DatabaseName    *string
 	SQLText         string
 	Status          QueryStatus
 	ExecutionTimeMS int64
@@ -27,6 +32,8 @@ type QueryHistory struct {
 type SavedQuery struct {
 	ID           string
 	ConnectionID *string
+	// DatabaseName is the intended database context for the snippet (PRF-01).
+	DatabaseName *string
 	Title        string
 	SQLText      string
 	Tags         *string

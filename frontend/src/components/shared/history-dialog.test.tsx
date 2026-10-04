@@ -213,4 +213,30 @@ describe("HistoryDialog pagination and state", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("INTERNAL_ERROR");
     expect(screen.queryByText("Loading history…")).not.toBeInTheDocument();
   });
+
+  it("binds the opened tab to the entry's database", async () => {
+    vi.mocked(getQueryHistory).mockResolvedValue({
+      items: [entry({ database_name: "CCM" })],
+      meta: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    } as never);
+    renderWithProviders(<HistoryDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
+    const state = useWorkspaceStore.getState();
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    expect(tab?.database).toBe("CCM");
+  });
+
+  it("leaves legacy entries without database context unbound", async () => {
+    vi.mocked(getQueryHistory).mockResolvedValue({
+      items: [entry()],
+      meta: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    } as never);
+    renderWithProviders(<HistoryDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
+    const state = useWorkspaceStore.getState();
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    expect(tab?.database ?? null).toBeNull();
+  });
 });

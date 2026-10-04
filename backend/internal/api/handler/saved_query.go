@@ -28,6 +28,7 @@ func NewSavedQueryHandler(queries *repository.SavedQueryRepository, logger *slog
 // connection is optional (a snippet may be unbound).
 type SavedQueryRequest struct {
 	ConnectionID *string `json:"connection_id,omitempty" example:"9f1c7d2e4a6b4e89b88ad5f356bf7312"`
+	DatabaseName *string `json:"database_name,omitempty" example:"app"`
 	Title        string  `json:"title" binding:"required" example:"Active users"`
 	SQLText      string  `json:"sql_text" binding:"required" example:"SELECT * FROM users WHERE status = 'active'"`
 	Tags         *string `json:"tags,omitempty" example:"users,report"`
@@ -37,6 +38,7 @@ type SavedQueryRequest struct {
 type SavedQueryResponse struct {
 	ID           string  `json:"id"`
 	ConnectionID *string `json:"connection_id"`
+	DatabaseName *string `json:"database_name,omitempty"`
 	Title        string  `json:"title"`
 	SQLText      string  `json:"sql_text"`
 	Tags         *string `json:"tags,omitempty"`
@@ -48,6 +50,7 @@ func newSavedQueryResponse(query model.SavedQuery) SavedQueryResponse {
 	return SavedQueryResponse{
 		ID:           query.ID,
 		ConnectionID: query.ConnectionID,
+		DatabaseName: query.DatabaseName,
 		Title:        query.Title,
 		SQLText:      query.SQLText,
 		Tags:         query.Tags,
@@ -249,8 +252,17 @@ func normalizeSavedQuery(req SavedQueryRequest) (*model.SavedQuery, error) {
 		}
 	}
 
+	var databaseName *string
+	if req.DatabaseName != nil {
+		trimmed := strings.TrimSpace(*req.DatabaseName)
+		if trimmed != "" {
+			databaseName = &trimmed
+		}
+	}
+
 	return &model.SavedQuery{
 		ConnectionID: connectionID,
+		DatabaseName: databaseName,
 		Title:        title,
 		SQLText:      sqlText,
 		Tags:         tags,
