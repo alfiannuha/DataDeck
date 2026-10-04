@@ -26,7 +26,7 @@ afterEach(() => setOnline(true));
 beforeEach(() => {
   useExecutionStore.getState().reset();
   useWorkspaceStore.setState({
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: "c1", database: "CCM", dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: "c1", database: "CCM", dirty: false }],
     activeTabId: "t1",
   });
 });

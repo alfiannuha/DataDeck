@@ -17,7 +17,10 @@ import { Button } from "@/components/ui/button";
 import { useConnections } from "@/hooks/use-connections";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/store/useConnectionStore";
-import { useWorkspaceStore, type QueryTab } from "@/store/useWorkspaceStore";
+import {
+  useWorkspaceStore,
+  type WorkspaceTab,
+} from "@/store/useWorkspaceStore";
 
 /** Query tab strip: switch, close (with unsaved confirmation) and add tabs. */
 export function TabsBar() {
@@ -37,7 +40,7 @@ export function TabsBar() {
     : null;
   const { data: connections } = useConnections();
 
-  const [pendingClose, setPendingClose] = useState<QueryTab | null>(null);
+  const [pendingClose, setPendingClose] = useState<WorkspaceTab | null>(null);
   const stripRef = useRef<HTMLElement>(null);
 
   // After tabs change, keep keyboard focus on the active tab instead of
@@ -56,8 +59,8 @@ export function TabsBar() {
     return connection?.name ?? connectionId;
   }
 
-  function requestClose(tab: QueryTab) {
-    if (tab.dirty) {
+  function requestClose(tab: WorkspaceTab) {
+    if (tab.kind === "query" && tab.dirty) {
       setPendingClose(tab);
     } else {
       closeTab(tab.id);
@@ -93,7 +96,7 @@ export function TabsBar() {
                   onClick={() => setActiveTab(tab.id)}
                   className="flex items-center gap-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                 >
-                  {tab.dirty && (
+                  {tab.kind === "query" && tab.dirty && (
                     <span
                       aria-label="Unsaved changes"
                       title="Unsaved changes"

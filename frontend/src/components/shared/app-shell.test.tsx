@@ -40,7 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useWorkspaceStore.setState({
     sidebarCollapsed: false,
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
     activeTabId: "t1",
   });
 });

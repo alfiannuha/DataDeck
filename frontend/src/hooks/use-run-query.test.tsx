@@ -34,7 +34,7 @@ beforeEach(() => {
   useExecutionStore.getState().reset();
   useWorkspaceStore.setState({
     tabs: [
-      { id: "t1", title: "Query 1", sql: "", connectionId: "c1", dirty: false },
+      { kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: "c1", database: null, dirty: false },
     ],
     activeTabId: "t1",
   });
@@ -176,8 +176,8 @@ describe("useRunQuery", () => {
     );
     useWorkspaceStore.setState({
       tabs: [
-        { id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", dirty: false },
-        { id: "t2", title: "Query 2", sql: "", connectionId: "c1", dirty: false },
+        { kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: null, dirty: false },
+        { kind: "query", id: "t2", title: "Query 2", sql: "", connectionId: "c1", database: null, dirty: false },
       ],
       activeTabId: "t1",
     });
@@ -242,7 +242,7 @@ describe("useRunQuery", () => {
     vi.mocked(executeQuery).mockResolvedValue(result as never);
     useWorkspaceStore.setState({
       tabs: [
-        { id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
+        { kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
       ],
       activeTabId: "t1",
     });
@@ -268,7 +268,7 @@ describe("useRunQuery", () => {
     );
     useWorkspaceStore.setState({
       tabs: [
-        { id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
+        { kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
       ],
       activeTabId: "t1",
     });

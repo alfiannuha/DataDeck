@@ -12,6 +12,7 @@ import { useExecutionStore } from "@/store/useExecutionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { HistoryDialog } from "./history-dialog";
+import { asQueryTab } from "@/test/query-tab";
 
 vi.mock("@/lib/api/endpoints", () => ({
   listConnections: vi.fn(),
@@ -39,7 +40,7 @@ function entry(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   useWorkspaceStore.setState({
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
     activeTabId: "t1",
   });
   vi.mocked(listConnections).mockResolvedValue(connections as never);
@@ -114,8 +115,8 @@ describe("HistoryDialog", () => {
     );
 
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
-    expect(tab?.sql).toBe("SELECT id FROM users");
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
+    expect(tab.sql).toBe("SELECT id FROM users");
     expect(tab?.connectionId).toBe("c1");
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(executeQuery).not.toHaveBeenCalled();
@@ -133,7 +134,7 @@ describe("HistoryDialog", () => {
     );
 
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.connectionId).toBeNull();
     expect(executeQuery).not.toHaveBeenCalled();
   });
@@ -223,7 +224,7 @@ describe("HistoryDialog pagination and state", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.database).toBe("CCM");
   });
 
@@ -236,7 +237,7 @@ describe("HistoryDialog pagination and state", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.database ?? null).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { usePwaStore } from "@/store/usePwaStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { TopBar } from "./top-bar";
+import { asQueryTab } from "@/test/query-tab";
 
 const mocks = vi.hoisted(() => ({
   install: vi.fn(),
@@ -36,7 +37,7 @@ beforeEach(() => {
   mocks.installState = { canInstall: false, standalone: false };
   usePwaStore.setState({ updateReady: false });
   useWorkspaceStore.setState({
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
     activeTabId: "t1",
   });
 });
@@ -73,7 +74,7 @@ describe("TopBar PWA controls", () => {
   it("protects dirty SQL behind an explicit confirmation", () => {
     usePwaStore.setState({ updateReady: true });
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, dirty: true }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, database: null, dirty: true }],
       activeTabId: "t1",
     });
     renderWithProviders(<TopBar />);
@@ -88,7 +89,7 @@ describe("TopBar PWA controls", () => {
   it("can cancel a guarded update and keep the workspace", () => {
     usePwaStore.setState({ updateReady: true });
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, dirty: true }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, database: null, dirty: true }],
       activeTabId: "t1",
     });
     renderWithProviders(<TopBar />);
@@ -97,13 +98,13 @@ describe("TopBar PWA controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
 
     expect(mocks.activateUpdate).not.toHaveBeenCalled();
-    expect(useWorkspaceStore.getState().tabs[0].sql).toBe("SELECT 1");
+    expect(asQueryTab(useWorkspaceStore.getState().tabs[0]).sql).toBe("SELECT 1");
   });
 
   it("applies the update after the user confirms despite dirty SQL", () => {
     usePwaStore.setState({ updateReady: true });
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, dirty: true }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: null, database: null, dirty: true }],
       activeTabId: "t1",
     });
     renderWithProviders(<TopBar />);

@@ -70,7 +70,7 @@ beforeEach(() => {
   useConnectionStore.setState({ activeConnectionId: null });
   useExecutionStore.getState().reset();
   useWorkspaceStore.setState({
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
     activeTabId: "t1",
   });
   downloadExport.mockReset();
@@ -329,8 +329,8 @@ describe("integrated workspace flow", () => {
     );
     useWorkspaceStore.setState({
       tabs: [
-        { id: "tA", title: "A", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: false },
-        { id: "tB", title: "B", sql: "SELECT 1;", connectionId: "c1", database: "reporting", dirty: false },
+        { kind: "query", id: "tA", title: "A", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: false },
+        { kind: "query", id: "tB", title: "B", sql: "SELECT 1;", connectionId: "c1", database: "reporting", dirty: false },
       ],
       activeTabId: "tA",
       sidebarCollapsed: false,
@@ -369,5 +369,61 @@ describe("integrated workspace flow", () => {
       useWorkspaceStore.getState().setTabDatabase("tA", "analytics");
     });
     expect(executeQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders a Table Data tab and preserves the query tab's SQL and dirty state", async () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        {
+          kind: "query",
+          id: "t1",
+          title: "Query 1",
+          sql: "SELECT 1;",
+          connectionId: "c1",
+          database: "app",
+          dirty: true,
+        },
+      ],
+      activeTabId: "t1",
+    });
+
+    renderWithProviders(<AppShell />);
+    expect(await screen.findByTestId("editor-value")).toHaveTextContent("SELECT 1;");
+
+    act(() => {
+      useWorkspaceStore.getState().openTableData("c1", "app", "public", "users");
+    });
+
+    expect(await screen.findByTestId("table-data-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("table-data-binding")).toHaveTextContent("app");
+    expect(screen.queryByTestId("editor-value")).not.toBeInTheDocument();
+
+    // Switching back restores the query tab with its SQL and dirty flag intact.
+    act(() => {
+      useWorkspaceStore.getState().setActiveTab("t1");
+    });
+    expect(await screen.findByTestId("editor-value")).toHaveTextContent("SELECT 1;");
+    const query = useWorkspaceStore.getState().tabs.find((tab) => tab.id === "t1");
+    expect(query?.kind === "query" && query.dirty).toBe(true);
+
+    // The table tab kept its own independent binding.
+    const table = useWorkspaceStore.getState().tabs.find(
+      (tab) => tab.kind === "table-data",
+    );
+    expect(table?.connectionId).toBe("c1");
+    expect(table?.database).toBe("app");
+  });
+
+  it("renders a Table Structure tab with its explicit binding", async () => {
+    renderWithProviders(<AppShell />);
+    await screen.findByTestId("editor-value");
+
+    act(() => {
+      useWorkspaceStore.getState().openTableStructure("c2", "other", "public", "orders");
+    });
+
+    expect(await screen.findByTestId("table-structure-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("table-structure-binding")).toHaveTextContent("other");
+    expect(screen.getByText("public.orders")).toBeInTheDocument();
   });
 });

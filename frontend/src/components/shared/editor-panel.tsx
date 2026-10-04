@@ -24,10 +24,12 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
  * global active connection for a tab bound elsewhere.
  */
 export function EditorPanel() {
-  const activeTab = useWorkspaceStore(
-    (state) =>
-      state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0],
-  );
+  const activeTab = useWorkspaceStore((state) => {
+    const tab =
+      state.tabs.find((candidate) => candidate.id === state.activeTabId) ??
+      state.tabs[0];
+    return tab?.kind === "query" ? tab : undefined;
+  });
   const updateActiveSql = useWorkspaceStore((state) => state.updateActiveSql);
   const setTabConnection = useWorkspaceStore(
     (state) => state.setTabConnection,

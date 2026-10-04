@@ -39,7 +39,7 @@ export function TopBar() {
   const { canInstall, install } = usePwaInstall();
   const updateReady = usePwaStore((state) => state.updateReady);
   const hasDirtyTabs = useWorkspaceStore((state) =>
-    state.tabs.some((tab) => tab.dirty),
+    state.tabs.some((tab) => tab.kind === "query" && tab.dirty),
   );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);

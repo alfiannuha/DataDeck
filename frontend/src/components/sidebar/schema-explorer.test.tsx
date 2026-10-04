@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
 
 import { SchemaExplorer } from "./schema-explorer";
+import { asQueryTab } from "@/test/query-tab";
 
 vi.mock("@/lib/api/endpoints", () => ({
   listConnections: vi.fn(),
@@ -190,7 +191,7 @@ describe("SchemaExplorer", () => {
   it("inserts a safe Select Top 100 statement into a query tab", async () => {
     vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
       activeTabId: "t1",
     });
 
@@ -202,9 +203,9 @@ describe("SchemaExplorer", () => {
     );
 
     const state = useWorkspaceStore.getState();
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    expect(active?.sql).toContain('FROM "public"."users"');
-    expect(active?.sql).toContain("LIMIT 100;");
+    const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
+    expect(active.sql).toContain('FROM "public"."users"');
+    expect(active.sql).toContain("LIMIT 100;");
     expect(active?.connectionId).toBe("c1");
   });
 
@@ -261,7 +262,7 @@ describe("SchemaExplorer", () => {
   it("inserts a driver-aware Count Rows statement without executing it", async () => {
     vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
       activeTabId: "t1",
     });
 
@@ -271,8 +272,8 @@ describe("SchemaExplorer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Count rows in users" }));
 
     const state = useWorkspaceStore.getState();
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    expect(active?.sql).toBe('SELECT COUNT(*)\nFROM "public"."users";');
+    const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
+    expect(active.sql).toBe('SELECT COUNT(*)\nFROM "public"."users";');
     expect(active?.connectionId).toBe("c1");
     expect(executeQuery).not.toHaveBeenCalled();
   });
@@ -281,7 +282,7 @@ describe("SchemaExplorer", () => {
     vi.mocked(listConnections).mockResolvedValue([connection("mysql", "app")]);
     vi.mocked(getSchemas).mockResolvedValue(sqliteSchema);
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
       activeTabId: "t1",
     });
 
@@ -295,8 +296,8 @@ describe("SchemaExplorer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Count rows in widgets" }));
 
     const state = useWorkspaceStore.getState();
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    expect(active?.sql).toBe("SELECT COUNT(*)\nFROM `app`.`widgets`;");
+    const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
+    expect(active.sql).toBe("SELECT COUNT(*)\nFROM `app`.`widgets`;");
   });
 
   it("hides Copy DDL for PostgreSQL (unsupported, never faked)", async () => {
@@ -579,7 +580,7 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
     vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
     vi.mocked(getSchemas).mockResolvedValue(databaseTree("alpha") as never);
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
       activeTabId: "t1",
     });
 
@@ -587,7 +588,7 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Select top 100 from table_in_alpha" }));
 
-    const tab = useWorkspaceStore.getState().tabs[0];
+    const tab = asQueryTab(useWorkspaceStore.getState().tabs[0]);
     expect(tab.connectionId).toBe("c1");
     expect(tab.database).toBe("alpha");
   });
@@ -603,7 +604,7 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
       activeDatabaseByConnection: {},
     });
     useWorkspaceStore.setState({
-      tabs: [{ id: "t1", title: "Query 1", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: true }],
+      tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: true }],
       activeTabId: "t1",
     });
 
@@ -612,7 +613,7 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
 
     expect(useConnectionStore.getState().activeDatabaseByConnection.c1).toBe("beta");
     // The query tab binding is untouched (selection ≠ binding).
-    const tab = useWorkspaceStore.getState().tabs[0];
+    const tab = asQueryTab(useWorkspaceStore.getState().tabs[0]);
     expect(tab.database).toBe("CCM");
     expect(tab.sql).toBe("SELECT 1;");
     expect(tab.dirty).toBe(true);

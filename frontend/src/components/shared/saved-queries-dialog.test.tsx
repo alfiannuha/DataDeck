@@ -13,6 +13,7 @@ import { useExecutionStore } from "@/store/useExecutionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { SavedQueriesDialog } from "./saved-queries-dialog";
+import { asQueryTab } from "@/test/query-tab";
 
 vi.mock("@/lib/api/endpoints", () => ({
   listSavedQueries: vi.fn(),
@@ -43,7 +44,7 @@ function entry(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   useWorkspaceStore.setState({
-    tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, dirty: false }],
+    tabs: [{ kind: "query", id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
     activeTabId: "t1",
   });
   vi.mocked(listConnections).mockResolvedValue(connections as never);
@@ -78,11 +79,11 @@ describe("SavedQueriesDialog", () => {
     );
 
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
-    expect(tab?.sql).toBe("SELECT 1");
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
+    expect(tab.sql).toBe("SELECT 1");
     expect(tab?.connectionId).toBe("c1");
-    expect(tab?.savedQueryId).toBe("s1");
-    expect(tab?.dirty).toBe(false);
+    expect(tab.savedQueryId).toBe("s1");
+    expect(tab.dirty).toBe(false);
     expect(executeQuery).not.toHaveBeenCalled();
   });
 
@@ -97,7 +98,7 @@ describe("SavedQueriesDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open in editor" }));
 
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.connectionId).toBeNull();
     expect(executeQuery).not.toHaveBeenCalled();
   });
@@ -189,7 +190,7 @@ describe("SavedQueriesDialog pagination and state", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.database).toBe("reporting");
     expect(executeQuery).not.toHaveBeenCalled();
   });
@@ -203,7 +204,7 @@ describe("SavedQueriesDialog pagination and state", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open in editor" }));
     const state = useWorkspaceStore.getState();
-    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
+    const tab = asQueryTab(state.tabs.find((candidate) => candidate.id === state.activeTabId));
     expect(tab?.database ?? null).toBeNull();
   });
 });

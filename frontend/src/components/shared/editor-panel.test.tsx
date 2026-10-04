@@ -15,6 +15,7 @@ import { useExecutionStore } from "@/store/useExecutionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { EditorPanel } from "./editor-panel";
+import { asQueryTab } from "@/test/query-tab";
 
 vi.mock("@/lib/api/endpoints", () => ({
   executeQuery: vi.fn(),
@@ -75,6 +76,7 @@ function tab(overrides: Partial<ReturnType<typeof baseTab>> = {}) {
 }
 function baseTab() {
   return {
+    kind: "query" as const,
     id: "t1",
     title: "Query 1",
     sql: "SELECT 1;",
@@ -296,9 +298,9 @@ describe("EditorPanel execution", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(useWorkspaceStore.getState().tabs[0].savedQueryId).toBe("s1"),
+      expect(asQueryTab(useWorkspaceStore.getState().tabs[0]).savedQueryId).toBe("s1"),
     );
-    expect(useWorkspaceStore.getState().tabs[0].dirty).toBe(false);
+    expect(asQueryTab(useWorkspaceStore.getState().tabs[0]).dirty).toBe(false);
     expect(executeQuery).not.toHaveBeenCalled();
   });
 
@@ -313,7 +315,7 @@ describe("EditorPanel execution", () => {
     await screen.findByRole("option", { name: "PG Two" });
     fireEvent.change(select, { target: { value: "c2" } });
 
-    const bound = useWorkspaceStore.getState().tabs[0];
+    const bound = asQueryTab(useWorkspaceStore.getState().tabs[0]);
     expect(bound.connectionId).toBe("c2");
     // The old connection's database is cleared and the new connection's default
     // database (c2 -> app2) is bound deterministically.
@@ -343,7 +345,7 @@ describe("EditorPanel execution", () => {
     await screen.findByRole("option", { name: "PG Server" });
     fireEvent.change(select, { target: { value: "c3" } });
 
-    const bound = useWorkspaceStore.getState().tabs[0];
+    const bound = asQueryTab(useWorkspaceStore.getState().tabs[0]);
     expect(bound.connectionId).toBe("c3");
     expect(bound.database).toBeNull();
 
@@ -359,7 +361,7 @@ describe("EditorPanel execution", () => {
 
   it("clears stale execution state when switching tabs", async () => {
     useWorkspaceStore.setState({
-      tabs: [tab({ id: "t1" }), tab({ id: "t2", title: "Query 2" })],
+      tabs: [tab({ kind: "query", id: "t1" }), tab({ id: "t2", title: "Query 2" })],
       activeTabId: "t1",
     });
     renderWithProviders(<EditorPanel />);
@@ -517,7 +519,7 @@ describe("EditorPanel execution", () => {
   });
 
   it("saves the tab's database context with the query", async () => {
-    vi.mocked(createSavedQuery).mockResolvedValue({ id: "s1", title: "CCM query", tags: null } as never);
+    vi.mocked(createSavedQuery).mockResolvedValue({ kind: "query", id: "s1", title: "CCM query", tags: null } as never);
     useWorkspaceStore.setState({
       tabs: [tab({ database: "CCM", sql: "SELECT 1;" })],
       activeTabId: "t1",
