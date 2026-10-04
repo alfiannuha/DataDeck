@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -240,5 +241,84 @@ func TestOpenRejectsCorruptedDatabase(t *testing.T) {
 	if err == nil {
 		_ = store.Close()
 		t.Fatal("Open() error = nil, want failure for a corrupted database")
+	}
+}
+
+// TestMigration002IsAdditiveAndPreservesData simulates an M6 store (only
+// migration 001 applied, without the database_name columns) and verifies the
+// PRF-01 migration adds the columns without touching existing rows. Legacy rows
+// keep database_name = NULL and are never inferred.
+func TestMigration002IsAdditiveAndPreservesData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "datadeck.db")
+	ctx := context.Background()
+
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open storage: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx,
+		`INSERT INTO connection_profiles (id, name, driver, database_name) VALUES ('legacy','Legacy','postgres','ccm')`,
+	); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx,
+		`INSERT INTO query_history (id, connection_id, sql_text, status, execution_time_ms) VALUES ('h1','legacy','SELECT 1','SUCCESS',3)`,
+	); err != nil {
+		t.Fatalf("seed history: %v", err)
+	}
+	if _, err := store.DB().ExecContext(ctx,
+		`INSERT INTO saved_queries (id, connection_id, title, sql_text) VALUES ('s1','legacy','Legacy snippet','SELECT 1')`,
+	); err != nil {
+		t.Fatalf("seed saved query: %v", err)
+	}
+
+	// Downgrade the fixture to the M6 schema: remove the PRF-01 columns and the
+	// migration row, then reopen to re-run the migrator.
+	for _, statement := range []string{
+		`ALTER TABLE query_history DROP COLUMN database_name`,
+		`ALTER TABLE saved_queries DROP COLUMN database_name`,
+		`DELETE FROM schema_migrations WHERE version = 2`,
+	} {
+		if _, err := store.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("downgrade %q: %v", statement, err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen (upgrade): %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	if got := migrationCount(t, reopened); got != 2 {
+		t.Errorf("migration count = %d, want 2 after upgrade", got)
+	}
+	var databaseName sql.NullString
+	if err := reopened.DB().QueryRowContext(ctx,
+		`SELECT database_name FROM query_history WHERE id = 'h1'`).Scan(&databaseName); err != nil {
+		t.Fatalf("read history database_name: %v", err)
+	}
+	if databaseName.Valid {
+		t.Errorf("legacy history database_name = %q, want NULL", databaseName.String)
+	}
+	var title string
+	if err := reopened.DB().QueryRowContext(ctx,
+		`SELECT title FROM saved_queries WHERE id = 's1'`).Scan(&title); err != nil {
+		t.Fatalf("read saved query: %v", err)
+	}
+	if title != "Legacy snippet" {
+		t.Errorf("saved query title = %q, want preserved", title)
+	}
+	var profileDatabase string
+	if err := reopened.DB().QueryRowContext(ctx,
+		`SELECT database_name FROM connection_profiles WHERE id = 'legacy'`).Scan(&profileDatabase); err != nil {
+		t.Fatalf("read profile: %v", err)
+	}
+	if profileDatabase != "ccm" {
+		t.Errorf("profile database_name = %q, want preserved ccm", profileDatabase)
 	}
 }
