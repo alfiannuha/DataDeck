@@ -196,8 +196,8 @@ func TestDatabaseAwareAPIIntegration(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
 		}
-		if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "VALIDATION_ERROR" {
-			t.Errorf("error = %+v, want VALIDATION_ERROR", env.Error)
+		if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "DATABASE_REQUIRED" {
+			t.Errorf("error = %+v, want DATABASE_REQUIRED", env.Error)
 		}
 	})
 
@@ -242,8 +242,8 @@ func TestDatabaseAwareAPIIntegration(t *testing.T) {
 
 	t.Run("query requires a database on a server-level profile", func(t *testing.T) {
 		status, code, _ := exec("srv", "", "SELECT 1")
-		if status != http.StatusBadRequest || code != "VALIDATION_ERROR" {
-			t.Fatalf("status=%d code=%s, want 400 VALIDATION_ERROR", status, code)
+		if status != http.StatusBadRequest || code != "DATABASE_REQUIRED" {
+			t.Fatalf("status=%d code=%s, want 400 DATABASE_REQUIRED", status, code)
 		}
 	})
 
