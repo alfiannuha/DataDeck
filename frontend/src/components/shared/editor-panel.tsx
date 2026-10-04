@@ -73,7 +73,12 @@ export function EditorPanel() {
   const connectionReady =
     Boolean(effectiveConnectionId) && connection !== undefined;
   const hasSql = (activeTab?.sql.trim().length ?? 0) > 0;
-  const canRun = !isRunning && connectionReady && hasSql && online;
+  const canRun =
+    !isRunning &&
+    connectionReady &&
+    hasSql &&
+    online &&
+    (!serverLevel || Boolean(tabDatabase));
 
   // The editor dialect follows the tab's/active connection's driver.
   const dialect: SqlDialect =
@@ -85,6 +90,17 @@ export function EditorPanel() {
 
   function rejectLocal(code: string, message: string) {
     useExecutionStore.getState().reject({ code, message });
+  }
+
+  // Deterministic default database when a tab's connection changes
+  // (PRF01-FIX-01): a legacy PostgreSQL profile binds to its configured
+  // database; a server-level profile (empty database) and MySQL/SQLite leave the
+  // tab unbound so the user chooses a database explicitly. The explorer's
+  // current selection is never consulted.
+  function connectionDefaultDatabase(connectionId: string | null): string | null {
+    const candidate = connections?.find((item) => item.id === connectionId);
+    if (candidate?.driver !== "postgres") return null;
+    return candidate.database_name || null;
   }
 
   function runSql(sql: string) {
@@ -110,10 +126,23 @@ export function EditorPanel() {
       );
       return;
     }
+    // A server-level PostgreSQL profile has no default database: the tab must be
+    // explicitly bound before anything can execute (PRF01-FIX-01).
+    if (serverLevel && !tabDatabase) {
+      rejectLocal(
+        "DATABASE_REQUIRED",
+        "Select a database for this tab before running a query.",
+      );
+      return;
+    }
     // Bind an unbound tab on first run so later connection switches do not
     // silently change this tab's execution context.
     if (activeTab && !activeTab.connectionId) {
-      setTabConnection(activeTab.id, effectiveConnectionId);
+      setTabConnection(
+        activeTab.id,
+        effectiveConnectionId,
+        connectionDefaultDatabase(effectiveConnectionId),
+      );
     }
     if (sql.trim().length > 0) {
       void run(sql, effectiveConnectionId, activeTab?.id, tabDatabase);
@@ -198,7 +227,11 @@ export function EditorPanel() {
               value={activeTab?.connectionId ?? ""}
               onChange={(event) =>
                 activeTab &&
-                setTabConnection(activeTab.id, event.target.value || null)
+                setTabConnection(
+                  activeTab.id,
+                  event.target.value || null,
+                  connectionDefaultDatabase(event.target.value || null),
+                )
               }
               className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
             >

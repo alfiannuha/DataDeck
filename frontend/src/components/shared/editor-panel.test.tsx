@@ -304,7 +304,7 @@ describe("EditorPanel execution", () => {
 
   it("explicitly rebinds a tab without rewriting its SQL", async () => {
     useWorkspaceStore.setState({
-      tabs: [tab({ connectionId: "c1", sql: "SELECT 1;" })],
+      tabs: [tab({ connectionId: "c1", sql: "SELECT 1;", database: "alpha" })],
       activeTabId: "t1",
     });
     renderWithProviders(<EditorPanel />);
@@ -313,11 +313,48 @@ describe("EditorPanel execution", () => {
     await screen.findByRole("option", { name: "PG Two" });
     fireEvent.change(select, { target: { value: "c2" } });
 
-    expect(useWorkspaceStore.getState().tabs[0].connectionId).toBe("c2");
-    expect(useWorkspaceStore.getState().tabs[0].sql).toBe("SELECT 1;");
+    const bound = useWorkspaceStore.getState().tabs[0];
+    expect(bound.connectionId).toBe("c2");
+    // The old connection's database is cleared and the new connection's default
+    // database (c2 -> app2) is bound deterministically.
+    expect(bound.database).toBe("app2");
+    expect(bound.sql).toBe("SELECT 1;");
     await waitFor(() =>
-      expect(getSchemas).toHaveBeenCalledWith("c2", expect.anything()),
+      expect(getSchemas).toHaveBeenCalledWith(
+        "c2",
+        expect.objectContaining({ database: "app2" }),
+      ),
     );
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("clears the database on a server-level connection and blocks execution until bound", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      { id: "c1", name: "PG One", driver: "postgres", host: "h", port: 5432, database_name: "app" },
+      { id: "c3", name: "PG Server", driver: "postgres", host: "h", port: 5432, database_name: "" },
+    ] as never);
+    useWorkspaceStore.setState({
+      tabs: [tab({ connectionId: "c1", database: "alpha" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    const select = await screen.findByLabelText("Tab connection");
+    await screen.findByRole("option", { name: "PG Server" });
+    fireEvent.change(select, { target: { value: "c3" } });
+
+    const bound = useWorkspaceStore.getState().tabs[0];
+    expect(bound.connectionId).toBe("c3");
+    expect(bound.database).toBeNull();
+
+    // No database bound yet: the Run button is disabled and a keyboard run is
+    // rejected locally without contacting the backend.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled(),
+    );
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+    expect(executeQuery).not.toHaveBeenCalled();
+    expect(await screen.findByText(/DATABASE_REQUIRED/)).toBeInTheDocument();
   });
 
   it("clears stale execution state when switching tabs", async () => {

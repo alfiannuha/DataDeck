@@ -57,6 +57,48 @@ describe("useWorkspaceStore", () => {
     expect(useWorkspaceStore.getState().tabs[0].connectionId).toBe("c9");
   });
 
+  it("clears the previous database when the connection changes", () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        {
+          id: "t1",
+          title: "Query 1",
+          sql: "SELECT 1;",
+          connectionId: "cA",
+          database: "alpha",
+          dirty: false,
+        },
+      ],
+      activeTabId: "t1",
+    });
+
+    useWorkspaceStore.getState().setTabConnection("t1", "cB");
+
+    expect(useWorkspaceStore.getState().tabs[0].connectionId).toBe("cB");
+    expect(useWorkspaceStore.getState().tabs[0].database).toBeNull();
+  });
+
+  it("binds the provided default database when the connection changes", () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        {
+          id: "t1",
+          title: "Query 1",
+          sql: "SELECT 1;",
+          connectionId: "cA",
+          database: "alpha",
+          dirty: false,
+        },
+      ],
+      activeTabId: "t1",
+    });
+
+    useWorkspaceStore.getState().setTabConnection("t1", "cB", "beta");
+
+    expect(useWorkspaceStore.getState().tabs[0].connectionId).toBe("cB");
+    expect(useWorkspaceStore.getState().tabs[0].database).toBe("beta");
+  });
+
   it("selects a neighbour when the active tab is closed", () => {
     useWorkspaceStore.getState().addTab("c1");
     const secondId = useWorkspaceStore.getState().tabs[1].id;

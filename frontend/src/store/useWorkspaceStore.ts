@@ -41,8 +41,16 @@ interface WorkspaceState {
   ) => void;
   addTab: (connectionId: string | null, database?: string | null) => void;
   closeTab: (id: string) => void;
-  /** Explicitly bind a tab to a connection (never done implicitly on switch). */
-  setTabConnection: (id: string, connectionId: string | null) => void;
+  /**
+   * Explicitly bind a tab to a connection. The previous database binding is
+   * always cleared; pass the new connection's default database (when it has
+   * one) so the resulting context is deterministic (PRF01-FIX-01).
+   */
+  setTabConnection: (
+    id: string,
+    connectionId: string | null,
+    database?: string | null,
+  ) => void;
   /** Explicitly bind a tab to a database (PRF-01; never redirects other tabs). */
   setTabDatabase: (id: string, database: string | null) => void;
   /** Record that a tab is linked to a persisted saved query. */
@@ -125,10 +133,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       const tab = newTab(`Query ${state.tabs.length + 1}`, connectionId, database);
       return { tabs: [...state.tabs, tab], activeTabId: tab.id };
     }),
-  setTabConnection: (id, connectionId) =>
+  setTabConnection: (id, connectionId, database = null) =>
     set((state) => ({
       tabs: state.tabs.map((tab) =>
-        tab.id === id ? { ...tab, connectionId } : tab,
+        tab.id === id ? { ...tab, connectionId, database } : tab,
       ),
     })),
   setTabDatabase: (id, database) =>
