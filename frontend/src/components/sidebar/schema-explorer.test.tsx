@@ -572,4 +572,22 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
     await screen.findByText("app");
     expect(listDatabases).not.toHaveBeenCalled();
   });
+
+  it("binds generated SQL to the expanded database's tab", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockResolvedValue(databaseTree("alpha") as never);
+    useWorkspaceStore.setState({
+      tabs: [{ id: "t1", title: "Query 1", sql: "", connectionId: null, database: null, dirty: false }],
+      activeTabId: "t1",
+    });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select top 100 from table_in_alpha" }));
+
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.connectionId).toBe("c1");
+    expect(tab.database).toBe("alpha");
+  });
 });

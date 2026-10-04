@@ -16,7 +16,10 @@ import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
-import { DatabaseChildren, SchemaTree, TreeRow, type TableActionHandler } from "./schema-tree";
+import { DatabaseChildren, SchemaTree, TreeRow } from "./schema-tree";
+
+/** A table action that also carries the database it belongs to (PRF-01). */
+type DatabaseTableAction = (schema: string, table: string, database: string) => void;
 
 /**
  * Schema explorer container. Two modes:
@@ -56,25 +59,35 @@ export function SchemaExplorer({
     return driver === "mysql" ? database : schema;
   }
 
+  // Bind the tab to the database the action came from. Server-level PostgreSQL
+  // binds the explicit database; legacy PostgreSQL binds the profile default;
+  // MySQL/SQLite leave it null so the backend uses the profile database.
+  function bindDatabase(database: string): string | null {
+    if (driver !== "postgres") return null;
+    return database || connection?.database_name || null;
+  }
+
   function showNotice(kind: "success" | "error", text: string) {
     setNotice({ kind, text });
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 2500);
   }
 
-  const handleSelectTop100: TableActionHandler = (schema, table) =>
+  const handleSelectTop100: DatabaseTableAction = (schema, table, database) =>
     insertQuerySql(
       buildSelectTop100(namespaceFor(schema, connection?.database_name ?? ""), table, 100, identifierQuote),
       connectionId,
+      bindDatabase(database),
     );
 
-  const handleCountRows: TableActionHandler = (schema, table) =>
+  const handleCountRows: DatabaseTableAction = (schema, table, database) =>
     insertQuerySql(
       buildCountRows(namespaceFor(schema, connection?.database_name ?? ""), table, identifierQuote),
       connectionId,
+      bindDatabase(database),
     );
 
-  const handleCopyDdl: TableActionHandler | undefined = supportsCopyDdl(driver)
+  const handleCopyDdl: DatabaseTableAction | undefined = supportsCopyDdl(driver)
     ? (schema, table) => {
         const ddlQuery = buildCopyDdlQuery(
           driver,
@@ -173,9 +186,13 @@ export function SchemaExplorer({
             key={connectionId}
             databases={query.data ?? []}
             connectionId={connectionId}
-            onSelectTop100={handleSelectTop100}
-            onCountRows={handleCountRows}
-            onCopyDdl={handleCopyDdl}
+            onSelectTop100={(schema, table) => handleSelectTop100(schema, table, "")}
+            onCountRows={(schema, table) => handleCountRows(schema, table, "")}
+            onCopyDdl={
+              handleCopyDdl
+                ? (schema, table) => handleCopyDdl(schema, table, "")
+                : undefined
+            }
           />
         ) : (
           <p className="px-1 text-xs text-muted-foreground">No schema objects found.</p>
@@ -201,9 +218,9 @@ function DatabaseExplorer({
   onCopyDdl,
 }: {
   connectionId: string;
-  onSelectTop100?: TableActionHandler;
-  onCountRows?: TableActionHandler;
-  onCopyDdl?: TableActionHandler;
+  onSelectTop100?: DatabaseTableAction;
+  onCountRows?: DatabaseTableAction;
+  onCopyDdl?: DatabaseTableAction;
 }) {
   const databases = useDatabases(connectionId, true);
   const [visible, setVisible] = useState(DATABASE_BATCH_SIZE);
@@ -275,9 +292,9 @@ function LazyDatabaseNode({
 }: {
   connectionId: string;
   database: string;
-  onSelectTop100?: TableActionHandler;
-  onCountRows?: TableActionHandler;
-  onCopyDdl?: TableActionHandler;
+  onSelectTop100?: DatabaseTableAction;
+  onCountRows?: DatabaseTableAction;
+  onCopyDdl?: DatabaseTableAction;
 }) {
   const [open, setOpen] = useState(false);
   const schema = useSchema(connectionId, database, { enabled: open });
@@ -318,9 +335,21 @@ function LazyDatabaseNode({
             schemas={tree?.schemas ?? []}
             tables={tree?.tables ?? []}
             depth={0}
-            onSelectTop100={onSelectTop100}
-            onCountRows={onCountRows}
-            onCopyDdl={onCopyDdl}
+            onSelectTop100={
+              onSelectTop100
+                ? (schema, table) => onSelectTop100(schema, table, database)
+                : undefined
+            }
+            onCountRows={
+              onCountRows
+                ? (schema, table) => onCountRows(schema, table, database)
+                : undefined
+            }
+            onCopyDdl={
+              onCopyDdl
+                ? (schema, table) => onCopyDdl(schema, table, database)
+                : undefined
+            }
           />
         ))}
     </li>

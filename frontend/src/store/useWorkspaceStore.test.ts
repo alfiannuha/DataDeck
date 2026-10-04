@@ -102,4 +102,25 @@ describe("useWorkspaceStore", () => {
     expect(state.tabs[1].sql).toBe("SELECT 2;");
     expect(state.tabs[1].dirty).toBe(false);
   });
+
+  it("binds generated SQL to a database when provided", () => {
+    useWorkspaceStore
+      .getState()
+      .insertQuerySql('SELECT * FROM "public"."users" LIMIT 100;', "c1", "CCM");
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.connectionId).toBe("c1");
+    expect(tab.database).toBe("CCM");
+  });
+
+  it("keeps database bindings independent per tab", () => {
+    useWorkspaceStore.getState().insertQuerySql("SELECT 1;", "c1", "CCM");
+    useWorkspaceStore.getState().addTab("c1", "reporting");
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs[0].database).toBe("CCM");
+    expect(state.tabs[1].database).toBe("reporting");
+
+    useWorkspaceStore.getState().setTabDatabase(state.tabs[1].id, "analytics");
+    expect(useWorkspaceStore.getState().tabs[0].database).toBe("CCM");
+    expect(useWorkspaceStore.getState().tabs[1].database).toBe("analytics");
+  });
 });

@@ -51,7 +51,12 @@ export function useRunQuery() {
   const requestIdRef = useRef(0);
 
   const run = useCallback(
-    async (sqlText: string, connectionId: string | null, tabId?: string) => {
+    async (
+      sqlText: string,
+      connectionId: string | null,
+      tabId?: string,
+      database?: string | null,
+    ) => {
       const trimmed = sqlText.trim();
 
       if (!connectionId) {
@@ -68,14 +73,23 @@ export function useRunQuery() {
       abortRef.current = controller;
       const requestId = ++requestIdRef.current;
 
-      // A request is current only if it is still the newest one and its tab is
-      // still active. This prevents stale responses from corrupting the active
-      // tab after rapid re-runs, tab switches or connection switches.
-      const isCurrent = () =>
-        requestIdRef.current === requestId &&
-        abortRef.current === controller &&
-        (tabId === undefined ||
-          useWorkspaceStore.getState().activeTabId === tabId);
+      // A request is current only if it is still the newest one, its tab is
+      // still active, and the tab has not been rebound to a different database
+      // (PRF-01). This prevents stale responses from populating a tab that has
+      // been explicitly rebound/replaced after rapid re-runs or switches.
+      const isCurrent = () => {
+        if (
+          requestIdRef.current !== requestId ||
+          abortRef.current !== controller
+        ) {
+          return false;
+        }
+        if (tabId === undefined) return true;
+        const state = useWorkspaceStore.getState();
+        if (state.activeTabId !== tabId) return false;
+        const tab = state.tabs.find((candidate) => candidate.id === tabId);
+        return (tab?.database ?? null) === (database ?? null);
+      };
 
       useExecutionStore.getState().start(trimmed);
       try {
@@ -84,6 +98,7 @@ export function useRunQuery() {
             connection_id: connectionId,
             sql: trimmed,
             timeout_seconds: QUERY_TIMEOUT_SECONDS,
+            ...(database ? { database } : {}),
           },
           controller.signal,
         );

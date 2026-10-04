@@ -22,6 +22,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   executeQuery: vi.fn(),
   getQueryHistory: vi.fn(),
   getHealth: vi.fn(),
+  listDatabases: vi.fn().mockResolvedValue([]),
 }));
 
 const downloadExport = vi.fn();
@@ -304,5 +305,69 @@ describe("integrated workspace flow", () => {
       expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled(),
     );
     expect(screen.queryByText("Running…")).not.toBeInTheDocument();
+  });
+
+  it("keeps database-bound tabs independent and never redirects them", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      {
+        id: "c1",
+        name: "PG Server",
+        driver: "postgres",
+        host: "127.0.0.1",
+        port: 5432,
+        database_name: "",
+      },
+    ] as never);
+    vi.mocked(executeQuery).mockImplementation((body) =>
+      Promise.resolve({
+        columns: [{ name: "db", type: "text" }],
+        rows: [[body.database ?? "none"]],
+        rows_affected: 1,
+        execution_time_ms: 1,
+        truncated: false,
+      } as never),
+    );
+    useWorkspaceStore.setState({
+      tabs: [
+        { id: "tA", title: "A", sql: "SELECT 1;", connectionId: "c1", database: "CCM", dirty: false },
+        { id: "tB", title: "B", sql: "SELECT 1;", connectionId: "c1", database: "reporting", dirty: false },
+      ],
+      activeTabId: "tA",
+      sidebarCollapsed: false,
+    });
+    useConnectionStore.setState({ activeConnectionId: "c1" });
+
+    renderWithProviders(<AppShell />);
+
+    const runButton = await screen.findByRole("button", { name: "Run query" });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+    await waitFor(() =>
+      expect(executeQuery).toHaveBeenLastCalledWith(
+        expect.objectContaining({ database: "CCM" }),
+        expect.anything(),
+      ),
+    );
+
+    // Switch to tab B: it must execute against reporting, untouched by tab A.
+    fireEvent.click(screen.getByRole("button", { name: /^B/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId("query-context")).toHaveTextContent(
+        "PG Server / reporting",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Run query" }));
+    await waitFor(() =>
+      expect(executeQuery).toHaveBeenLastCalledWith(
+        expect.objectContaining({ database: "reporting" }),
+        expect.anything(),
+      ),
+    );
+
+    // Changing another tab's database binding never redirects the active tab.
+    act(() => {
+      useWorkspaceStore.getState().setTabDatabase("tA", "analytics");
+    });
+    expect(executeQuery).toHaveBeenCalledTimes(2);
   });
 });

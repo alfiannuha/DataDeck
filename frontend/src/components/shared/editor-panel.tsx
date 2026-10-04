@@ -7,6 +7,7 @@ import { SqlEditor, type SqlEditorHandle } from "@/components/editor/sql-editor"
 import { SaveQueryDialog } from "@/components/shared/save-query-dialog";
 import { Button } from "@/components/ui/button";
 import { useConnections } from "@/hooks/use-connections";
+import { useDatabases } from "@/hooks/use-databases";
 import { useOnline } from "@/hooks/use-online";
 import { useRunQuery } from "@/hooks/use-run-query";
 import { useSchema } from "@/hooks/use-schema";
@@ -31,6 +32,7 @@ export function EditorPanel() {
   const setTabConnection = useWorkspaceStore(
     (state) => state.setTabConnection,
   );
+  const setTabDatabase = useWorkspaceStore((state) => state.setTabDatabase);
   const setTabSavedQuery = useWorkspaceStore(
     (state) => state.setTabSavedQuery,
   );
@@ -39,10 +41,11 @@ export function EditorPanel() {
     (state) => state.activeConnectionId,
   );
   const { data: connections } = useConnections();
-  // Autocomplete/schema must follow the tab's connection, not the global one.
-  const { data: schema } = useSchema(
-    activeTab?.connectionId ?? activeConnectionId,
-  );
+  const tabDatabase = activeTab?.database ?? null;
+  const schemaConnectionId = activeTab?.connectionId ?? activeConnectionId;
+  // Autocomplete/schema must follow the tab's connection AND database, not the
+  // global selection, so suggestions never come from another database.
+  const { data: schema } = useSchema(schemaConnectionId, tabDatabase);
   const { run, cancel } = useRunQuery();
   const online = useOnline();
 
@@ -59,6 +62,13 @@ export function EditorPanel() {
   const effectiveConnectionId = boundConnectionId ?? activeConnectionId;
   const connection = connections?.find(
     (candidate) => candidate.id === effectiveConnectionId,
+  );
+  // Server-level PostgreSQL profiles select a database per tab.
+  const serverLevel =
+    connection?.driver === "postgres" && !connection?.database_name;
+  const { data: databases } = useDatabases(
+    serverLevel ? schemaConnectionId : null,
+    serverLevel,
   );
   const connectionReady =
     Boolean(effectiveConnectionId) && connection !== undefined;
@@ -106,7 +116,7 @@ export function EditorPanel() {
       setTabConnection(activeTab.id, effectiveConnectionId);
     }
     if (sql.trim().length > 0) {
-      void run(sql, effectiveConnectionId, activeTab?.id);
+      void run(sql, effectiveConnectionId, activeTab?.id, tabDatabase);
     }
   }
 
@@ -199,6 +209,43 @@ export function EditorPanel() {
                 </option>
               ))}
             </select>
+            {serverLevel ? (
+              <>
+                <span aria-hidden="true" className="text-subtle-foreground">
+                  /
+                </span>
+                <select
+                  aria-label="Tab database"
+                  value={tabDatabase ?? ""}
+                  onChange={(event) =>
+                    activeTab &&
+                    setTabDatabase(activeTab.id, event.target.value || null)
+                  }
+                  className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
+                >
+                  <option value="">Select database</option>
+                  {databases?.map((database) => (
+                    <option key={database.name} value={database.name}>
+                      {database.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : connection?.database_name ? (
+              <span className="truncate text-subtle-foreground">
+                / {connection.database_name}
+              </span>
+            ) : null}
+          </span>
+          <span
+            data-testid="query-context"
+            aria-label="Query context"
+            title="This is where SQL from this tab will execute"
+            className="shrink-0 rounded bg-panel-raised px-1.5 py-0.5 text-[10px] text-subtle-foreground"
+          >
+            {connection?.name ?? "No connection"}
+            {" / "}
+            {tabDatabase ?? connection?.database_name ?? (serverLevel ? "no database" : "default")}
           </span>
         </div>
         <div className="flex items-center gap-1 pr-1">

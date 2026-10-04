@@ -237,4 +237,57 @@ describe("useRunQuery", () => {
     });
     expect(useExecutionStore.getState().result?.rows?.[0]?.[0]).toBe("second");
   });
+
+  it("sends the tab's database with the request", async () => {
+    vi.mocked(executeQuery).mockResolvedValue(result as never);
+    useWorkspaceStore.setState({
+      tabs: [
+        { id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
+      ],
+      activeTabId: "t1",
+    });
+    const { result: hook } = renderHook(() => useRunQuery(), { wrapper });
+
+    await act(async () => {
+      await hook.current.run("SELECT 1", "c1", "t1", "CCM");
+    });
+
+    expect(executeQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ connection_id: "c1", database: "CCM" }),
+      expect.anything(),
+    );
+  });
+
+  it("drops a response when the tab was rebound to another database", async () => {
+    let release: (value: unknown) => void = () => {};
+    vi.mocked(executeQuery).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }) as never,
+    );
+    useWorkspaceStore.setState({
+      tabs: [
+        { id: "t1", title: "Query 1", sql: "SELECT 1", connectionId: "c1", database: "CCM", dirty: false },
+      ],
+      activeTabId: "t1",
+    });
+    const { result: hook } = renderHook(() => useRunQuery(), { wrapper });
+
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.current.run("SELECT 1", "c1", "t1", "CCM");
+    });
+    // The user rebinds the same tab to another database before it resolves.
+    act(() => {
+      useWorkspaceStore.getState().setTabDatabase("t1", "reporting");
+    });
+
+    await act(async () => {
+      release(result);
+      await pending;
+    });
+
+    expect(useExecutionStore.getState().result).toBeNull();
+  });
 });

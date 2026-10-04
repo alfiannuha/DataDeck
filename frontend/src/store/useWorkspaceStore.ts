@@ -7,6 +7,13 @@ export interface QueryTab {
   sql: string;
   /** Connection this tab is bound to. Null means "not yet bound". */
   connectionId: string | null;
+  /**
+   * Database this tab executes against (PRF-01). For server-level PostgreSQL
+   * connections this is the explicitly selected database; for MySQL/SQLite and
+   * legacy profiles null lets the backend use the profile's database. Never
+   * inherited from global UI state once a tab is bound.
+   */
+  database?: string | null;
   dirty: boolean;
   /** When this tab was saved, the persisted saved-query id/title/tags. */
   savedQueryId?: string | null;
@@ -23,12 +30,21 @@ interface WorkspaceState {
   activeTabId: string | null;
   setActiveTab: (id: string) => void;
   updateActiveSql: (sql: string) => void;
-  /** Insert generated SQL (e.g. Select Top 100) without executing it. */
-  insertQuerySql: (sql: string, connectionId: string | null) => void;
-  addTab: (connectionId: string | null) => void;
+  /**
+   * Insert generated SQL (e.g. Select Top 100) without executing it, binding the
+   * tab (or a new tab) to the given connection and database context.
+   */
+  insertQuerySql: (
+    sql: string,
+    connectionId: string | null,
+    database?: string | null,
+  ) => void;
+  addTab: (connectionId: string | null, database?: string | null) => void;
   closeTab: (id: string) => void;
   /** Explicitly bind a tab to a connection (never done implicitly on switch). */
   setTabConnection: (id: string, connectionId: string | null) => void;
+  /** Explicitly bind a tab to a database (PRF-01; never redirects other tabs). */
+  setTabDatabase: (id: string, database: string | null) => void;
   /** Record that a tab is linked to a persisted saved query. */
   setTabSavedQuery: (
     id: string,
@@ -38,12 +54,17 @@ interface WorkspaceState {
   markActiveClean: () => void;
 }
 
-function newTab(title: string, connectionId: string | null): QueryTab {
+function newTab(
+  title: string,
+  connectionId: string | null,
+  database: string | null = null,
+): QueryTab {
   return {
     id: `tab-${Math.random().toString(36).slice(2, 10)}`,
     title,
     sql: "",
     connectionId,
+    database,
     dirty: false,
   };
 }
@@ -72,32 +93,48 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         tab.id === state.activeTabId ? { ...tab, sql, dirty: true } : tab,
       ),
     })),
-  insertQuerySql: (sql, connectionId) =>
+  insertQuerySql: (sql, connectionId, database = null) =>
     set((state) => {
       const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-      // Reuse an untouched empty tab; otherwise open a new one.
-      // Dirty policy for generated SQL: an inserted statement keeps the tab
-      // clean because it is reproducible scaffolding. Any manual edit flows
-      // through updateActiveSql and marks the tab dirty (so closing prompts).
-      if (active && !active.dirty && active.sql.trim() === "") {
+      // Reuse an untouched empty tab that is not already bound elsewhere;
+      // otherwise open a new one. Dirty policy for generated SQL: an inserted
+      // statement keeps the tab clean because it is reproducible scaffolding.
+      // Manual edits flow through updateActiveSql and mark the tab dirty.
+      const reusable =
+        active &&
+        !active.dirty &&
+        active.sql.trim() === "" &&
+        (active.connectionId === null || active.connectionId === connectionId);
+      if (reusable && active) {
         return {
           tabs: state.tabs.map((tab) =>
-            tab.id === active.id ? { ...tab, sql, connectionId } : tab,
+            tab.id === active.id
+              ? { ...tab, sql, connectionId, database }
+              : tab,
           ),
         };
       }
-      const tab = { ...newTab(`Query ${state.tabs.length + 1}`, connectionId), sql };
+      const tab = {
+        ...newTab(`Query ${state.tabs.length + 1}`, connectionId, database),
+        sql,
+      };
       return { tabs: [...state.tabs, tab], activeTabId: tab.id };
     }),
-  addTab: (connectionId) =>
+  addTab: (connectionId, database = null) =>
     set((state) => {
-      const tab = newTab(`Query ${state.tabs.length + 1}`, connectionId);
+      const tab = newTab(`Query ${state.tabs.length + 1}`, connectionId, database);
       return { tabs: [...state.tabs, tab], activeTabId: tab.id };
     }),
   setTabConnection: (id, connectionId) =>
     set((state) => ({
       tabs: state.tabs.map((tab) =>
         tab.id === id ? { ...tab, connectionId } : tab,
+      ),
+    })),
+  setTabDatabase: (id, database) =>
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === id ? { ...tab, database } : tab,
       ),
     })),
   setTabSavedQuery: (id, saved) =>

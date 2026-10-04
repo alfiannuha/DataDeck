@@ -7,6 +7,7 @@ import {
   executeQuery,
   getSchemas,
   listConnections,
+  listDatabases,
 } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
@@ -25,6 +26,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   deleteConnection: vi.fn(),
   getHealth: vi.fn(),
   listSavedQueries: vi.fn(),
+  listDatabases: vi.fn().mockResolvedValue([]),
   createSavedQuery: vi.fn(),
   updateSavedQuery: vi.fn(),
   deleteSavedQuery: vi.fn(),
@@ -77,6 +79,7 @@ function baseTab() {
     title: "Query 1",
     sql: "SELECT 1;",
     connectionId: "c1" as string | null,
+    database: null as string | null,
     dirty: false,
   };
 }
@@ -397,5 +400,82 @@ describe("EditorPanel execution", () => {
       expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled(),
     );
     expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("shows where the tab will execute (connection / database)", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tab({ database: "CCM" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    const context = await screen.findByTestId("query-context");
+    await waitFor(() => expect(context).toHaveTextContent("PG One / CCM"));
+  });
+
+  it("executes against the tab's bound database", async () => {
+    vi.mocked(executeQuery).mockResolvedValue(result as never);
+    useWorkspaceStore.setState({
+      tabs: [tab({ database: "CCM" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    const runButton = await screen.findByRole("button", { name: "Run query" });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() =>
+      expect(executeQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ connection_id: "c1", database: "CCM" }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("rebinds only the active tab's database without executing", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      {
+        id: "c1",
+        name: "PG Server",
+        driver: "postgres",
+        host: "h",
+        port: 5432,
+        database_name: "",
+      },
+    ] as never);
+    vi.mocked(listDatabases).mockResolvedValue([
+      { name: "CCM" },
+      { name: "reporting" },
+    ] as never);
+    useWorkspaceStore.setState({
+      tabs: [tab(), { ...tab({ id: "t2", title: "Query 2", database: "reporting" }) }],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    const select = await screen.findByLabelText("Tab database");
+    await screen.findByRole("option", { name: "reporting" });
+    fireEvent.change(select, { target: { value: "CCM" } });
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs.find((t) => t.id === "t1")?.database).toBe("CCM");
+    expect(state.tabs.find((t) => t.id === "t2")?.database).toBe("reporting");
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("scopes schema/autocomplete metadata to the tab's database", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tab({ database: "CCM" })],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<EditorPanel />);
+
+    await waitFor(() =>
+      expect(getSchemas).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ database: "CCM" }),
+      ),
+    );
   });
 });
