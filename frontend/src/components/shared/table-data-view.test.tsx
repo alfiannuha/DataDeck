@@ -184,10 +184,114 @@ describe("TableDataView", () => {
     expect(tab.kind === "table-data" && tab.pageSize).toBe(50);
   });
 
-  it("exposes no client-only sorting or filtering controls", async () => {
+  it("has no client-only sorting or filtering controls", async () => {
     renderWithProviders(<TableDataView />);
     await screen.findByRole("grid", { name: "Table data grid" });
-    expect(screen.queryByRole("button", { name: /sort/i })).not.toBeInTheDocument();
+    // Sorting is only via the server-driven header controls; no separate
+    // client-side sort/filter UI exists.
+    expect(screen.queryByRole("button", { name: "Sort" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /filter/i })).not.toBeInTheDocument();
   });
+
+  it("cycles header sorting none → asc → desc → none server-side", async () => {
+    renderWithProviders(<TableDataView />);
+    const header = await screen.findByRole("button", { name: "Sort by name" });
+
+    fireEvent.click(header);
+    expect(tabSort()).toEqual([{ column: "name", direction: "asc" }]);
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1].sort).toEqual({
+        column: "name",
+        direction: "asc",
+      }),
+    );
+
+    fireEvent.click(header);
+    await waitFor(() =>
+      expect(tabSort()).toEqual([{ column: "name", direction: "desc" }]),
+    );
+
+    fireEvent.click(header);
+    await waitFor(() => expect(tabSort()).toEqual([]));
+  });
+
+  it("exposes aria-sort for the active column", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ sort: [{ column: "name", direction: "asc" }] })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    const header = await screen.findByRole("columnheader", { name: /name/ });
+    await waitFor(() => expect(header).toHaveAttribute("aria-sort", "ascending"));
+  });
+
+  it("resets to page 1 when the sort changes", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ page: 4 })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sort by name" }));
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({ page: 1 });
+  });
+
+  it("preserves sort across page navigation and refresh", async () => {
+    vi.mocked(browseTableData).mockImplementation((_id, params) =>
+      Promise.resolve(
+        pageResult({
+          pagination: { page: params.page, page_size: params.pageSize, has_more: true },
+        }) as never,
+      ),
+    );
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ sort: [{ column: "name", direction: "desc" }] })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1]).toEqual(
+        expect.objectContaining({
+          page: 2,
+          sort: { column: "name", direction: "desc" },
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh table data" }));
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1].sort).toEqual({
+        column: "name",
+        direction: "desc",
+      }),
+    );
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      page: 2,
+      sort: [{ column: "name", direction: "desc" }],
+    });
+  });
+
+  it("keeps sorting tab-local", async () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        tableTab({ id: "t1", database: "alpha" }),
+        tableTab({ id: "t2", database: "beta", sort: [{ column: "id", direction: "desc" }] }),
+      ],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<TableDataView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sort by name" }));
+
+    const [t1, t2] = useWorkspaceStore.getState().tabs;
+    expect(t1.kind === "table-data" && t1.sort).toEqual([{ column: "name", direction: "asc" }]);
+    expect(t2.kind === "table-data" && t2.sort).toEqual([{ column: "id", direction: "desc" }]);
+  });
 });
+
+function tabSort() {
+  const tab = useWorkspaceStore.getState().tabs[0];
+  return tab.kind === "table-data" ? tab.sort : [];
+}

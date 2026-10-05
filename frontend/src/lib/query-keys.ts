@@ -30,6 +30,8 @@ export const queryKeys = {
     table: string,
     page: number,
     pageSize: number,
+    sortColumn: string | null = null,
+    sortDirection: string | null = null,
   ) =>
     [
       "connections",
@@ -40,6 +42,8 @@ export const queryKeys = {
       table,
       page,
       pageSize,
+      sortColumn ?? "",
+      sortDirection ?? "",
     ] as const,
   /** Prefix for every Table Data query of a connection (invalidation/refresh). */
   tableDataRoot: (connectionId: string) =>

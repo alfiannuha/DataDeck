@@ -4,6 +4,14 @@ package model
 // serialization rules (BIGINT-as-string, NULL as null, bytea/base64, JSON
 // embedded) because the same driver encoders produce the row values.
 
+// TableSort is one server-side order expression (PRF-02/T05). Column is
+// validated against introspection metadata and quoted by the dialect; Direction
+// is restricted to the approved enum. Only the backend builds ORDER BY.
+type TableSort struct {
+	Column    string `json:"column" example:"created_at"`
+	Direction string `json:"direction" enums:"asc,desc" example:"desc"`
+}
+
 // TableColumnInfo is the metadata needed to render and (later) mutate a column.
 // It is derived from introspection, never trusted from the client.
 type TableColumnInfo struct {

@@ -26,6 +26,8 @@ import (
 // @Param        table      query     string  true   "Table or view name"
 // @Param        page       query     int     false  "1-based page number (default 1)"
 // @Param        page_size  query     int     false  "Rows per page (default 100, max 200)"
+// @Param        sort_column query    string  false  "Column to sort by (validated against metadata)"
+// @Param        sort_direction query string false  "Sort direction" Enums(asc, desc)
 // @Success      200  {object}  response.Envelope{data=model.TableDataPage}
 // @Failure      400  {object}  response.ErrorEnvelope
 // @Failure      404  {object}  response.ErrorEnvelope
@@ -50,6 +52,12 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 	schema := strings.TrimSpace(r.URL.Query().Get("schema"))
 
 	params, err := parseTablePageParams(r)
+	if err != nil {
+		response.ValidationError(w, err.Error())
+		return
+	}
+
+	sortSpec, err := parseTableSort(r)
 	if err != nil {
 		response.ValidationError(w, err.Error())
 		return
@@ -97,6 +105,7 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 		Table:  table,
 		Limit:  params.PageSize,
 		Offset: params.Offset,
+		Sort:   sortSpec,
 	})
 	if err != nil {
 		h.tableDataError(w, r, err)
@@ -117,10 +126,34 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseTableSort validates the structured sort query parameters. Both are
+// optional; when neither is present there is no sort. When present, the
+// direction must be exactly asc/desc (the column is verified against metadata
+// later, after introspection).
+func parseTableSort(r *http.Request) (*model.TableSort, error) {
+	column := strings.TrimSpace(r.URL.Query().Get("sort_column"))
+	direction := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_direction")))
+	if column == "" && direction == "" {
+		return nil, nil
+	}
+	if column == "" {
+		return nil, errors.New("sort_column is required when sort_direction is set")
+	}
+	if direction == "" {
+		return nil, errors.New("sort_direction is required when sort_column is set")
+	}
+	if direction != "asc" && direction != "desc" {
+		return nil, errors.New("sort_direction must be one of: asc, desc")
+	}
+	return &model.TableSort{Column: column, Direction: direction}, nil
+}
+
 // tableDataError maps browse failures to sanitized API errors. It reuses the
 // existing connection/database taxonomy and never returns a driver DSN or SQL.
 func (h *ConnectionHandler) tableDataError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, database.ErrSortColumnNotFound):
+		response.ValidationError(w, "unknown sort column")
 	case errors.Is(err, database.ErrTableNotFound):
 		response.WriteError(w, http.StatusNotFound, "TABLE_NOT_FOUND", "the requested table was not found")
 	case errors.Is(err, database.ErrDatabaseNotFound):

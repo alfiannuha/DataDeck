@@ -211,3 +211,94 @@ func TestBrowseTableEmptyRelationDoesNotExecute(t *testing.T) {
 		t.Errorf("rows = %d, want 0", len(page.Rows))
 	}
 }
+
+func TestBrowseTableSortOrderByBeforeLimit(t *testing.T) {
+	fake := &browseFake{
+		driver: model.DriverPostgres,
+		quote:  `"`,
+		dbs:    browseFixture(),
+		result: model.QueryResult{Rows: [][]any{{"2", "Bob"}}},
+	}
+	m := NewManager(DefaultOptions(), fake)
+
+	_, err := m.BrowseTable(context.Background(), "c1", Config{Driver: model.DriverPostgres, Database: "alpha"}, TableBrowseRequest{
+		Schema: "public", Table: "users", Limit: 10, Offset: 20,
+		Sort: &model.TableSort{Column: "name", Direction: "desc"},
+	})
+	if err != nil {
+		t.Fatalf("BrowseTable() error = %v", err)
+	}
+	// ORDER BY (with PK tie-break) must precede LIMIT/OFFSET.
+	want := `SELECT "id", "name" FROM "public"."users" ORDER BY "name" DESC, "id" ASC LIMIT 11 OFFSET 20`
+	if fake.sql != want {
+		t.Errorf("SQL = %q, want %q", fake.sql, want)
+	}
+}
+
+func TestBrowseTableSortUnknownColumn(t *testing.T) {
+	fake := &browseFake{driver: model.DriverPostgres, quote: `"`, dbs: browseFixture()}
+	m := NewManager(DefaultOptions(), fake)
+
+	_, err := m.BrowseTable(context.Background(), "c1", Config{Driver: model.DriverPostgres, Database: "alpha"}, TableBrowseRequest{
+		Schema: "public", Table: "users", Limit: 10,
+		Sort: &model.TableSort{Column: `name"; DROP TABLE users`, Direction: "asc"},
+	})
+	if !errors.Is(err, ErrSortColumnNotFound) {
+		t.Fatalf("error = %v, want ErrSortColumnNotFound", err)
+	}
+	if fake.sql != "" {
+		t.Errorf("no SQL must be generated for an unknown sort column, got %q", fake.sql)
+	}
+}
+
+func TestBrowseTableSortCompositePKTieBreak(t *testing.T) {
+	fake := &browseFake{
+		driver: model.DriverSQLite,
+		quote:  `"`,
+		dbs: []model.Database{{
+			Tables: []model.Table{{
+				Name: "order_items",
+				Type: "BASE TABLE",
+				Columns: []model.Column{
+					{Name: "order_id", DataType: "integer", OrdinalPosition: 1},
+					{Name: "product_id", DataType: "integer", OrdinalPosition: 2},
+					{Name: "qty", DataType: "integer", OrdinalPosition: 3},
+				},
+				PrimaryKey: &model.PrimaryKey{Name: "pk", Columns: []string{"order_id", "product_id"}},
+			}},
+		}},
+	}
+	m := NewManager(DefaultOptions(), fake)
+
+	if _, err := m.BrowseTable(context.Background(), "c1", Config{Driver: model.DriverSQLite}, TableBrowseRequest{
+		Table: "order_items", Limit: 5, Sort: &model.TableSort{Column: "qty", Direction: "asc"},
+	}); err != nil {
+		t.Fatalf("BrowseTable() error = %v", err)
+	}
+	if fake.sql != `SELECT "order_id", "product_id", "qty" FROM "order_items" ORDER BY "qty" ASC, "order_id" ASC, "product_id" ASC LIMIT 6 OFFSET 0` {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+}
+
+func TestBrowseTableSortNoPKNoTieBreak(t *testing.T) {
+	fake := &browseFake{
+		driver: model.DriverSQLite,
+		quote:  `"`,
+		dbs: []model.Database{{
+			Tables: []model.Table{{
+				Name:    "logs",
+				Type:    "BASE TABLE",
+				Columns: []model.Column{{Name: "msg", DataType: "text", OrdinalPosition: 1}},
+			}},
+		}},
+	}
+	m := NewManager(DefaultOptions(), fake)
+	if _, err := m.BrowseTable(context.Background(), "c1", Config{Driver: model.DriverSQLite}, TableBrowseRequest{
+		Table: "logs", Limit: 5, Sort: &model.TableSort{Column: "msg", Direction: "asc"},
+	}); err != nil {
+		t.Fatalf("BrowseTable() error = %v", err)
+	}
+	if fake.sql != `SELECT "msg" FROM "logs" ORDER BY "msg" ASC LIMIT 6 OFFSET 0` {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+}

@@ -6,7 +6,7 @@ import { ResultGrid } from "@/components/grid/result-grid";
 import { Button } from "@/components/ui/button";
 import { useTableData } from "@/hooks/use-table-data";
 import { ApiClientError } from "@/lib/api-client";
-import { useWorkspaceStore } from "@/store/useWorkspaceStore";
+import { useWorkspaceStore, type TableSort } from "@/store/useWorkspaceStore";
 import type { QueryResult } from "@/types/api";
 
 /**
@@ -33,6 +33,10 @@ export function TableDataView() {
     table: tab?.kind === "table-data" ? tab.table : "",
     page: tab?.kind === "table-data" ? tab.page : 1,
     pageSize: tab?.kind === "table-data" ? tab.pageSize : 100,
+    sort:
+      tab?.kind === "table-data" && tab.sort.length > 0
+        ? { column: tab.sort[0].column, direction: tab.sort[0].direction }
+        : null,
   };
   const query = useTableData(target);
   const data = query.data;
@@ -57,6 +61,20 @@ export function TableDataView() {
   function changePageSize(next: number) {
     if (!tab || tab.kind !== "table-data") return;
     updateTableData(tab.id, { pageSize: next, page: 1 });
+  }
+
+  // Cycle none → ASC → DESC → none (single column, per ADR-010 §8). Sorting is
+  // server-side; the page resets so the new order starts from the top.
+  function handleSort(column: string) {
+    if (!tab || tab.kind !== "table-data") return;
+    const current = tab.sort[0];
+    let sort: TableSort[] = [];
+    if (!current || current.column !== column) {
+      sort = [{ column, direction: "asc" }];
+    } else if (current.direction === "asc") {
+      sort = [{ column, direction: "desc" }];
+    }
+    updateTableData(tab.id, { sort, page: 1 });
   }
 
   // Adapt the structured Table Data page to the shared virtualized grid shape.
@@ -158,6 +176,9 @@ export function TableDataView() {
             result={gridResult}
             ariaLabel="Table data grid"
             emptyText="No rows found."
+            sortColumn={tab.sort[0]?.column ?? null}
+            sortDirection={tab.sort[0]?.direction ?? null}
+            onSortColumn={handleSort}
           />
         ) : null}
       </div>

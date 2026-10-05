@@ -730,6 +730,19 @@ paths:
         name: page_size
         schema:
           type: integer
+      - description: Column to sort by (validated against metadata)
+        in: query
+        name: sort_column
+        schema:
+          type: string
+      - description: Sort direction
+        in: query
+        name: sort_direction
+        schema:
+          enum:
+          - asc
+          - desc
+          type: string
       responses:
         "200":
           content:

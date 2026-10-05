@@ -166,6 +166,8 @@ export interface TableDataParams {
   table: string;
   page: number;
   pageSize: number;
+  /** Structured, single-column server-side sort (never raw SQL). */
+  sort?: { column: string; direction: "asc" | "desc" } | null;
 }
 
 /**
@@ -183,6 +185,10 @@ export function browseTableData(
   query.set("table", params.table);
   query.set("page", String(params.page));
   query.set("page_size", String(params.pageSize));
+  if (params.sort) {
+    query.set("sort_column", params.sort.column);
+    query.set("sort_direction", params.sort.direction);
+  }
   return apiFetch<TableDataPage>(
     `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,
     { signal },

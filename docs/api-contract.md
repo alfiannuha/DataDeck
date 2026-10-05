@@ -428,9 +428,10 @@ here without an explicit requirement.
   `database` (required for server-level PostgreSQL, else profile default),
   `schema` (required for PostgreSQL; ignored for MySQL/SQLite), `table`
   (required), `page` (default 1, max 1,000,000) and `page_size` (default 100,
-  max 200, clamped). The backend resolves the relation against introspection
+  max 200, clamped), plus optional `sort_column` + `sort_direction`
+  (`asc`|`desc`) for **single-column server-side sorting**. The backend resolves the relation against introspection
   metadata and generates an explicit, dialect-quoted `SELECT … LIMIT n+1
-  OFFSET m`; it never accepts SQL, a `WHERE` clause, or a sort expression.
+  OFFSET m`; it never accepts SQL, a `WHERE` clause, or a raw sort expression.
   Response `data`: `{ database, schema?, table, object_type, columns[]
   (name/database_type/nullable/ordinal_position/primary_key), rows (array of
   arrays, same BIGINT-as-string/NULL/bytea/JSON rules as query execution),

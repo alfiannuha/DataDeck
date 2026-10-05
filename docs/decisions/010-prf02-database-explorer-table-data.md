@@ -294,12 +294,20 @@ interface TableSort { column: string; direction: "asc" | "desc"; }
 
 - Server-side only (the grid never re-sorts fetched pages).
 - v0.1.0 supports **at most one** sort column (multi-column sorting deferred and
-  listed as Needs Validation).
-- The sort column must exist in the table metadata. When no sort is provided,
-  the backend orders by primary-key columns ascending if a PK exists; otherwise
-  it uses a deterministic but unspecified order and the response notes it.
-  Stable ordering matters for OFFSET paging.
-- `NULLS FIRST/LAST` handling is engine-default in v0.1.0 (documented).
+  listed as Needs Validation). Clicking a header cycles none → ASC → DESC → none
+  and resets `page` to 1.
+- The requested column must exist in the table metadata; unknown columns and
+  invalid directions are rejected (`400`), never silently ignored.
+- When no sort is requested the backend emits **no** `ORDER BY` (T03 behavior is
+  preserved; no implicit PK ordering is invented).
+- **Tie-break (PRF02-T05):** when a sort is requested and the table has a
+  primary key, the backend appends the PK columns ascending to the effective
+  `ORDER BY` (never exposed as UI sort state). This keeps OFFSET pages stable
+  when sort values contain duplicates. Tables without a PK remain
+  engine-nondeterministic. This is not keyset pagination.
+- `NULLS FIRST/LAST` handling is engine-default in v0.1.0 (documented): ASC/DESC
+  follow native ordering, which can differ between engines. No portable NULL
+  ordering is promised and no custom collation is applied.
 
 ### 9. SQL Generation / Security
 

@@ -6,6 +6,7 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { copyText } from "@/lib/clipboard";
@@ -36,10 +37,18 @@ export function ResultGrid({
   result,
   ariaLabel = "Query result grid",
   emptyText = "No rows returned.",
+  sortColumn = null,
+  sortDirection = null,
+  onSortColumn,
 }: {
   result: QueryResult;
   ariaLabel?: string;
   emptyText?: string;
+  /** Controlled server-side sort state (Table Data). Null when not sorting. */
+  sortColumn?: string | null;
+  sortDirection?: "asc" | "desc" | null;
+  /** When provided, headers become sort controls (server-side only). */
+  onSortColumn?: (column: string) => void;
 }) {
   const rows = (result.rows ?? []) as Row[];
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -104,27 +113,56 @@ export function ResultGrid({
           className="sticky top-0 z-10 grid border-b border-border bg-panel"
           style={{ gridTemplateColumns }}
         >
-          {headers.map((header) => (
-            <div
-              key={header.id}
-              role="columnheader"
-              className="relative flex items-center border-r border-border px-2 py-1.5 text-xs font-medium text-muted-foreground"
-              style={{ width: header.getSize() }}
-            >
-              <span className="truncate">
-                {String(header.column.columnDef.header)}
-              </span>
+          {headers.map((header) => {
+            const label = String(header.column.columnDef.header);
+            const sortable = Boolean(onSortColumn);
+            const active = sortable && sortColumn === label;
+            const ariaSort = !sortable
+              ? undefined
+              : active
+                ? sortDirection === "asc"
+                  ? "ascending"
+                  : "descending"
+                : "none";
+            return (
               <div
-                aria-hidden="true"
-                onMouseDown={header.getResizeHandler()}
-                onTouchStart={header.getResizeHandler()}
-                className={cn(
-                  "absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-accent/50",
-                  header.column.getIsResizing() && "bg-accent",
+                key={header.id}
+                role="columnheader"
+                aria-sort={ariaSort}
+                className="relative flex items-center border-r border-border px-2 py-1.5 text-xs font-medium text-muted-foreground"
+                style={{ width: header.getSize() }}
+              >
+                {sortable ? (
+                  <button
+                    type="button"
+                    aria-label={`Sort by ${label}`}
+                    onClick={() => onSortColumn?.(label)}
+                    className="flex min-w-0 items-center gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                  >
+                    <span className="truncate">{label}</span>
+                    {active ? (
+                      sortDirection === "asc" ? (
+                        <ArrowUp size={11} aria-hidden="true" />
+                      ) : (
+                        <ArrowDown size={11} aria-hidden="true" />
+                      )
+                    ) : null}
+                  </button>
+                ) : (
+                  <span className="truncate">{label}</span>
                 )}
-              />
-            </div>
-          ))}
+                <div
+                  aria-hidden="true"
+                  onMouseDown={header.getResizeHandler()}
+                  onTouchStart={header.getResizeHandler()}
+                  className={cn(
+                    "absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-accent/50",
+                    header.column.getIsResizing() && "bg-accent",
+                  )}
+                />
+              </div>
+            );
+          })}
         </div>
 
         {rows.length === 0 ? (

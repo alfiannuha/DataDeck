@@ -112,11 +112,30 @@ test.describe("table data browsing (PostgreSQL)", () => {
         connection,
         `INSERT INTO public.users VALUES (1, '${marker}', NULL), (2, '${marker}', 'x')`,
       );
+      // Same table name with different values for cross-database sorting.
+      const names: Record<string, string[]> = {
+        ALPHA: ["ZETA", "OMEGA", "THETA"],
+        BETA: ["ALPHA", "BETA", "GAMMA"],
+      };
       await exec(
         request,
         connection,
-        "CREATE TABLE public.many AS SELECT g AS id, 'row-' || g AS label FROM generate_series(1, 150) g",
+        "CREATE TABLE public.namers (id int PRIMARY KEY, name text)",
       );
+      for (const [index, name] of names[marker].entries()) {
+        await exec(
+          request,
+          connection,
+          `INSERT INTO public.namers VALUES (${index + 1}, '${name}')`,
+        );
+      }
+      // >pageSize rows in deliberately mixed order to prove global sorting.
+      await exec(
+        request,
+        connection,
+        "CREATE TABLE public.scores AS SELECT g AS id, (g * 37) % 250 AS score FROM generate_series(1, 250) g",
+      );
+      await exec(request, connection, "ALTER TABLE public.scores ADD PRIMARY KEY (id)");
     };
     await seed(DB_ALPHA, "ALPHA");
     await seed(DB_BETA, "BETA");
@@ -170,16 +189,39 @@ test.describe("table data browsing (PostgreSQL)", () => {
     ).toBeVisible();
     await expect(page.getByRole("gridcell").filter({ hasText: "BETA" })).toHaveCount(0);
 
-    // Pagination is backend-driven: page 1 → Next → page 2.
-    await openTable(page, DB_ALPHA, "many");
-    await expect(page.getByTestId("table-data-page")).toContainText("Page 1");
+    // Server-side sorting: alpha.namers ASC → OMEGA, THETA, ZETA.
+    await openTable(page, DB_ALPHA, "namers");
+    await page.getByRole("button", { name: "Sort by name" }).click();
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "OMEGA" }).first(),
+    ).toBeVisible();
+
+    // Explorer change + Refresh must not retarget the sorted alpha tab.
+    await databaseButton(page, DB_BETA).click();
+    await page.getByRole("button", { name: "Refresh table data" }).click();
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "OMEGA" }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("gridcell").filter({ hasText: "ALPHA" })).toHaveCount(0);
+
+    // Beta sorts its own data independently (ALPHA, BETA, GAMMA).
+    await openTable(page, DB_BETA, "namers");
+    await page.getByRole("button", { name: "Sort by name" }).click();
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "GAMMA" }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("gridcell").filter({ hasText: "OMEGA" })).toHaveCount(0);
+
+    // Global sorting before pagination: page 1 has the smallest scores; page 2
+    // continues the globally sorted dataset (a current-page sort would fail).
+    await openTable(page, DB_ALPHA, "scores");
+    await page.getByRole("button", { name: "Sort by score" }).click();
+    await expect(page.getByRole("gridcell").nth(1)).toHaveText("0");
     const next = page.getByRole("button", { name: "Next page" });
     await expect(next).toBeEnabled();
     await next.click();
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
-    await expect(
-      page.getByRole("gridcell").filter({ hasText: "row-101" }).first(),
-    ).toBeVisible();
+    await expect(page.getByRole("gridcell").nth(1)).toHaveText("100");
 
     // Cleanup (best-effort).
     await exec(request, admin, `DROP DATABASE IF EXISTS ${DB_ALPHA} WITH (FORCE)`);

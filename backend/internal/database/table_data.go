@@ -17,6 +17,9 @@ type TableBrowseRequest struct {
 	Table  string
 	Limit  int
 	Offset int
+	// Sort is optional. When set, the column is validated against metadata and
+	// the backend appends ORDER BY (never raw SQL from the caller). PRF-02/T05.
+	Sort *model.TableSort
 }
 
 // BrowseTable reads one bounded page of rows from a specific table without the
@@ -92,12 +95,37 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 		offset = 0
 	}
 
+	// Server-side ORDER BY. The requested column must be canonical metadata; the
+	// direction is an approved enum. Only quoted identifiers + ASC/DESC reach
+	// the SQL text.
+	orderBy := ""
+	if req.Sort != nil {
+		column := canonicalColumn(columns, req.Sort.Column)
+		if column == nil {
+			return model.TableDataPage{}, fmt.Errorf("%w: %s", ErrSortColumnNotFound, req.Sort.Column)
+		}
+		order := []string{quoteIdentifier(quote, column.Name) + " " + directionKeyword(req.Sort.Direction)}
+		// Deterministic tie-break by primary key (ascending) so OFFSET pages do
+		// not shift when sort values have duplicates; never exposed as UI sort
+		// state. No-PK tables stay engine-nondeterministic.
+		if table.PrimaryKey != nil {
+			for _, pk := range table.PrimaryKey.Columns {
+				if pk == "" || pk == column.Name {
+					continue
+				}
+				order = append(order, quoteIdentifier(quote, pk)+" ASC")
+			}
+		}
+		orderBy = " ORDER BY " + strings.Join(order, ", ")
+	}
+
 	// LIMIT/OFFSET are server-validated integers (never user text); identifiers
 	// are quoted metadata names. No value placeholder is needed or accepted.
 	sqlText := fmt.Sprintf(
-		"SELECT %s FROM %s LIMIT %d OFFSET %d",
+		"SELECT %s FROM %s%s LIMIT %d OFFSET %d",
 		strings.Join(projection, ", "),
 		qualifiedTable(quote, schemaForSQL, req.Table),
+		orderBy,
 		limit+1,
 		offset,
 	)
@@ -182,4 +210,24 @@ func qualifiedLabel(schema, table string) string {
 		return table
 	}
 	return schema + "." + table
+}
+
+// canonicalColumn returns the metadata column with the exact name, or nil.
+func canonicalColumn(columns []model.Column, name string) *model.Column {
+	for i := range columns {
+		if columns[i].Name == name {
+			return &columns[i]
+		}
+	}
+	return nil
+}
+
+// directionKeyword maps the validated enum to a SQL keyword. Anything other
+// than the approved "desc" resolves to ASC (the handler rejects invalid values
+// before this point, so this is defense in depth only).
+func directionKeyword(direction string) string {
+	if direction == "desc" {
+		return "DESC"
+	}
+	return "ASC"
 }

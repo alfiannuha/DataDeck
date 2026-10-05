@@ -201,3 +201,52 @@ func TestTableDataUnknownConnection(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
+
+func TestTableDataSortValidation(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	path := filepath.Join(t.TempDir(), "user.db")
+	seedSQLiteUsers(t, db, path)
+
+	cases := []struct {
+		name  string
+		query url.Values
+		code  string
+	}{
+		{"invalid direction", url.Values{"table": {"users"}, "sort_column": {"name"}, "sort_direction": {"random()"}}, "VALIDATION_ERROR"},
+		{"direction without column", url.Values{"table": {"users"}, "sort_direction": {"asc"}}, "VALIDATION_ERROR"},
+		{"column without direction", url.Values{"table": {"users"}, "sort_column": {"name"}}, "VALIDATION_ERROR"},
+		{"unknown column", url.Values{"table": {"users"}, "sort_column": {"nope"}, "sort_direction": {"asc"}}, "VALIDATION_ERROR"},
+		{"malicious column", url.Values{"table": {"users"}, "sort_column": {`name"; DROP TABLE users`}, "sort_direction": {"asc"}}, "VALIDATION_ERROR"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := callTableData(t, h, "sq", tc.query)
+			env := decodeEnvelope(t, rec)
+			if env.Error == nil || env.Error.Code != tc.code {
+				t.Fatalf("status=%d error=%+v, want %s", rec.Code, env.Error, tc.code)
+			}
+		})
+	}
+}
+
+func TestTableDataSortOrdersRowsServerSide(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	path := filepath.Join(t.TempDir(), "user.db")
+	seedSQLiteUsers(t, db, path)
+
+	rec := callTableData(t, h, "sq", url.Values{
+		"table": {"users"}, "sort_column": {"id"}, "sort_direction": {"desc"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var page struct {
+		Rows [][]any `json:"rows"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &page); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(page.Rows) != 2 || page.Rows[0][0] != float64(2) || page.Rows[1][0] != float64(1) {
+		t.Fatalf("rows = %+v, want id order [2,1]", page.Rows)
+	}
+}

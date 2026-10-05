@@ -36,6 +36,9 @@ var (
 	// ErrTableNotFound marks a Table Data request whose schema/table did not
 	// resolve in the target database's metadata (PRF-02).
 	ErrTableNotFound = errors.New("database: table not found")
+	// ErrSortColumnNotFound marks a Table Data sort whose column is not part of
+	// the canonical table metadata (PRF-02/T05).
+	ErrSortColumnNotFound = errors.New("database: sort column not found")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

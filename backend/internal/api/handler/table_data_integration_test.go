@@ -122,6 +122,30 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			marker); err != nil {
 			t.Fatalf("insert %s: %v", database, err)
 		}
+		// Cross-database sorting fixture: same table name, different values.
+		names := map[string][]string{
+			"ALPHA": {"ZETA", "OMEGA", "THETA"},
+			"BETA":  {"ALPHA", "BETA", "GAMMA"},
+		}[marker]
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.namers (id int PRIMARY KEY, name text)`); err != nil {
+			t.Fatalf("create namers in %s: %v", database, err)
+		}
+		for i, name := range names {
+			if _, err := pool.ExecContext(context.Background(),
+				`INSERT INTO public.namers VALUES ($1, $2)`, i+1, name); err != nil {
+				t.Fatalf("insert namer %s: %v", database, err)
+			}
+		}
+		// >pageSize rows in deliberately mixed order to prove global sorting.
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.scores AS SELECT g AS id, (g * 37) % 250 AS score FROM generate_series(1, 250) g`); err != nil {
+			t.Fatalf("create scores in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`ALTER TABLE public.scores ADD PRIMARY KEY (id)`); err != nil {
+			t.Fatalf("scores pk in %s: %v", database, err)
+		}
 	}
 	seedTable(dbA, "ALPHA")
 	seedTable(dbB, "BETA")
@@ -199,6 +223,71 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("sort is applied server-side across the whole dataset", func(t *testing.T) {
+		_, first, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"scores"},
+			"sort_column": {"score"}, "sort_direction": {"asc"}, "page_size": {"100"},
+		})
+		if len(first.Rows) != 100 {
+			t.Fatalf("page1 rows = %d, want 100", len(first.Rows))
+		}
+		if first.Rows[0][1] != float64(0) || first.Rows[99][1] != float64(99) {
+			t.Fatalf("page1 scores start/end = %v/%v, want 0/99 (global asc)", first.Rows[0][1], first.Rows[99][1])
+		}
+		if !first.Pagination.HasMore {
+			t.Error("page1 has_more = false, want true")
+		}
+
+		_, second, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"scores"},
+			"sort_column": {"score"}, "sort_direction": {"asc"}, "page_size": {"100"}, "page": {"2"},
+		})
+		if len(second.Rows) != 100 || second.Rows[0][1] != float64(100) {
+			t.Fatalf("page2 first score = %v, want 100 (continues global order)", second.Rows[0][1])
+		}
+	})
+
+	t.Run("sort DESC and unknown sort column", func(t *testing.T) {
+		_, page, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"users"},
+			"sort_column": {"id"}, "sort_direction": {"desc"},
+		})
+		if page.Rows[0][0] != "3" {
+			t.Fatalf("first id = %v, want 3 (desc)", page.Rows[0][0])
+		}
+		status, _, code := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"users"},
+			"sort_column": {`id"; DROP TABLE users`}, "sort_direction": {"asc"},
+		})
+		if code != "VALIDATION_ERROR" {
+			t.Fatalf("malicious sort -> status %d code %q, want VALIDATION_ERROR", status, code)
+		}
+	})
+
+	t.Run("cross-database sort isolation", func(t *testing.T) {
+		names := func(database string) []any {
+			_, page, _ := browse(t, h, "srv", url.Values{
+				"database": {database}, "schema": {"public"}, "table": {"namers"},
+				"sort_column": {"name"}, "sort_direction": {"asc"},
+			})
+			out := make([]any, 0, len(page.Rows))
+			for _, row := range page.Rows {
+				out = append(out, row[1])
+			}
+			return out
+		}
+		alphaNames := names(dbA)
+		betaNames := names(dbB)
+		wantAlpha := []any{"OMEGA", "THETA", "ZETA"}
+		wantBeta := []any{"ALPHA", "BETA", "GAMMA"}
+		if len(alphaNames) != 3 || alphaNames[0] != wantAlpha[0] || alphaNames[2] != wantAlpha[2] {
+			t.Fatalf("alpha sorted names = %v, want %v", alphaNames, wantAlpha)
+		}
+		if len(betaNames) != 3 || betaNames[0] != wantBeta[0] || betaNames[2] != wantBeta[2] {
+			t.Fatalf("beta sorted names = %v, want %v", betaNames, wantBeta)
+		}
+	})
 }
 
 func TestTableDataAPIIntegrationMySQL(t *testing.T) {
@@ -262,6 +351,13 @@ func TestTableDataAPIIntegrationMySQL(t *testing.T) {
 	if len(paged.Rows) != 2 || !paged.Pagination.HasMore {
 		t.Fatalf("mysql page = %d rows has_more=%v", len(paged.Rows), paged.Pagination.HasMore)
 	}
+
+	_, sorted, _ := browse(t, h, "my", url.Values{
+		"table": {"datadeck_td_users"}, "sort_column": {"id"}, "sort_direction": {"desc"},
+	})
+	if len(sorted.Rows) != 3 || sorted.Rows[0][0] != "3" {
+		t.Fatalf("mysql sort desc first id = %v, want 3", sorted.Rows[0][0])
+	}
 }
 
 // TestTableDataPerformancePostgres verifies a 100k-row table returns a bounded,
@@ -319,6 +415,22 @@ func TestTableDataPerformancePostgres(t *testing.T) {
 		t.Errorf("first page took %s, want bounded (< 5s)", elapsed)
 	}
 	t.Logf("100k-row first page: %s, rows=%d", elapsed, len(page.Rows))
+
+	// Sorted variants stay bounded (database performs the ordering).
+	for _, spec := range []struct{ column, direction, label string }{
+		{"id", "desc", "indexed PK desc"},
+		{"payload", "asc", "non-indexed text asc"},
+	} {
+		start := time.Now()
+		status, sorted, _ := browse(t, h, "perf", url.Values{
+			"database": {perfDB}, "schema": {"public"}, "table": {"big"},
+			"sort_column": {spec.column}, "sort_direction": {spec.direction},
+		})
+		if status != http.StatusOK || len(sorted.Rows) != 100 {
+			t.Fatalf("%s: status=%d rows=%d", spec.label, status, len(sorted.Rows))
+		}
+		t.Logf("100k-row sort %s: %s", spec.label, time.Since(start))
+	}
 }
 
 func TestTableDataIntegrationSQLite(t *testing.T) {
@@ -351,5 +463,12 @@ func TestTableDataIntegrationSQLite(t *testing.T) {
 	_, paged, _ := browse(t, h, "sq", url.Values{"table": {"items"}, "page_size": {"2"}, "page": {"2"}})
 	if len(paged.Rows) != 1 || paged.Pagination.HasMore {
 		t.Fatalf("sqlite page2 = %d rows has_more=%v", len(paged.Rows), paged.Pagination.HasMore)
+	}
+
+	_, sorted, _ := browse(t, h, "sq", url.Values{
+		"table": {"items"}, "sort_column": {"id"}, "sort_direction": {"desc"},
+	})
+	if len(sorted.Rows) != 3 || sorted.Rows[0][0] != float64(3) {
+		t.Fatalf("sqlite sort desc first id = %v, want 3", sorted.Rows[0][0])
 	}
 }

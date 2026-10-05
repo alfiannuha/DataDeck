@@ -13,6 +13,8 @@ export interface TableDataTarget {
   table: string;
   page: number;
   pageSize: number;
+  /** Single-column server-side sort (null = unsorted). */
+  sort: { column: string; direction: "asc" | "desc" } | null;
 }
 
 /**
@@ -32,6 +34,8 @@ export function useTableData(target: TableDataTarget, enabled = true) {
       target.table,
       target.page,
       target.pageSize,
+      target.sort?.column ?? null,
+      target.sort?.direction ?? null,
     ),
     queryFn: ({ signal }) =>
       browseTableData(
@@ -42,6 +46,7 @@ export function useTableData(target: TableDataTarget, enabled = true) {
           table: target.table,
           page: target.page,
           pageSize: target.pageSize,
+          sort: target.sort,
         },
         signal,
       ),

@@ -451,6 +451,10 @@ export interface paths {
                     page?: number;
                     /** @description Rows per page (default 100, max 200) */
                     page_size?: number;
+                    /** @description Column to sort by (validated against metadata) */
+                    sort_column?: string;
+                    /** @description Sort direction */
+                    sort_direction?: "asc" | "desc";
                 };
                 header?: never;
                 path: {
