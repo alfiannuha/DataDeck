@@ -71,6 +71,25 @@ async function openTable(page: Page, database: string, table: string): Promise<v
     .dblclick();
 }
 
+/** Sets a single structured filter on the active Table Data tab and applies it. */
+async function applyFilter(
+  page: Page,
+  column: string,
+  operator: string,
+  value?: string,
+): Promise<void> {
+  const toggle = page.getByTestId("table-data-filter-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") {
+    await toggle.click();
+  }
+  await page.getByLabel("Filter 1 column").selectOption(column);
+  await page.getByLabel("Filter 1 operator").selectOption(operator);
+  if (value !== undefined) {
+    await page.getByLabel("Filter 1 value").fill(value);
+  }
+  await page.getByRole("button", { name: "Apply" }).click();
+}
+
 test.describe("table data browsing (PostgreSQL)", () => {
   test.skip(!PG_HOST, "E2E_PG_HOST not set; skipping PostgreSQL Table Data E2E");
 
@@ -222,6 +241,49 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await next.click();
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
     await expect(page.getByRole("gridcell").nth(1)).toHaveText("100");
+
+    // Server-side filtering: alpha.users marker = ALPHA (never beta). Switch to
+    // the alpha users tab and filter it.
+    await page
+      .getByRole("region", { name: "Query tabs" })
+      .getByRole("button", { name: "users", exact: true })
+      .click();
+    await applyFilter(page, "marker", "equals", "ALPHA");
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "ALPHA" }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("gridcell").filter({ hasText: "BETA" })).toHaveCount(0);
+
+    // Explorer change + Refresh must not retarget the filtered alpha tab.
+    await databaseButton(page, DB_BETA).click();
+    await page.getByRole("button", { name: "Refresh table data" }).click();
+    await expect(page.getByRole("gridcell").filter({ hasText: "BETA" })).toHaveCount(0);
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "ALPHA" }).first(),
+    ).toBeVisible();
+
+    // beta.users filters independently (marker = BETA).
+    await openTable(page, DB_BETA, "users");
+    await applyFilter(page, "marker", "equals", "BETA");
+    await expect(
+      page.getByRole("gridcell").filter({ hasText: "BETA" }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("gridcell").filter({ hasText: "ALPHA" })).toHaveCount(0);
+
+    // Global filtering before pagination: score >= 150 with page_size 50 →
+    // page 1 is 150..199 and page 2 continues at 200 (a page-local filter fails).
+    await page
+      .getByRole("region", { name: "Query tabs" })
+      .getByRole("button", { name: "scores", exact: true })
+      .click();
+    await page.getByLabel("Page size").selectOption("50");
+    await applyFilter(page, "score", "greater_or_equal", "150");
+    await expect(page.getByRole("gridcell").nth(1)).toHaveText("150");
+    const filteredNext = page.getByRole("button", { name: "Next page" });
+    await expect(filteredNext).toBeEnabled();
+    await filteredNext.click();
+    await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
+    await expect(page.getByRole("gridcell").nth(1)).toHaveText("200");
 
     // Cleanup (best-effort).
     await exec(request, admin, `DROP DATABASE IF EXISTS ${DB_ALPHA} WITH (FORCE)`);

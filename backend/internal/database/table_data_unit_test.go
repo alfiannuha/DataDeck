@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ type browseFake struct {
 	result model.QueryResult
 	err    error
 	sql    string
+	args   []any
 }
 
 func (f *browseFake) Name() model.Driver { return f.driver }
@@ -32,6 +34,15 @@ func (f *browseFake) Introspect(context.Context, *sql.DB) ([]model.Database, err
 }
 func (f *browseFake) Execute(_ context.Context, _ *sql.DB, sqlText string) (model.QueryResult, error) {
 	f.sql = sqlText
+	if f.err != nil {
+		return model.QueryResult{}, f.err
+	}
+	return f.result, nil
+}
+
+func (f *browseFake) ExecuteArgs(_ context.Context, _ *sql.DB, sqlText string, args []any) (model.QueryResult, error) {
+	f.sql = sqlText
+	f.args = args
 	if f.err != nil {
 		return model.QueryResult{}, f.err
 	}
@@ -300,5 +311,159 @@ func TestBrowseTableSortNoPKNoTieBreak(t *testing.T) {
 	}
 	if fake.sql != `SELECT "msg" FROM "logs" ORDER BY "msg" ASC LIMIT 6 OFFSET 0` {
 		t.Errorf("SQL = %q", fake.sql)
+	}
+}
+
+func filterFake() *browseFake {
+	return &browseFake{driver: model.DriverPostgres, quote: `"`, dbs: browseFixture()}
+}
+
+func browseWith(t *testing.T, fake *browseFake, filters []model.TableFilter) error {
+	t.Helper()
+	m := NewManager(DefaultOptions(), fake)
+	_, err := m.BrowseTable(context.Background(), "c1", Config{Driver: fake.driver, Database: "alpha"}, TableBrowseRequest{
+		Schema: "public", Table: "users", Limit: 10, Filters: filters,
+	})
+	return err
+}
+
+func TestFilterEqualsAndPlaceholders(t *testing.T) {
+	fake := filterFake()
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "equals", Value: "Alfian"}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if fake.sql != `SELECT "id", "name" FROM "public"."users" WHERE "name" = $1 LIMIT 11 OFFSET 0` {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+	if len(fake.args) != 1 || fake.args[0] != "Alfian" {
+		t.Errorf("args = %#v, want [Alfian]", fake.args)
+	}
+}
+
+func TestFilterMultipleAndTagsAndSortOrder(t *testing.T) {
+	fake := filterFake()
+	filters := []model.TableFilter{
+		{Column: "name", Operator: "equals", Value: "A"},
+		{Column: "id", Operator: "greater_or_equal", Value: json.Number("18")},
+	}
+	m := NewManager(DefaultOptions(), fake)
+	if _, err := m.BrowseTable(context.Background(), "c1", Config{Driver: model.DriverPostgres, Database: "alpha"}, TableBrowseRequest{
+		Schema: "public", Table: "users", Limit: 5, Offset: 10, Filters: filters,
+		Sort: &model.TableSort{Column: "name", Direction: "desc"},
+	}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	want := `SELECT "id", "name" FROM "public"."users" WHERE "name" = $1 AND "id" >= $2 ORDER BY "name" DESC, "id" ASC LIMIT 6 OFFSET 10`
+	if fake.sql != want {
+		t.Errorf("SQL = %q, want %q", fake.sql, want)
+	}
+	if len(fake.args) != 2 || fake.args[1] != "18" {
+		t.Errorf("args = %#v, want exact string 18", fake.args)
+	}
+}
+
+func TestFilterContainsEscapesWildcards(t *testing.T) {
+	fake := filterFake()
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "contains", Value: "100%_"}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	want := `SELECT "id", "name" FROM "public"."users" WHERE "name" LIKE $1 ESCAPE '\' LIMIT 11 OFFSET 0`
+	if fake.sql != want {
+		t.Errorf("SQL = %q, want %q", fake.sql, want)
+	}
+	if len(fake.args) != 1 || fake.args[0] != `%100\%\_%` {
+		t.Errorf("args = %#v, want escaped pattern", fake.args)
+	}
+}
+
+func TestFilterMySQLPlaceholder(t *testing.T) {
+	fake := &browseFake{
+		driver: model.DriverMySQL,
+		quote:  "`",
+		dbs: []model.Database{{Tables: []model.Table{{
+			Name:    "users",
+			Type:    "BASE TABLE",
+			Columns: []model.Column{{Name: "status", DataType: "varchar", OrdinalPosition: 1}},
+		}}}},
+	}
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "status", Operator: "equals", Value: "active"}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	want := "SELECT `status` FROM `users` WHERE `status` = ? LIMIT 11 OFFSET 0"
+	if fake.sql != want {
+		t.Errorf("SQL = %q, want %q", fake.sql, want)
+	}
+}
+
+func TestFilterNullOperators(t *testing.T) {
+	fake := filterFake()
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "is_null"}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if fake.sql != `SELECT "id", "name" FROM "public"."users" WHERE "name" IS NULL LIMIT 11 OFFSET 0` {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+	if len(fake.args) != 0 {
+		t.Errorf("args = %#v, want none", fake.args)
+	}
+
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "is_null", Value: "x"}}); !errors.Is(err, ErrInvalidFilter) {
+		t.Fatalf("is_null with value error = %v, want ErrInvalidFilter", err)
+	}
+}
+
+func TestFilterInBounds(t *testing.T) {
+	fake := filterFake()
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "in", Values: []any{"a", "b"}}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if fake.sql != `SELECT "id", "name" FROM "public"."users" WHERE "name" IN ($1, $2) LIMIT 11 OFFSET 0` {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "in"}}); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("empty IN error = %v, want ErrInvalidFilter", err)
+	}
+
+	values := make([]any, maxInValues+1)
+	for i := range values {
+		values[i] = i
+	}
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "name", Operator: "in", Values: values}}); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("oversized IN error = %v, want ErrInvalidFilter", err)
+	}
+}
+
+func TestFilterValidationErrors(t *testing.T) {
+	cases := map[string][]model.TableFilter{
+		"unknown column":        {{Column: "nope", Operator: "equals", Value: "x"}},
+		"malicious column":      {{Column: `name"; DROP TABLE users`, Operator: "equals", Value: "x"}},
+		"unknown operator":      {{Column: "name", Operator: "raw", Value: "x"}},
+		"injection operator":    {{Column: "name", Operator: "= 1 OR 1=1", Value: "x"}},
+		"missing value":         {{Column: "name", Operator: "equals"}},
+		"incompatible contains": {{Column: "id", Operator: "contains", Value: "12"}},
+		"null equals":           {{Column: "name", Operator: "equals", Value: nil}},
+	}
+	for name, filters := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := filterFake()
+			err := browseWith(t, fake, filters)
+			if !errors.Is(err, ErrInvalidFilter) && !errors.Is(err, ErrFilterColumnNotFound) {
+				t.Fatalf("error = %v, want ErrInvalidFilter/ErrFilterColumnNotFound", err)
+			}
+			if fake.sql != "" {
+				t.Errorf("no SQL expected on invalid filter, got %q", fake.sql)
+			}
+		})
+	}
+}
+
+func TestFilterBigintExactValue(t *testing.T) {
+	fake := filterFake()
+	if err := browseWith(t, fake, []model.TableFilter{{Column: "id", Operator: "equals", Value: json.Number("9223372036854775807")}}); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(fake.args) != 1 || fake.args[0] != "9223372036854775807" {
+		t.Errorf("args = %#v, want exact BIGINT string", fake.args)
 	}
 }

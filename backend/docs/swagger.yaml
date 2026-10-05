@@ -743,6 +743,12 @@ paths:
           - asc
           - desc
           type: string
+      - description: URL-encoded JSON array of {column,operator,value|values} filters
+          (ANDed; PRF-02/T06)
+        in: query
+        name: filters
+        schema:
+          type: string
       responses:
         "200":
           content:

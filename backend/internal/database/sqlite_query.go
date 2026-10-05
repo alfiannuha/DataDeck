@@ -22,6 +22,11 @@ const maxSafeInteger = int64(9007199254740991)
 // decided by the database (result set columns vs none); affected rows come from
 // SQLite's changes() on the same connection.
 func (SQLite) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.QueryResult, error) {
+	return (SQLite{}).ExecuteArgs(ctx, db, sqlText, nil)
+}
+
+// ExecuteArgs is Execute with bound parameters (PRF-02 table filters).
+func (SQLite) ExecuteArgs(ctx context.Context, db *sql.DB, sqlText string, args []any) (model.QueryResult, error) {
 	var result model.QueryResult
 
 	conn, err := db.Conn(ctx)
@@ -34,7 +39,7 @@ func (SQLite) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.Qu
 	defer func() { _ = conn.Close() }()
 
 	start := time.Now()
-	err = executeSQLiteQuery(ctx, conn, sqlText, &result)
+	err = executeSQLiteQuery(ctx, conn, sqlText, args, &result)
 	result.ExecutionTimeMS = time.Since(start).Milliseconds()
 	if err != nil {
 		return result, sqliteSQLError(err)
@@ -42,11 +47,11 @@ func (SQLite) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.Qu
 	return result, nil
 }
 
-func executeSQLiteQuery(ctx context.Context, conn *sql.Conn, sqlText string, result *model.QueryResult) error {
+func executeSQLiteQuery(ctx context.Context, conn *sql.Conn, sqlText string, args []any, result *model.QueryResult) error {
 	queryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	rows, err := conn.QueryContext(queryCtx, sqlText)
+	rows, err := conn.QueryContext(queryCtx, sqlText, args...)
 	if err != nil {
 		return err
 	}

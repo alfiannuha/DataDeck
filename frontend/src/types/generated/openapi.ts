@@ -455,6 +455,8 @@ export interface paths {
                     sort_column?: string;
                     /** @description Sort direction */
                     sort_direction?: "asc" | "desc";
+                    /** @description URL-encoded JSON array of {column,operator,value|values} filters (ANDed; PRF-02/T06) */
+                    filters?: string;
                 };
                 header?: never;
                 path: {

@@ -12,6 +12,22 @@ type TableSort struct {
 	Direction string `json:"direction" enums:"asc,desc" example:"desc"`
 }
 
+// TableFilter is one structured server-side filter (PRF-02/T06). Column and
+// Operator are validated against metadata/enums; values are bound parameters.
+// Multiple filters are combined with AND. There is intentionally no field for
+// raw SQL/WHERE. Numbers decode as json.Number so BIGINT text stays exact.
+type TableFilter struct {
+	Column   string `json:"column" example:"status"`
+	Operator string `json:"operator" enums:"equals,not_equals,contains,starts_with,ends_with,greater_than,greater_or_equal,less_than,less_or_equal,is_null,is_not_null,in" example:"equals"`
+	Value    any    `json:"value,omitempty" example:"active"`
+	Values   []any  `json:"values,omitempty" example:"active,pending"`
+}
+
+// TableFilterEnvelope carries the decoded filter list (used by swagger docs).
+type TableFilterEnvelope struct {
+	Filters []TableFilter `json:"filters"`
+}
+
 // TableColumnInfo is the metadata needed to render and (later) mutate a column.
 // It is derived from introspection, never trusted from the client.
 type TableColumnInfo struct {

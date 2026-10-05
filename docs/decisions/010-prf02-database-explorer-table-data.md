@@ -271,20 +271,28 @@ interface TableFilter {
 - A filter is valid only for a **single** column that exists in the
   introspected table metadata; unknown column → `COLUMN_NOT_FOUND` (400).
 - Operator/type compatibility is enforced by a type category derived from the
-  column's `data_type`:
-  - text-like (char/text/uuid/enum/json-cast): `equals/not_equals/contains/
+  column's `data_type` (implemented conservatively in PRF02-T06):
+  - text (char/varchar/text/enum/...): `equals/not_equals/contains/
     starts_with/ends_with/in/is_null/is_not_null`
   - numeric (int/float/decimal/numeric/money): `equals/not_equals/
     greater_than/greater_or_equal/less_than/less_or_equal/in/is_null/is_not_null`
   - temporal (date/time/timestamp): comparison + equality + null operators only
   - boolean: `equals/not_equals/is_null/is_not_null`
-  - binary/other: equality + null operators only
+  - uuid: equality + `in` + null operators only
+  - binary/JSON/other/unknown: **null operators only** (predictable engine
+    errors are avoided rather than attempted)
   - incompatible operator → `INVALID_FILTER` (400).
-- All values are **bound parameters**, never concatenated. `in` expands to a
-  bounded placeholder list. `contains/starts_with/ends_with` escape `%`/`_`
-  and use an explicit `ESCAPE` clause.
-- Multiple filters combine with `AND` in v0.1.0; OR groups are **Needs
-  Validation** (deferred).
+- All values are **bound parameters**, never concatenated (drivers expose an
+  optional `ArgumentExecutor`). `in` expands to a bounded placeholder list
+  (max **100** values; empty list rejected). `contains/starts_with/ends_with`
+  escape `%`, `_`, and `\`, with a dialect-correct explicit `ESCAPE` clause.
+- Multiple filters combine with `AND` in v0.1.0; up to 20 filters per request.
+  OR groups/nested expressions are **not supported** (future work).
+- **Implementation note (PRF02-T06):** filters are transported as a
+  URL-encoded JSON array in the `filters` query parameter of the existing
+  `GET /connections/{id}/table-data` endpoint (no second endpoint, no raw
+  `WHERE`). Numbers decode via `json.Number` so BIGINT stays exact. Filtering,
+  like sorting, is applied by the target database before `LIMIT`/`OFFSET`.
 
 ### 8. Sorting Model
 

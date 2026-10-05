@@ -39,6 +39,12 @@ var (
 	// ErrSortColumnNotFound marks a Table Data sort whose column is not part of
 	// the canonical table metadata (PRF-02/T05).
 	ErrSortColumnNotFound = errors.New("database: sort column not found")
+	// ErrFilterColumnNotFound marks a Table Data filter whose column is not part
+	// of the canonical table metadata (PRF-02/T06).
+	ErrFilterColumnNotFound = errors.New("database: filter column not found")
+	// ErrInvalidFilter marks a malformed or type-incompatible filter structure
+	// (unknown operator, missing/extra value, oversized IN, ...).
+	ErrInvalidFilter = errors.New("database: invalid filter")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.
@@ -105,6 +111,12 @@ type DatabaseLister interface {
 	// the connection's credentials, excluding templates and databases the user
 	// cannot connect to.
 	ListDatabases(ctx context.Context, db *sql.DB) ([]model.DatabaseInfo, error)
+}
+
+// ArgumentExecutor is an optional connector capability for parameterized reads
+// (PRF-02 table filters). Values are bound as parameters, never concatenated.
+type ArgumentExecutor interface {
+	ExecuteArgs(ctx context.Context, db *sql.DB, sqlText string, args []any) (model.QueryResult, error)
 }
 
 // Connector opens and health-checks pools for a single target database driver,

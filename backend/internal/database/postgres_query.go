@@ -33,6 +33,12 @@ const MaxResultBytes = 50 * 1024 * 1024
 // non-row statements; sniffing the SQL text for a leading SELECT would be
 // fooled by CTEs, comments and RETURNING clauses.
 func (Postgres) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.QueryResult, error) {
+	return (Postgres{}).ExecuteArgs(ctx, db, sqlText, nil)
+}
+
+// ExecuteArgs is Execute with bound parameters (PRF-02 table filters). Values
+// are passed to pgx as parameters — never concatenated into SQL.
+func (Postgres) ExecuteArgs(ctx context.Context, db *sql.DB, sqlText string, args []any) (model.QueryResult, error) {
 	var result model.QueryResult
 
 	conn, err := db.Conn(ctx)
@@ -57,7 +63,7 @@ func (Postgres) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.
 		if !ok {
 			return fmt.Errorf("unexpected driver connection type %T", driverConn)
 		}
-		return executePostgresQuery(ctx, stdlibConn.Conn(), sqlText, &result)
+		return executePostgresQuery(ctx, stdlibConn.Conn(), sqlText, args, &result)
 	})
 	result.ExecutionTimeMS = time.Since(start).Milliseconds()
 	if err != nil {
@@ -106,13 +112,13 @@ func isPGConnectionClass(code string) bool {
 	return false
 }
 
-func executePostgresQuery(ctx context.Context, conn *pgx.Conn, sqlText string, result *model.QueryResult) error {
+func executePostgresQuery(ctx context.Context, conn *pgx.Conn, sqlText string, args []any, result *model.QueryResult) error {
 	// A cancellable child lets truncation stop the server sending more rows
 	// instead of draining the whole result set.
 	queryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	rows, err := conn.Query(queryCtx, sqlText)
+	rows, err := conn.Query(queryCtx, sqlText, args...)
 	if err != nil {
 		return err
 	}

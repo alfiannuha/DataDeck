@@ -295,3 +295,111 @@ function tabSort() {
   const tab = useWorkspaceStore.getState().tabs[0];
   return tab.kind === "table-data" ? tab.sort : [];
 }
+
+describe("TableDataView filters", () => {
+  it("applies a draft filter only on Apply and resets page to 1", async () => {
+    useWorkspaceStore.setState({ tabs: [tableTab({ page: 3 })], activeTabId: "td1" });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByTestId("table-data-filter-toggle"));
+    const before = vi.mocked(browseTableData).mock.calls.length;
+    fireEvent.change(screen.getByLabelText("Filter 1 value"), {
+      target: { value: "1" },
+    });
+    // Draft typing must not hit the backend or mutate the tab.
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({ filters: [] });
+    expect(vi.mocked(browseTableData).mock.calls.length).toBe(before);
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.kind === "table-data" && tab.filters).toEqual([
+      { column: "id", operator: "equals", value: "1" },
+    ]);
+    expect(tab.kind === "table-data" && tab.page).toBe(1);
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1].filters).toEqual([
+        { column: "id", operator: "equals", value: "1" },
+      ]),
+    );
+  });
+
+  it("offers operator choices based on the column type", async () => {
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    fireEvent.click(screen.getByTestId("table-data-filter-toggle"));
+
+    // Numeric column: comparison operators, no contains.
+    expect(screen.getByRole("option", { name: ">=" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "contains" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Filter 1 column"), {
+      target: { value: "name" },
+    });
+    expect(screen.getByRole("option", { name: "contains" })).toBeInTheDocument();
+  });
+
+  it("NULL operators apply without a value", async () => {
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    fireEvent.click(screen.getByTestId("table-data-filter-toggle"));
+    fireEvent.change(screen.getByLabelText("Filter 1 operator"), {
+      target: { value: "is_null" },
+    });
+    expect(screen.queryByLabelText("Filter 1 value")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      filters: [{ column: "id", operator: "is_null" }],
+    });
+  });
+
+  it("keeps BIGINT filter values exact and preserves sort", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ sort: [{ column: "name", direction: "desc" }] })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    fireEvent.click(screen.getByTestId("table-data-filter-toggle"));
+    fireEvent.change(screen.getByLabelText("Filter 1 value"), {
+      target: { value: "9223372036854775807" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.kind === "table-data" && tab.filters[0].value).toBe("9223372036854775807");
+    expect(tab.kind === "table-data" && tab.sort).toEqual([
+      { column: "name", direction: "desc" },
+    ]);
+  });
+
+  it("Clear resets filters to none and keeps the page at 1", async () => {
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ filters: [{ column: "id", operator: "equals", value: "1" }], page: 2 })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    fireEvent.click(screen.getByTestId("table-data-filter-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({ filters: [], page: 1 });
+  });
+
+  it("surfaces a sanitized INVALID_FILTER error without clearing filters", async () => {
+    vi.mocked(browseTableData).mockRejectedValueOnce(
+      new ApiClientError("the filter is invalid for that column", "INVALID_FILTER", 400),
+    );
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ filters: [{ column: "id", operator: "contains", value: "x" }] })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+
+    const error = await screen.findByTestId("table-data-error");
+    expect(error).toHaveTextContent("INVALID_FILTER");
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      filters: [{ column: "id", operator: "contains", value: "x" }],
+    });
+  });
+});

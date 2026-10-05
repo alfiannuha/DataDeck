@@ -32,6 +32,7 @@ export const queryKeys = {
     pageSize: number,
     sortColumn: string | null = null,
     sortDirection: string | null = null,
+    filtersKey: string = "",
   ) =>
     [
       "connections",
@@ -44,6 +45,7 @@ export const queryKeys = {
       pageSize,
       sortColumn ?? "",
       sortDirection ?? "",
+      filtersKey,
     ] as const,
   /** Prefix for every Table Data query of a connection (invalidation/refresh). */
   tableDataRoot: (connectionId: string) =>

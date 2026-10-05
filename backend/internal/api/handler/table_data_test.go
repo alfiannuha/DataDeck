@@ -250,3 +250,70 @@ func TestTableDataSortOrdersRowsServerSide(t *testing.T) {
 		t.Fatalf("rows = %+v, want id order [2,1]", page.Rows)
 	}
 }
+
+func TestTableDataFilters(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	path := filepath.Join(t.TempDir(), "user.db")
+	seedSQLiteUsers(t, db, path)
+
+	count := func(t *testing.T, query url.Values) [][]any {
+		t.Helper()
+		rec := callTableData(t, h, "sq", query)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		var page struct {
+			Rows [][]any `json:"rows"`
+		}
+		if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &page); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return page.Rows
+	}
+
+	if rows := count(t, url.Values{"table": {"users"}, "filters": {`[{"column":"name","operator":"equals","value":"Alfian"}]`}}); len(rows) != 1 {
+		t.Errorf("equals rows = %d, want 1", len(rows))
+	}
+	if rows := count(t, url.Values{"table": {"users"}, "filters": {`[{"column":"name","operator":"is_null"}]`}}); len(rows) != 1 {
+		t.Errorf("is_null rows = %d, want 1", len(rows))
+	}
+	if rows := count(t, url.Values{"table": {"users"}, "filters": {`[{"column":"id","operator":"greater_or_equal","value":2}]`}}); len(rows) != 1 {
+		t.Errorf("numeric rows = %d, want 1", len(rows))
+	}
+	if rows := count(t, url.Values{
+		"table":       {"users"},
+		"filters":     {`[{"column":"id","operator":"greater_or_equal","value":1}]`},
+		"sort_column": {"id"}, "sort_direction": {"desc"},
+	}); len(rows) != 2 || rows[0][0] != float64(2) {
+		t.Errorf("filter+sort rows = %#v, want id desc [2,1]", rows)
+	}
+}
+
+func TestTableDataFilterErrors(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	path := filepath.Join(t.TempDir(), "user.db")
+	seedSQLiteUsers(t, db, path)
+
+	cases := []struct {
+		name   string
+		filter string
+		code   string
+	}{
+		{"malformed json", `not-json`, "VALIDATION_ERROR"},
+		{"unknown column", `[{"column":"nope","operator":"equals","value":"x"}]`, "COLUMN_NOT_FOUND"},
+		{"malicious column", `[{"column":"name; DROP TABLE users","operator":"equals","value":"x"}]`, "COLUMN_NOT_FOUND"},
+		{"invalid operator", `[{"column":"name","operator":"raw","value":"x"}]`, "INVALID_FILTER"},
+		{"incompatible type", `[{"column":"big","operator":"contains","value":"9"}]`, "INVALID_FILTER"},
+		{"is_null with value", `[{"column":"name","operator":"is_null","value":"x"}]`, "INVALID_FILTER"},
+		{"empty in", `[{"column":"name","operator":"in","values":[]}]`, "INVALID_FILTER"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := callTableData(t, h, "sq", url.Values{"table": {"users"}, "filters": {tc.filter}})
+			env := decodeEnvelope(t, rec)
+			if env.Error == nil || env.Error.Code != tc.code {
+				t.Fatalf("status=%d error=%+v, want %s", rec.Code, env.Error, tc.code)
+			}
+		})
+	}
+}

@@ -160,6 +160,13 @@ export function deleteSavedQuery(
   );
 }
 
+export interface TableFilterParams {
+  column: string;
+  operator: string;
+  value?: unknown;
+  values?: unknown[];
+}
+
 export interface TableDataParams {
   database?: string | null;
   schema?: string | null;
@@ -168,6 +175,8 @@ export interface TableDataParams {
   pageSize: number;
   /** Structured, single-column server-side sort (never raw SQL). */
   sort?: { column: string; direction: "asc" | "desc" } | null;
+  /** Structured, ANDed server-side filters (never raw SQL/WHERE). */
+  filters?: TableFilterParams[];
 }
 
 /**
@@ -188,6 +197,9 @@ export function browseTableData(
   if (params.sort) {
     query.set("sort_column", params.sort.column);
     query.set("sort_direction", params.sort.direction);
+  }
+  if (params.filters && params.filters.length > 0) {
+    query.set("filters", JSON.stringify(params.filters));
   }
   return apiFetch<TableDataPage>(
     `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,

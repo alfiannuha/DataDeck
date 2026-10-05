@@ -21,6 +21,11 @@ import (
 // JSON-safe result. Row vs non-row is decided by the database (a result set has
 // columns; a command does not) — never by parsing the SQL text.
 func (MySQL) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.QueryResult, error) {
+	return (MySQL{}).ExecuteArgs(ctx, db, sqlText, nil)
+}
+
+// ExecuteArgs is Execute with bound parameters (PRF-02 table filters).
+func (MySQL) ExecuteArgs(ctx context.Context, db *sql.DB, sqlText string, args []any) (model.QueryResult, error) {
 	var result model.QueryResult
 
 	conn, err := db.Conn(ctx)
@@ -33,7 +38,7 @@ func (MySQL) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.Que
 	defer func() { _ = conn.Close() }()
 
 	start := time.Now()
-	err = executeMySQLQuery(ctx, conn, sqlText, &result)
+	err = executeMySQLQuery(ctx, conn, sqlText, args, &result)
 	result.ExecutionTimeMS = time.Since(start).Milliseconds()
 	if err != nil {
 		converted := mysqlSQLError(err)
@@ -48,12 +53,12 @@ func (MySQL) Execute(ctx context.Context, db *sql.DB, sqlText string) (model.Que
 	return result, nil
 }
 
-func executeMySQLQuery(ctx context.Context, conn *sql.Conn, sqlText string, result *model.QueryResult) error {
+func executeMySQLQuery(ctx context.Context, conn *sql.Conn, sqlText string, args []any, result *model.QueryResult) error {
 	// A cancellable child lets truncation stop the server sending more rows.
 	queryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	rows, err := conn.QueryContext(queryCtx, sqlText)
+	rows, err := conn.QueryContext(queryCtx, sqlText, args...)
 	if err != nil {
 		return err
 	}

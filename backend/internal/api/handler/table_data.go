@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -28,6 +30,7 @@ import (
 // @Param        page_size  query     int     false  "Rows per page (default 100, max 200)"
 // @Param        sort_column query    string  false  "Column to sort by (validated against metadata)"
 // @Param        sort_direction query string false  "Sort direction" Enums(asc, desc)
+// @Param        filters     query     string  false  "URL-encoded JSON array of {column,operator,value|values} filters (ANDed; PRF-02/T06)"
 // @Success      200  {object}  response.Envelope{data=model.TableDataPage}
 // @Failure      400  {object}  response.ErrorEnvelope
 // @Failure      404  {object}  response.ErrorEnvelope
@@ -58,6 +61,12 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sortSpec, err := parseTableSort(r)
+	if err != nil {
+		response.ValidationError(w, err.Error())
+		return
+	}
+
+	filters, err := parseTableFilters(r)
 	if err != nil {
 		response.ValidationError(w, err.Error())
 		return
@@ -101,11 +110,12 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 	cfg.Database = effectiveDatabase
 
 	page, err := h.manager.BrowseTable(ctx, id, cfg, database.TableBrowseRequest{
-		Schema: schema,
-		Table:  table,
-		Limit:  params.PageSize,
-		Offset: params.Offset,
-		Sort:   sortSpec,
+		Schema:  schema,
+		Table:   table,
+		Limit:   params.PageSize,
+		Offset:  params.Offset,
+		Sort:    sortSpec,
+		Filters: filters,
 	})
 	if err != nil {
 		h.tableDataError(w, r, err)
@@ -148,10 +158,36 @@ func parseTableSort(r *http.Request) (*model.TableSort, error) {
 	return &model.TableSort{Column: column, Direction: direction}, nil
 }
 
+// maxTableFilters bounds how many ANDed filters one request may carry.
+const maxTableFilters = 20
+
+// parseTableFilters decodes the optional `filters` query parameter: a JSON
+// array of structured filters. Numbers use json.Number so BIGINT stays exact.
+func parseTableFilters(r *http.Request) ([]model.TableFilter, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("filters"))
+	if raw == "" {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var filters []model.TableFilter
+	if err := decoder.Decode(&filters); err != nil {
+		return nil, errors.New("filters must be a JSON array of {column, operator, value}")
+	}
+	if len(filters) > maxTableFilters {
+		return nil, fmt.Errorf("at most %d filters are allowed", maxTableFilters)
+	}
+	return filters, nil
+}
+
 // tableDataError maps browse failures to sanitized API errors. It reuses the
 // existing connection/database taxonomy and never returns a driver DSN or SQL.
 func (h *ConnectionHandler) tableDataError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, database.ErrFilterColumnNotFound):
+		response.WriteError(w, http.StatusBadRequest, "COLUMN_NOT_FOUND", "unknown filter column")
+	case errors.Is(err, database.ErrInvalidFilter):
+		response.WriteError(w, http.StatusBadRequest, "INVALID_FILTER", "the filter is invalid for that column")
 	case errors.Is(err, database.ErrSortColumnNotFound):
 		response.ValidationError(w, "unknown sort column")
 	case errors.Is(err, database.ErrTableNotFound):

@@ -20,6 +20,8 @@ type TableBrowseRequest struct {
 	// Sort is optional. When set, the column is validated against metadata and
 	// the backend appends ORDER BY (never raw SQL from the caller). PRF-02/T05.
 	Sort *model.TableSort
+	// Filters are optional structured predicates ANDed together (PRF-02/T06).
+	Filters []model.TableFilter
 }
 
 // BrowseTable reads one bounded page of rows from a specific table without the
@@ -86,6 +88,16 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 		projection[i] = quoteIdentifier(quote, column.Name)
 	}
 
+	// Structured filters → ANDed, fully parameterized WHERE (before ORDER BY).
+	whereSQL, filterArgs, err := filterClause(quote, string(cfg.Driver), req.Filters, columns)
+	if err != nil {
+		return model.TableDataPage{}, err
+	}
+	whereClause := ""
+	if whereSQL != "" {
+		whereClause = " WHERE " + whereSQL
+	}
+
 	limit := req.Limit
 	if limit < 1 {
 		limit = 1
@@ -120,17 +132,27 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 	}
 
 	// LIMIT/OFFSET are server-validated integers (never user text); identifiers
-	// are quoted metadata names. No value placeholder is needed or accepted.
+	// are quoted metadata names. Filter values are the only bound parameters.
 	sqlText := fmt.Sprintf(
-		"SELECT %s FROM %s%s LIMIT %d OFFSET %d",
+		"SELECT %s FROM %s%s%s LIMIT %d OFFSET %d",
 		strings.Join(projection, ", "),
 		qualifiedTable(quote, schemaForSQL, req.Table),
+		whereClause,
 		orderBy,
 		limit+1,
 		offset,
 	)
 
-	result, err := connector.Execute(ctx, db, sqlText)
+	var result model.QueryResult
+	if len(filterArgs) > 0 {
+		executor, ok := connector.(ArgumentExecutor)
+		if !ok {
+			return model.TableDataPage{}, fmt.Errorf("%w: parameterized browsing", ErrNotImplemented)
+		}
+		result, err = executor.ExecuteArgs(ctx, db, sqlText, filterArgs)
+	} else {
+		result, err = connector.Execute(ctx, db, sqlText)
+	}
 	if err != nil {
 		return model.TableDataPage{}, err
 	}

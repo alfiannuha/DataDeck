@@ -265,6 +265,84 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("structured filters are validated and parameterized", func(t *testing.T) {
+		rowsFor := func(database, filters string) [][]any {
+			_, page, _ := browse(t, h, "srv", url.Values{
+				"database": {database}, "schema": {"public"}, "table": {"users"}, "filters": {filters},
+			})
+			return page.Rows
+		}
+		// Text equality (all alpha rows share the marker).
+		if rows := rowsFor(dbA, `[{"column":"marker","operator":"equals","value":"ALPHA"}]`); len(rows) != 3 {
+			t.Errorf("equals rows = %d, want 3", len(rows))
+		}
+		// NULL semantics.
+		if rows := rowsFor(dbA, `[{"column":"note","operator":"is_null"}]`); len(rows) != 1 {
+			t.Errorf("is_null rows = %d, want 1", len(rows))
+		}
+		// Numeric comparison + AND.
+		if rows := rowsFor(dbA, `[{"column":"marker","operator":"equals","value":"ALPHA"},{"column":"id","operator":"greater_or_equal","value":"2"}]`); len(rows) != 2 {
+			t.Errorf("AND rows = %d, want 2", len(rows))
+		}
+		// IN.
+		if rows := rowsFor(dbA, `[{"column":"marker","operator":"in","values":["ALPHA","BETA"]}]`); len(rows) != 3 {
+			t.Errorf("in rows = %d, want 3", len(rows))
+		}
+		// contains on a text column.
+		if rows := rowsFor(dbA, `[{"column":"marker","operator":"contains","value":"LPH"}]`); len(rows) != 3 {
+			t.Errorf("contains rows = %d, want 3", len(rows))
+		}
+		// Unknown column / invalid operator are rejected.
+		if status, _, code := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"users"},
+			"filters": {`[{"column":"nope","operator":"equals","value":"x"}]`},
+		}); code != "COLUMN_NOT_FOUND" {
+			t.Errorf("unknown column -> status %d code %q, want COLUMN_NOT_FOUND", status, code)
+		}
+		if status, _, code := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"users"},
+			"filters": {`[{"column":"marker","operator":"raw","value":"x"}]`},
+		}); code != "INVALID_FILTER" {
+			t.Errorf("invalid operator -> status %d code %q, want INVALID_FILTER", status, code)
+		}
+	})
+
+	t.Run("filter applies before sort and pagination over the whole dataset", func(t *testing.T) {
+		_, first, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"scores"},
+			"filters":     {`[{"column":"score","operator":"greater_or_equal","value":100}]`},
+			"sort_column": {"score"}, "sort_direction": {"asc"}, "page_size": {"100"},
+		})
+		if len(first.Rows) != 100 || first.Rows[0][1] != float64(100) || !first.Pagination.HasMore {
+			t.Fatalf("filtered page1 = %d rows start %v has_more %v", len(first.Rows), first.Rows[0][1], first.Pagination.HasMore)
+		}
+		_, second, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"scores"},
+			"filters":     {`[{"column":"score","operator":"greater_or_equal","value":100}]`},
+			"sort_column": {"score"}, "sort_direction": {"asc"}, "page_size": {"100"}, "page": {"2"},
+		})
+		if len(second.Rows) != 50 || second.Rows[0][1] != float64(200) || second.Pagination.HasMore {
+			t.Fatalf("filtered page2 = %d rows start %v has_more %v", len(second.Rows), second.Rows[0][1], second.Pagination.HasMore)
+		}
+	})
+
+	t.Run("cross-database filter isolation", func(t *testing.T) {
+		_, alpha, _ := browse(t, h, "srv", url.Values{
+			"database": {dbA}, "schema": {"public"}, "table": {"namers"},
+			"filters": {`[{"column":"name","operator":"equals","value":"OMEGA"}]`},
+		})
+		if len(alpha.Rows) != 1 || alpha.Rows[0][1] != "OMEGA" {
+			t.Fatalf("alpha filter rows = %#v, want OMEGA only", alpha.Rows)
+		}
+		_, beta, _ := browse(t, h, "srv", url.Values{
+			"database": {dbB}, "schema": {"public"}, "table": {"namers"},
+			"filters": {`[{"column":"name","operator":"equals","value":"ALPHA"}]`},
+		})
+		if len(beta.Rows) != 1 || beta.Rows[0][1] != "ALPHA" {
+			t.Fatalf("beta filter rows = %#v, want ALPHA only", beta.Rows)
+		}
+	})
+
 	t.Run("cross-database sort isolation", func(t *testing.T) {
 		names := func(database string) []any {
 			_, page, _ := browse(t, h, "srv", url.Values{
@@ -358,6 +436,14 @@ func TestTableDataAPIIntegrationMySQL(t *testing.T) {
 	if len(sorted.Rows) != 3 || sorted.Rows[0][0] != "3" {
 		t.Fatalf("mysql sort desc first id = %v, want 3", sorted.Rows[0][0])
 	}
+
+	_, filtered, _ := browse(t, h, "my", url.Values{
+		"table":   {"datadeck_td_users"},
+		"filters": {`[{"column":"marker","operator":"equals","value":"MY"},{"column":"id","operator":"greater_than","value":1}]`},
+	})
+	if len(filtered.Rows) != 2 {
+		t.Fatalf("mysql filtered rows = %d, want 2", len(filtered.Rows))
+	}
 }
 
 // TestTableDataPerformancePostgres verifies a 100k-row table returns a bounded,
@@ -431,6 +517,21 @@ func TestTableDataPerformancePostgres(t *testing.T) {
 		}
 		t.Logf("100k-row sort %s: %s", spec.label, time.Since(start))
 	}
+
+	// Filtering executes in the database (indexed equality + non-indexed scan).
+	for _, spec := range []struct{ filters, label string }{
+		{`[{"column":"id","operator":"equals","value":50000}]`, "indexed equality"},
+		{`[{"column":"payload","operator":"equals","value":"payload-999"}]`, "non-indexed equality"},
+	} {
+		start := time.Now()
+		status, filtered, _ := browse(t, h, "perf", url.Values{
+			"database": {perfDB}, "schema": {"public"}, "table": {"big"}, "filters": {spec.filters},
+		})
+		if status != http.StatusOK || len(filtered.Rows) != 1 {
+			t.Fatalf("%s: status=%d rows=%d", spec.label, status, len(filtered.Rows))
+		}
+		t.Logf("100k-row filter %s: %s", spec.label, time.Since(start))
+	}
 }
 
 func TestTableDataIntegrationSQLite(t *testing.T) {
@@ -470,5 +571,20 @@ func TestTableDataIntegrationSQLite(t *testing.T) {
 	})
 	if len(sorted.Rows) != 3 || sorted.Rows[0][0] != float64(3) {
 		t.Fatalf("sqlite sort desc first id = %v, want 3", sorted.Rows[0][0])
+	}
+
+	_, filtered, _ := browse(t, h, "sq", url.Values{
+		"table":   {"items"},
+		"filters": {`[{"column":"label","operator":"is_null"}]`},
+	})
+	if len(filtered.Rows) != 1 {
+		t.Fatalf("sqlite is_null rows = %d, want 1", len(filtered.Rows))
+	}
+	_, contains, _ := browse(t, h, "sq", url.Values{
+		"table":   {"items"},
+		"filters": {`[{"column":"big","operator":"greater_or_equal","value":"9007199254740993"}]`},
+	})
+	if len(contains.Rows) != 1 {
+		t.Fatalf("sqlite bigint filter rows = %d, want 1", len(contains.Rows))
 	}
 }

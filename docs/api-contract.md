@@ -113,6 +113,8 @@ Rules:
 | `NOT_IMPLEMENTED` | 501 | Capability | Operation not implemented for this driver yet |
 | `NOT_FOUND` | 404 | Resource | Unknown connection id / resource |
 | `TABLE_NOT_FOUND` | 404 | Resource | PRF-02: Table Data target not found in metadata |
+| `COLUMN_NOT_FOUND` | 400 | Validation | PRF-02: filter/sort/projection column not in metadata |
+| `INVALID_FILTER` | 400 | Validation | PRF-02: malformed or type-incompatible filter |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -429,7 +431,16 @@ here without an explicit requirement.
   `schema` (required for PostgreSQL; ignored for MySQL/SQLite), `table`
   (required), `page` (default 1, max 1,000,000) and `page_size` (default 100,
   max 200, clamped), plus optional `sort_column` + `sort_direction`
-  (`asc`|`desc`) for **single-column server-side sorting**. The backend resolves the relation against introspection
+  (`asc`|`desc`) for **single-column server-side sorting**, and optional
+  `filters` (URL-encoded JSON array of `{column, operator, value|values}`;
+  ANDed; max 20). Operators: `equals, not_equals, contains, starts_with,
+  ends_with, greater_than, greater_or_equal, less_than, less_or_equal, is_null,
+  is_not_null, in`. Every value is a bound parameter; `LIKE` metacharacters are
+  escaped (`ESCAPE`); `is_null`/`is_not_null` take no value; `in` accepts 1–100
+  values; BIGINT is accepted as an exact string. OR groups are **not**
+  supported in v0.1.0. Unknown columns → `400 COLUMN_NOT_FOUND`; invalid
+  operator/value/type → `400 INVALID_FILTER`. Filtering runs before sorting and
+  pagination. The backend resolves the relation against introspection
   metadata and generates an explicit, dialect-quoted `SELECT … LIMIT n+1
   OFFSET m`; it never accepts SQL, a `WHERE` clause, or a raw sort expression.
   Response `data`: `{ database, schema?, table, object_type, columns[]

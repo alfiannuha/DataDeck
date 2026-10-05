@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { browseTableData } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query-keys";
+import type { TableFilter } from "@/store/useWorkspaceStore";
 
 /** The bound target + page state a Table Data tab owns (never global state). */
 export interface TableDataTarget {
@@ -15,6 +16,8 @@ export interface TableDataTarget {
   pageSize: number;
   /** Single-column server-side sort (null = unsorted). */
   sort: { column: string; direction: "asc" | "desc" } | null;
+  /** ANDed server-side filters (empty = unfiltered). */
+  filters: TableFilter[];
 }
 
 /**
@@ -36,6 +39,7 @@ export function useTableData(target: TableDataTarget, enabled = true) {
       target.pageSize,
       target.sort?.column ?? null,
       target.sort?.direction ?? null,
+      target.filters.length > 0 ? JSON.stringify(target.filters) : "",
     ),
     queryFn: ({ signal }) =>
       browseTableData(
@@ -47,6 +51,7 @@ export function useTableData(target: TableDataTarget, enabled = true) {
           page: target.page,
           pageSize: target.pageSize,
           sort: target.sort,
+          filters: target.filters,
         },
         signal,
       ),

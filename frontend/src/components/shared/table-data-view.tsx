@@ -1,12 +1,14 @@
 "use client";
 
-import { Loader2, RefreshCw } from "lucide-react";
+import { Filter, Loader2, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
+import { TableDataFilterPanel } from "@/components/shared/table-data-filter-panel";
 import { Button } from "@/components/ui/button";
 import { useTableData } from "@/hooks/use-table-data";
 import { ApiClientError } from "@/lib/api-client";
-import { useWorkspaceStore, type TableSort } from "@/store/useWorkspaceStore";
+import { useWorkspaceStore, type TableFilter, type TableSort } from "@/store/useWorkspaceStore";
 import type { QueryResult } from "@/types/api";
 
 /**
@@ -25,6 +27,7 @@ export function TableDataView() {
     ),
   );
   const updateTableData = useWorkspaceStore((state) => state.updateTableData);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -37,6 +40,7 @@ export function TableDataView() {
       tab?.kind === "table-data" && tab.sort.length > 0
         ? { column: tab.sort[0].column, direction: tab.sort[0].direction }
         : null,
+    filters: tab?.kind === "table-data" ? tab.filters : [],
   };
   const query = useTableData(target);
   const data = query.data;
@@ -75,6 +79,17 @@ export function TableDataView() {
       sort = [{ column, direction: "desc" }];
     }
     updateTableData(tab.id, { sort, page: 1 });
+  }
+
+  // Applying/clearing filters resets to page 1 and keeps sort/pageSize intact.
+  function applyFilters(filters: TableFilter[]) {
+    if (!tab || tab.kind !== "table-data") return;
+    updateTableData(tab.id, { filters, page: 1 });
+  }
+
+  function clearFilters() {
+    if (!tab || tab.kind !== "table-data") return;
+    updateTableData(tab.id, { filters: [], page: 1 });
   }
 
   // Adapt the structured Table Data page to the shared virtualized grid shape.
@@ -128,6 +143,19 @@ export function TableDataView() {
             </select>
           </label>
           <Button
+            variant={filterOpen || tab.filters.length > 0 ? "outline" : "ghost"}
+            size="sm"
+            data-testid="table-data-filter-toggle"
+            aria-label="Filter table data"
+            aria-expanded={filterOpen}
+            disabled={!data}
+            onClick={() => setFilterOpen((open) => !open)}
+          >
+            <Filter size={12} aria-hidden="true" />
+            Filter
+            {tab.filters.length > 0 ? ` (${tab.filters.length})` : ""}
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             data-testid="table-data-refresh"
@@ -144,6 +172,16 @@ export function TableDataView() {
           </Button>
         </div>
       </header>
+
+      {filterOpen && data ? (
+        <TableDataFilterPanel
+          columns={data.columns ?? []}
+          applied={tab.filters}
+          onApply={applyFilters}
+          onClear={clearFilters}
+          onClose={() => setFilterOpen(false)}
+        />
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-hidden bg-result-surface">
         {showError ? (
