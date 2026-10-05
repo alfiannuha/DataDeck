@@ -39,6 +39,13 @@ export type ErrorCode =
   | "INTROSPECTION_ERROR"
   | "INTROSPECTION_TIMEOUT"
   | "NOT_FOUND"
+  | "NOT_IMPLEMENTED"
+  | "TABLE_NOT_FOUND"
+  | "DATABASE_REQUIRED"
+  | "DATABASE_NOT_FOUND"
+  | "DATABASE_CONNECT_DENIED"
+  | "BOOTSTRAP_DATABASE_UNAVAILABLE"
+  | "DISCOVERY_TIMEOUT"
   | "PAYLOAD_TOO_LARGE"
   | "INTERNAL_ERROR";
 
@@ -64,6 +71,8 @@ export type SavedQueryRequest = Schemas["handler.SavedQueryRequest"];
 
 export type DatabaseSchemaTree = Schemas["model.Database"];
 export type DatabaseInfo = Schemas["model.DatabaseInfo"];
+export type TableDataPage = Schemas["model.TableDataPage"];
+export type TableColumnInfo = Schemas["model.TableColumnInfo"];
 export type IntrospectedSchema = Schemas["model.Schema"];
 export type IntrospectedTable = Schemas["model.Table"];
 export type IntrospectedColumn = Schemas["model.Column"];

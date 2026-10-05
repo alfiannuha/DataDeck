@@ -32,7 +32,15 @@ type Row = unknown[];
  * positional arrays — they are never expanded into per-row objects, and only
  * the visible rows (+ overscan) are mounted.
  */
-export function ResultGrid({ result }: { result: QueryResult }) {
+export function ResultGrid({
+  result,
+  ariaLabel = "Query result grid",
+  emptyText = "No rows returned.",
+}: {
+  result: QueryResult;
+  ariaLabel?: string;
+  emptyText?: string;
+}) {
   const rows = (result.rows ?? []) as Row[];
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -85,7 +93,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
     <div
       ref={scrollRef}
       role="grid"
-      aria-label="Query result grid"
+      aria-label={ariaLabel}
       aria-rowcount={rows.length}
       aria-colcount={headers.length}
       className="h-full overflow-auto"
@@ -121,7 +129,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
 
         {rows.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No rows returned.
+            {emptyText}
           </div>
         ) : (
           <div

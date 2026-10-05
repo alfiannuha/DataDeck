@@ -396,6 +396,46 @@ describe("SchemaExplorer", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("no such table");
   });
 
+  it("double-click opens a Table Data tab bound to the introspected database", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sqliteSchema);
+    useConnectionStore.setState({ activeConnectionId: "c1" });
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    const table = await screen.findByRole("button", { name: /^widgets/ });
+
+    // Single click must not open table data (it only toggles expansion).
+    fireEvent.click(table);
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+
+    fireEvent.doubleClick(table);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(1);
+    const tab = state.tabs[0];
+    expect(tab.kind).toBe("table-data");
+    expect(tab.connectionId).toBe("c1");
+    // The introspected database name is bound explicitly (never the bootstrap).
+    expect(tab.database).toBe("main.db");
+  });
+
+  it("opens query-free Table Data tabs for MySQL/SQLite with a null database", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("sqlite", "main.db")]);
+    vi.mocked(getSchemas).mockResolvedValue(sqliteSchema);
+    useConnectionStore.setState({ activeConnectionId: "c1" });
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /^widgets/ }));
+
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab?.kind).toBe("table-data");
+    if (tab?.kind !== "table-data") throw new Error("expected table-data");
+    expect(tab.database).toBeNull();
+    expect(tab.table).toBe("widgets");
+  });
+
 });
 
 describe("SchemaExplorer database discovery (PRF-01)", () => {
@@ -659,5 +699,39 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
 
     expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
     expect(useWorkspaceStore.getState().activeTabId).toBeNull();
+  });
+
+  it("double-click binds alpha.users and beta.users as distinct Table Data tabs", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([
+      { name: "alpha" },
+      { name: "beta" },
+    ] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: {},
+    });
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    fireEvent.doubleClick(
+      (await screen.findAllByRole("button", { name: /table_in_alpha/ }))[0],
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^beta/ }));
+    fireEvent.doubleClick(
+      (await screen.findAllByRole("button", { name: /table_in_beta/ }))[0],
+    );
+
+    const tabs = useWorkspaceStore.getState().tabs;
+    expect(tabs).toHaveLength(2);
+    const databases = tabs
+      .filter((tab) => tab.kind === "table-data")
+      .map((tab) => (tab.kind === "table-data" ? tab.database : null));
+    expect(databases).toEqual(["alpha", "beta"]);
   });
 });

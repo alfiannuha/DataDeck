@@ -27,12 +27,15 @@ export function SchemaTree({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   databases: DatabaseSchemaTree[];
   connectionId: string;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  /** Opens a Table Data tab; receives the owning database context. */
+  onOpenTableData?: (schema: string, table: string, database: string) => void;
 }) {
   return (
     <ul aria-label="Schema tree" className="flex flex-col gap-0.5 py-1">
@@ -44,6 +47,7 @@ export function SchemaTree({
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
+          onOpenTableData={onOpenTableData}
         />
       ))}
     </ul>
@@ -60,12 +64,14 @@ const DatabaseNode = memo(function DatabaseNode({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   database: DatabaseSchemaTree;
   depth: number;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  onOpenTableData?: (schema: string, table: string, database: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const schemas = database.schemas ?? [];
@@ -93,6 +99,12 @@ const DatabaseNode = memo(function DatabaseNode({
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
+          onOpenTableData={
+            onOpenTableData
+              ? (schema, table) =>
+                  onOpenTableData(schema, table, database.name ?? "")
+              : undefined
+          }
         />
       )}
     </li>
@@ -111,6 +123,7 @@ export function DatabaseChildren({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   schemas: IntrospectedSchema[];
   tables: IntrospectedTable[];
@@ -118,6 +131,7 @@ export function DatabaseChildren({
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  onOpenTableData?: TableActionHandler;
 }) {
   return (
     <ul>
@@ -129,6 +143,7 @@ export function DatabaseChildren({
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
+          onOpenTableData={onOpenTableData}
         />
       ))}
       <TableList
@@ -137,6 +152,7 @@ export function DatabaseChildren({
         onSelectTop100={onSelectTop100}
         onCountRows={onCountRows}
         onCopyDdl={onCopyDdl}
+        onOpenTableData={onOpenTableData}
       />
     </ul>
   );
@@ -148,12 +164,14 @@ const SchemaNode = memo(function SchemaNode({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   schema: IntrospectedSchema;
   depth: number;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  onOpenTableData?: TableActionHandler;
 }) {
   const [open, setOpen] = useState(false);
   const tables = schema.tables ?? [];
@@ -175,6 +193,7 @@ const SchemaNode = memo(function SchemaNode({
             onSelectTop100={onSelectTop100}
             onCountRows={onCountRows}
             onCopyDdl={onCopyDdl}
+            onOpenTableData={onOpenTableData}
           />
         </ul>
       )}
@@ -193,12 +212,14 @@ const TableList = memo(function TableList({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   tables: IntrospectedTable[];
   depth: number;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  onOpenTableData?: TableActionHandler;
 }) {
   const [visible, setVisible] = useState(TABLE_BATCH_SIZE);
   const shown = tables.slice(0, visible);
@@ -214,6 +235,7 @@ const TableList = memo(function TableList({
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
+          onOpenTableData={onOpenTableData}
         />
       ))}
       {remaining > 0 && (
@@ -240,12 +262,14 @@ const TableNode = memo(function TableNode({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   table: IntrospectedTable;
   depth: number;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
+  onOpenTableData?: TableActionHandler;
 }) {
   const [open, setOpen] = useState(false);
   const columns = table.columns ?? [];
@@ -264,6 +288,11 @@ const TableNode = memo(function TableNode({
         expandable
         open={open}
         onToggle={() => setOpen((value) => !value)}
+        onOpen={
+          onOpenTableData
+            ? () => onOpenTableData(table.schema ?? "", table.name ?? "")
+            : undefined
+        }
         actions={
           <>
             {onSelectTop100 && (
@@ -396,6 +425,7 @@ export function TreeRow({
   expandable,
   open,
   onToggle,
+  onOpen,
   actions,
   selected,
 }: {
@@ -405,6 +435,8 @@ export function TreeRow({
   expandable: boolean;
   open?: boolean;
   onToggle?: () => void;
+  /** Activation (double-click) — e.g. open a Table Data tab. */
+  onOpen?: () => void;
   actions?: ReactNode;
   /** Marks the explorer's currently selected database (not a query binding). */
   selected?: boolean;
@@ -423,6 +455,7 @@ export function TreeRow({
           type="button"
           aria-expanded={open}
           onClick={onToggle}
+          onDoubleClick={onOpen}
           className="flex min-w-0 flex-1 items-center gap-1 rounded text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
         >
           <ChevronRight

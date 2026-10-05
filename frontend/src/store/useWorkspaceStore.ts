@@ -232,6 +232,19 @@ function tableTabTitle(table: string, kind: "data" | "structure"): string {
   return kind === "data" ? table : `${table} (structure)`;
 }
 
+/**
+ * Deterministic, non-ambiguous visible title. Identical table names opened
+ * against different databases get a stable numeric suffix ("users", "users (2)")
+ * so tabs remain distinguishable; the internal id is always the identity.
+ */
+function uniqueTitle(tabs: WorkspaceTab[], base: string): string {
+  const used = new Set(tabs.map((tab) => tab.title));
+  if (!used.has(base)) return base;
+  let suffix = 2;
+  while (used.has(`${base} (${suffix})`)) suffix += 1;
+  return `${base} (${suffix})`;
+}
+
 function sameTableBinding(
   tab: TableDataTab | TableStructureTab,
   connectionId: string | null,
@@ -330,7 +343,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       );
       if (existing) return { activeTabId: existing.id };
       const tab = newTableDataTab(
-        tableTabTitle(table, "data"),
+        uniqueTitle(state.tabs, tableTabTitle(table, "data")),
         connectionId,
         database,
         schema,
@@ -347,7 +360,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       );
       if (existing) return { activeTabId: existing.id };
       const tab = newTableStructureTab(
-        tableTabTitle(table, "structure"),
+        uniqueTitle(state.tabs, tableTabTitle(table, "structure")),
         connectionId,
         database,
         schema,

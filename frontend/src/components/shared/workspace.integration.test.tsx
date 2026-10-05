@@ -24,6 +24,16 @@ vi.mock("@/lib/api/endpoints", () => ({
   getQueryHistory: vi.fn(),
   getHealth: vi.fn(),
   listDatabases: vi.fn().mockResolvedValue([]),
+  browseTableData: vi.fn().mockResolvedValue({
+    database: "app",
+    schema: "public",
+    table: "users",
+    object_type: "BASE TABLE",
+    columns: [{ name: "id", database_type: "bigint", primary_key: true }],
+    rows: [],
+    pagination: { page: 1, page_size: 100, has_more: false },
+    truncated: false,
+  }),
 }));
 
 const downloadExport = vi.fn();
@@ -395,7 +405,7 @@ describe("integrated workspace flow", () => {
       useWorkspaceStore.getState().openTableData("c1", "app", "public", "users");
     });
 
-    expect(await screen.findByTestId("table-data-panel")).toBeInTheDocument();
+    expect(await screen.findByTestId("table-data-view")).toBeInTheDocument();
     expect(screen.getByTestId("table-data-binding")).toHaveTextContent("app");
     expect(screen.queryByTestId("editor-value")).not.toBeInTheDocument();
 

@@ -18,6 +18,32 @@ export const queryKeys = {
     ["connections", connectionId, "schema"] as const,
   schema: (connectionId: string, database = "") =>
     ["connections", connectionId, "schema", database] as const,
+  /**
+   * Table Data page for a specific tab binding (PRF-02). The connection,
+   * database, schema, table and page are all part of the key so rows never leak
+   * between targets or pages.
+   */
+  tableData: (
+    connectionId: string,
+    database: string | null,
+    schema: string | null,
+    table: string,
+    page: number,
+    pageSize: number,
+  ) =>
+    [
+      "connections",
+      connectionId,
+      "table-data",
+      database ?? "",
+      schema ?? "",
+      table,
+      page,
+      pageSize,
+    ] as const,
+  /** Prefix for every Table Data query of a connection (invalidation/refresh). */
+  tableDataRoot: (connectionId: string) =>
+    ["connections", connectionId, "table-data"] as const,
   /** Prefix for all history queries (used for invalidation). */
   queryHistoryRoot: ["query-history"] as const,
   queryHistory: (connectionId?: string, page = 1) =>

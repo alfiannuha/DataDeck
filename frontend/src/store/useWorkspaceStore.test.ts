@@ -237,6 +237,10 @@ describe("useWorkspaceStore", () => {
     expect(state.tabs).toHaveLength(3);
     expect(state.tabs[1].database).toBe("alpha");
     expect(state.tabs[2].database).toBe("beta");
+    // Identical table names stay distinguishable; ids remain the identity.
+    expect(state.tabs[1].title).toBe("users");
+    expect(state.tabs[2].title).toBe("users (2)");
+    expect(state.tabs[1].id).not.toBe(state.tabs[2].id);
   });
 
   it("opens a Table Structure tab with a distinguishable title", () => {

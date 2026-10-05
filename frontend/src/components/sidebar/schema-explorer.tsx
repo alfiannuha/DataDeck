@@ -38,6 +38,7 @@ export function SchemaExplorer({
 }) {
   const queryClient = useQueryClient();
   const insertQuerySql = useWorkspaceStore((state) => state.insertQuerySql);
+  const openTableData = useWorkspaceStore((state) => state.openTableData);
   const setActiveDatabase = useConnectionStore(
     (state) => state.setActiveDatabase,
   );
@@ -90,6 +91,23 @@ export function SchemaExplorer({
       connectionId,
       bindDatabase(database),
     );
+
+  // Double-click a table opens a Table Data tab bound to the explicit target.
+  // A server-level PostgreSQL profile without a resolved database never falls
+  // back to a bootstrap database — the open is refused with feedback instead.
+  const handleOpenTableData: DatabaseTableAction = (schema, table, database) => {
+    if (!connectionId) return;
+    if (driver === "postgres") {
+      const target = bindDatabase(database);
+      if (!target) {
+        showNotice("error", "Select a database before opening table data.");
+        return;
+      }
+      openTableData(connectionId, target, schema || null, table);
+      return;
+    }
+    openTableData(connectionId, null, schema || null, table);
+  };
 
   const handleCopyDdl: DatabaseTableAction | undefined = supportsCopyDdl(driver)
     ? (schema, table) => {
@@ -172,6 +190,7 @@ export function SchemaExplorer({
             onSelectTop100={handleSelectTop100}
             onCountRows={handleCountRows}
             onCopyDdl={handleCopyDdl}
+            onOpenTableData={handleOpenTableData}
           />
         ) : query.isLoading ? (
           <p className="px-1 text-xs text-muted-foreground">Loading schema…</p>
@@ -193,6 +212,9 @@ export function SchemaExplorer({
             connectionId={connectionId}
             onSelectTop100={(schema, table) => handleSelectTop100(schema, table, "")}
             onCountRows={(schema, table) => handleCountRows(schema, table, "")}
+            onOpenTableData={(schema, table, database) =>
+              handleOpenTableData(schema, table, database)
+            }
             onCopyDdl={
               handleCopyDdl
                 ? (schema, table) => handleCopyDdl(schema, table, "")
@@ -222,12 +244,14 @@ function DatabaseExplorer({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   connectionId: string;
   onSelectDatabase: (connectionId: string, database: string | null) => void;
   onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
+  onOpenTableData?: DatabaseTableAction;
 }) {
   const databases = useDatabases(connectionId, true);
   const activeDatabase = useConnectionStore(
@@ -272,6 +296,7 @@ function DatabaseExplorer({
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
+          onOpenTableData={onOpenTableData}
         />
       ))}
       {remaining > 0 && (
@@ -305,6 +330,7 @@ function LazyDatabaseNode({
   onSelectTop100,
   onCountRows,
   onCopyDdl,
+  onOpenTableData,
 }: {
   connectionId: string;
   database: string;
@@ -314,6 +340,7 @@ function LazyDatabaseNode({
   onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
+  onOpenTableData?: DatabaseTableAction;
 }) {
   const [open, setOpen] = useState(false);
   const schema = useSchema(connectionId, database, { enabled: open });
@@ -392,6 +419,12 @@ function LazyDatabaseNode({
             onCopyDdl={
               onCopyDdl
                 ? (schema, table) => onCopyDdl(schema, table, database)
+                : undefined
+            }
+            onOpenTableData={
+              onOpenTableData
+                ? (schema, table) =>
+                    onOpenTableData(schema, table, database)
                 : undefined
             }
           />

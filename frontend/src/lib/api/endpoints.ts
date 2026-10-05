@@ -12,6 +12,7 @@ import type {
   QueryResult,
   SavedQueryRequest,
   SavedQueryResponse,
+  TableDataPage,
   TestConnectionResponse,
 } from "@/types/api";
 
@@ -156,5 +157,34 @@ export function deleteSavedQuery(
   return apiFetch<DeleteConnectionResponse>(
     `/queries/saved/${encodeURIComponent(id)}`,
     { method: "DELETE" },
+  );
+}
+
+export interface TableDataParams {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * Bounded table data page (PRF-02). Sends only structured context — never SQL.
+ * The backend resolves identifiers against metadata and generates the SELECT.
+ */
+export function browseTableData(
+  connectionId: string,
+  params: TableDataParams,
+  signal?: AbortSignal,
+): Promise<TableDataPage> {
+  const query = new URLSearchParams();
+  if (params.database) query.set("database", params.database);
+  if (params.schema) query.set("schema", params.schema);
+  query.set("table", params.table);
+  query.set("page", String(params.page));
+  query.set("page_size", String(params.pageSize));
+  return apiFetch<TableDataPage>(
+    `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,
+    { signal },
   );
 }

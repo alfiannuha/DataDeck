@@ -15,6 +15,18 @@ jobs:
   e2e:
     name: Single-binary release flow
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -59,6 +71,10 @@ jobs:
         working-directory: frontend
         env:
           E2E_BASE_URL: http://127.0.0.1:8099
+          E2E_PG_HOST: 127.0.0.1
+          E2E_PG_PORT: "5432"
+          E2E_PG_USER: postgres
+          E2E_PG_PASSWORD: postgres
         run: npx playwright test
 
       - name: Upload Playwright report on failure

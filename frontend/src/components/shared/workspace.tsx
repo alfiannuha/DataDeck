@@ -1,6 +1,6 @@
 import { EditorPanel } from "./editor-panel";
 import { ResultsPanel } from "./results-panel";
-import { TableDataPanel } from "./table-data-panel";
+import { TableDataView } from "./table-data-view";
 import { TableStructurePanel } from "./table-structure-panel";
 import { TabsBar } from "./tabs-bar";
 import { WorkspaceEmptyState } from "./workspace-empty-state";
@@ -28,7 +28,7 @@ export function Workspace() {
         {!activeTab ? (
           <WorkspaceEmptyState />
         ) : activeTab.kind === "table-data" ? (
-          <TableDataPanel />
+          <TableDataView />
         ) : activeTab.kind === "table-structure" ? (
           <TableStructurePanel />
         ) : (
