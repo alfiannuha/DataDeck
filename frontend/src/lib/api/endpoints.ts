@@ -12,6 +12,7 @@ import type {
   QueryResult,
   SavedQueryRequest,
   SavedQueryResponse,
+  RowMutationResult,
   TableDataPage,
   TestConnectionResponse,
 } from "@/types/api";
@@ -204,5 +205,27 @@ export function browseTableData(
   return apiFetch<TableDataPage>(
     `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,
     { signal },
+  );
+}
+
+export interface InsertRowBody {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  values: Record<string, { mode: "value" | "null" | "default"; value?: unknown }>;
+}
+
+/**
+ * Inserts one row (PRF-02/T08). Sends structured {mode,value} per column — never
+ * SQL/expressions. The backend validates metadata, binds values, and returns the
+ * canonical row where the engine supports it.
+ */
+export function insertRow(
+  connectionId: string,
+  body: InsertRowBody,
+): Promise<RowMutationResult> {
+  return apiFetch<RowMutationResult>(
+    `/connections/${encodeURIComponent(connectionId)}/table-data/rows`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }

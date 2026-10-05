@@ -213,6 +213,29 @@
                 },
                 "type": "object"
             },
+            "handler.InsertRowRequest": {
+                "properties": {
+                    "database": {
+                        "example": "alpha",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "example": "public",
+                        "type": "string"
+                    },
+                    "table": {
+                        "example": "users",
+                        "type": "string"
+                    },
+                    "values": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/model.InsertValue"
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
             "handler.QueryRequest": {
                 "properties": {
                     "connection_id": {
@@ -448,6 +471,23 @@
                 },
                 "type": "object"
             },
+            "model.InsertValue": {
+                "properties": {
+                    "mode": {
+                        "enum": [
+                            "value",
+                            "null",
+                            "default"
+                        ],
+                        "example": "value",
+                        "type": "string"
+                    },
+                    "value": {
+                        "example": "Alfie"
+                    }
+                },
+                "type": "object"
+            },
             "model.PrimaryKey": {
                 "properties": {
                     "columns": {
@@ -606,6 +646,10 @@
                 "properties": {
                     "database_type": {
                         "type": "string"
+                    },
+                    "has_default": {
+                        "description": "HasDefault reports whether the column has a database default (drives the\nAdd Row DEFAULT default-mode; PRF-02/T08).",
+                        "type": "boolean"
                     },
                     "insertable": {
                         "description": "Insertable/Updatable are the effective per-column mutation flags\n(PRF-02/T07): generated columns are neither; PK and identity columns are\nnot updatable in v0.1.0.",
@@ -1584,6 +1628,107 @@
                     }
                 },
                 "summary": "Update one row",
+                "tags": [
+                    "table-data"
+                ]
+            },
+            "post": {
+                "description": "Inserts one row into a base table. Values are structured {mode,value} (value/null/default); generated/identity columns reject explicit values; DEFAULT/omitted columns use the database default. The target is explicit; values are bound and the canonical row is returned where supported.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.InsertRowRequest",
+                                "summary": "body",
+                                "description": "Insert target and column values"
+                            }
+                        }
+                    },
+                    "description": "Insert target and column values",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Insert one row",
                 "tags": [
                     "table-data"
                 ]

@@ -182,6 +182,31 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			`INSERT INTO public.memberships VALUES ('A', 9223372036854775807, 'admin')`); err != nil {
 			t.Fatalf("memberships insert in %s: %v", database, err)
 		}
+		// Insert/defaults/generated/type fixtures.
+		if _, err := pool.ExecContext(context.Background(), `CREATE TABLE public.insert_defaults (
+			id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+			name text NOT NULL,
+			status text NOT NULL DEFAULT 'active',
+			created_at timestamptz NOT NULL DEFAULT now(),
+			nickname text NULL)`); err != nil {
+			t.Fatalf("insert_defaults in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(), `CREATE TABLE public.gen (
+			a int PRIMARY KEY,
+			b int GENERATED ALWAYS AS (a * 2) STORED)`); err != nil {
+			t.Fatalf("gen in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(), `CREATE TABLE public.types (
+			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			amount numeric(30,10),
+			flag boolean,
+			created date)`); err != nil {
+			t.Fatalf("types in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE VIEW public.v_users AS SELECT id, marker FROM public.users`); err != nil {
+			t.Fatalf("view in %s: %v", database, err)
+		}
 	}
 	seedTable(dbA, "ALPHA")
 	seedTable(dbB, "BETA")
@@ -454,6 +479,82 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("insert honors defaults, generated columns, exact types and isolation", func(t *testing.T) {
+		insert := func(body string) (int, string, []any) {
+			rec := httptest.NewRecorder()
+			req := mutationRequest("srv", body)
+			req.Method = http.MethodPost
+			h.InsertRow(rec, req)
+			env := decodeEnvelope(t, rec)
+			code := ""
+			if env.Error != nil {
+				code = env.Error.Code
+			}
+			var result struct {
+				Row []any `json:"row"`
+			}
+			if env.Success {
+				_ = json.Unmarshal(env.Data, &result)
+			}
+			return rec.Code, code, result.Row
+		}
+
+		// Value + NULL + DEFAULT (id/status/created omitted → database defaults).
+		status, code, row := insert(`{"database":"` + dbA + `","schema":"public","table":"insert_defaults","values":{"name":{"mode":"value","value":"Alice"},"nickname":{"mode":"null"}}}`)
+		if status != http.StatusOK {
+			t.Fatalf("defaults insert status=%d code=%q", status, code)
+		}
+		if len(row) != 5 || row[1] != "Alice" || row[2] != "active" || row[3] == nil || row[4] != nil {
+			t.Fatalf("defaults row = %#v, want db defaults applied", row)
+		}
+
+		// Generated column: cannot set b explicitly; computed value returned.
+		if _, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"gen","values":{"a":{"mode":"value","value":"5"},"b":{"mode":"value","value":"9"}}}`); code != "COLUMN_READ_ONLY" {
+			t.Fatalf("generated insert code = %q, want COLUMN_READ_ONLY", code)
+		}
+		if _, _, row := insert(`{"database":"` + dbA + `","schema":"public","table":"gen","values":{"a":{"mode":"value","value":"5"}}}`); len(row) != 2 || row[1] != float64(10) {
+			t.Fatalf("generated row = %#v, want b=10", row)
+		}
+
+		// Exact BIGINT + explicit UUID + high-precision NUMERIC + boolean + date.
+		bigStatus, bigCode, bigRow := insert(`{"database":"` + dbA + `","schema":"public","table":"users","values":{"id":{"mode":"value","value":"20"},"marker":{"mode":"value","value":"INSERTED_ALPHA"},"big":{"mode":"value","value":"9223372036854775807"},"note":{"mode":"default"}}}`)
+		if bigStatus != http.StatusOK {
+			t.Fatalf("bigint insert status=%d code=%q", bigStatus, bigCode)
+		}
+		if len(bigRow) < 3 || bigRow[2] != "9223372036854775807" {
+			t.Fatalf("bigint = %#v, want exact string", bigRow)
+		}
+		typeStatus, typeCode, typeRow := insert(`{"database":"` + dbA + `","schema":"public","table":"types","values":{"id":{"mode":"value","value":"11111111-1111-1111-1111-111111111111"},"amount":{"mode":"value","value":"12345678901234567890.1234567890"},"flag":{"mode":"value","value":true},"created":{"mode":"value","value":"2026-01-02"}}}`)
+		if typeStatus != http.StatusOK {
+			t.Fatalf("types insert status=%d code=%q", typeStatus, typeCode)
+		}
+		if typeRow[1] != "12345678901234567890.1234567890" || typeRow[2] != true || typeRow[3] != "2026-01-02" {
+			t.Fatalf("types row = %#v", typeRow)
+		}
+
+		// Wrong-database isolation: the new alpha marker must not appear in beta.
+		_, betaPage, _ := browse(t, h, "srv", url.Values{"database": {dbB}, "schema": {"public"}, "table": {"users"}, "filters": {`[{"column":"marker","operator":"equals","value":"INSERTED_ALPHA"}]`}})
+		if len(betaPage.Rows) != 0 {
+			t.Fatalf("beta contains alpha insert: %#v", betaPage.Rows)
+		}
+
+		// Constraints: duplicate PK and NULL into NOT NULL are sanitized.
+		if _, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"users","values":{"id":{"mode":"value","value":"20"},"marker":{"mode":"value","value":"x"}}}`); code != "CONSTRAINT_VIOLATION" {
+			t.Fatalf("duplicate pk code = %q, want CONSTRAINT_VIOLATION", code)
+		}
+		if _, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"insert_defaults","values":{"name":{"mode":"null"}}}`); code != "INVALID_COLUMN_VALUE" {
+			t.Fatalf("null not-null code = %q, want INVALID_COLUMN_VALUE", code)
+		}
+
+		// No-PK base table insert allowed; view rejected.
+		if status, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"logs","values":{"message":{"mode":"value","value":"hello"}}}`); status != http.StatusOK {
+			t.Fatalf("no-PK insert status=%d code=%q", status, code)
+		}
+		if _, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"v_users","values":{"marker":{"mode":"value","value":"x"}}}`); code != "ROW_NOT_MUTABLE" {
+			t.Fatalf("view insert code = %q, want ROW_NOT_MUTABLE", code)
+		}
+	})
 }
 
 func TestTableDataAPIIntegrationMySQL(t *testing.T) {
@@ -558,6 +659,51 @@ func TestTableDataAPIIntegrationMySQL(t *testing.T) {
 	}
 	if _, code := myMutate(true, `{"table":"datadeck_td_users","identity":{"id":"999"},"changes":{"marker":"Z"}}`); code != "ROW_NOT_FOUND" {
 		t.Fatalf("mysql not found code = %q, want ROW_NOT_FOUND", code)
+	}
+
+	// Insert: AUTO_INCREMENT default, DB default, exact BIGINT, unique constraint.
+	if _, err := pool.ExecContext(context.Background(), `CREATE TABLE datadeck_td_insert (
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(32) NOT NULL,
+		status VARCHAR(16) NOT NULL DEFAULT 'active',
+		note VARCHAR(32) NULL UNIQUE)`); err != nil {
+		t.Fatalf("create insert table: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.ExecContext(context.Background(), "DROP TABLE IF EXISTS datadeck_td_insert") })
+	myInsert := func(body string) (int, string) {
+		rec := httptest.NewRecorder()
+		req := mutationRequest("my", body)
+		req.Method = http.MethodPost
+		h.InsertRow(rec, req)
+		env := decodeEnvelope(t, rec)
+		code := ""
+		if env.Error != nil {
+			code = env.Error.Code
+		}
+		return rec.Code, code
+	}
+	if status, code := myInsert(`{"table":"datadeck_td_insert","values":{"name":{"mode":"value","value":"Auto"},"note":{"mode":"null"}}}`); status != http.StatusOK {
+		t.Fatalf("mysql default insert status=%d code=%q", status, code)
+	}
+	_, inserted, _ := browse(t, h, "my", url.Values{"table": {"datadeck_td_insert"}, "filters": {`[{"column":"name","operator":"equals","value":"Auto"}]`}})
+	if len(inserted.Rows) != 1 || inserted.Rows[0][2] != "active" || inserted.Rows[0][3] != nil {
+		t.Fatalf("mysql inserted row = %#v, want db defaults applied", inserted.Rows)
+	}
+	if status, code := myInsert(`{"table":"datadeck_td_users","values":{"id":{"mode":"value","value":"9223372036854775807"},"marker":{"mode":"value","value":"BIG"},"note":{"mode":"null"}}}`); status != http.StatusOK {
+		t.Fatalf("mysql bigint insert status=%d code=%q", status, code)
+	}
+	_, bigInserted, _ := browse(t, h, "my", url.Values{"table": {"datadeck_td_users"}, "filters": {`[{"column":"id","operator":"equals","value":"9223372036854775807"}]`}})
+	if len(bigInserted.Rows) != 1 || bigInserted.Rows[0][0] != "9223372036854775807" {
+		t.Fatalf("mysql bigint readback = %#v", bigInserted.Rows)
+	}
+	if _, code := myInsert(`{"table":"datadeck_td_users","values":{"id":{"mode":"value","value":"9223372036854775807"},"marker":{"mode":"value","value":"dup"}}}`); code != "CONSTRAINT_VIOLATION" {
+		t.Fatalf("mysql duplicate pk code = %q, want CONSTRAINT_VIOLATION", code)
+	}
+	if status, code := myInsert(`{"table":"datadeck_td_insert","values":{"name":{"mode":"value","value":"Seeded"},"note":{"mode":"value","value":"uniq-note"}}}`); status != http.StatusOK {
+		t.Fatalf("mysql unique seed status=%d code=%q", status, code)
+	}
+	if _, code := myInsert(`{"table":"datadeck_td_insert","values":{"name":{"mode":"value","value":"Dup"},"note":{"mode":"value","value":"uniq-note"}}}`); code != "CONSTRAINT_VIOLATION" {
+		t.Fatalf("mysql unique code = %q, want CONSTRAINT_VIOLATION", code)
 	}
 }
 
@@ -724,5 +870,40 @@ func TestTableDataIntegrationSQLite(t *testing.T) {
 	}
 	if _, code := sqMutate(true, `{"table":"items","identity":{"id":"2"},"expected":{"label":"NOPE"},"changes":{"label":"c"}}`); code != "ROW_CONFLICT" {
 		t.Fatalf("sqlite conflict code = %q", code)
+	}
+
+	sqInsert := func(body string) (int, string) {
+		rec := httptest.NewRecorder()
+		req := mutationRequest("sq", body)
+		req.Method = http.MethodPost
+		h.InsertRow(rec, req)
+		env := decodeEnvelope(t, rec)
+		code := ""
+		if env.Error != nil {
+			code = env.Error.Code
+		}
+		return rec.Code, code
+	}
+	if status, code := sqInsert(`{"table":"items","values":{"label":{"mode":"value","value":"d"},"big":{"mode":"value","value":"3"}}}`); status != http.StatusOK {
+		t.Fatalf("sqlite insert status=%d code=%q", status, code)
+	}
+	// INTEGER PRIMARY KEY is engine-assigned: an explicit VALUE is rejected.
+	if _, code := sqInsert(`{"table":"items","values":{"id":{"mode":"value","value":"99"},"label":{"mode":"value","value":"x"}}}`); code != "COLUMN_READ_ONLY" {
+		t.Fatalf("sqlite rowid identity explicit value code = %q, want COLUMN_READ_ONLY", code)
+	}
+	if _, err := raw.Exec(`CREATE TABLE keyed (k TEXT PRIMARY KEY, v TEXT)`); err != nil {
+		t.Fatalf("create keyed: %v", err)
+	}
+	if status, code := sqInsert(`{"table":"keyed","values":{"k":{"mode":"value","value":"a"},"v":{"mode":"value","value":"1"}}}`); status != http.StatusOK {
+		t.Fatalf("sqlite text-pk insert status=%d code=%q", status, code)
+	}
+	if _, code := sqInsert(`{"table":"keyed","values":{"k":{"mode":"value","value":"a"},"v":{"mode":"value","value":"2"}}}`); code != "CONSTRAINT_VIOLATION" {
+		t.Fatalf("sqlite duplicate code = %q, want CONSTRAINT_VIOLATION", code)
+	}
+	if _, err := raw.Exec(`CREATE TABLE nopk (message TEXT)`); err != nil {
+		t.Fatalf("create nopk: %v", err)
+	}
+	if status, code := sqInsert(`{"table":"nopk","values":{"message":{"mode":"value","value":"hi"}}}`); status != http.StatusOK {
+		t.Fatalf("sqlite no-PK insert status=%d code=%q", status, code)
 	}
 }

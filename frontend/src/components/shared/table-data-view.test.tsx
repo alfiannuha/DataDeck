@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { browseTableData } from "@/lib/api/endpoints";
+import { browseTableData, insertRow } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import { useWorkspaceStore, type TableDataTab } from "@/store/useWorkspaceStore";
@@ -10,6 +10,7 @@ import { TableDataView } from "./table-data-view";
 
 vi.mock("@/lib/api/endpoints", () => ({
   browseTableData: vi.fn(),
+  insertRow: vi.fn(),
 }));
 
 function tableTab(overrides: Partial<TableDataTab> = {}): TableDataTab {
@@ -401,5 +402,89 @@ describe("TableDataView filters", () => {
     expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
       filters: [{ column: "id", operator: "contains", value: "x" }],
     });
+  });
+});
+
+describe("TableDataView add row", () => {
+  it("shows Add Row only when the table reports insert capability", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ row_capabilities: { insert: true, update: true, delete: true, duplicate: true } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    expect(await screen.findByTestId("table-data-add-row")).toBeInTheDocument();
+  });
+
+  it("hides Add Row for read-only tables", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ row_capabilities: { insert: false, update: false, delete: false, duplicate: false } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    expect(screen.queryByTestId("table-data-add-row")).not.toBeInTheDocument();
+  });
+
+  it("submits a structured insert against the tab binding and refreshes without clearing filters/sort", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ row_capabilities: { insert: true, update: false, delete: false, duplicate: false } }) as never,
+    );
+    vi.mocked(insertRow).mockResolvedValue({ affected_rows: 1 } as never);
+    useWorkspaceStore.setState({
+      tabs: [
+        tableTab({
+          database: "alpha",
+          filters: [{ column: "id", operator: "equals", value: "1" }],
+          sort: [{ column: "name", direction: "asc" }],
+        }),
+      ],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByTestId("table-data-add-row");
+
+    fireEvent.click(screen.getByTestId("table-data-add-row"));
+    fireEvent.change(await screen.findByLabelText("name mode"), {
+      target: { value: "value" },
+    });
+    fireEvent.change(screen.getByLabelText("name value"), {
+      target: { value: "Alfie" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+
+    await waitFor(() =>
+      expect(insertRow).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          database: "alpha",
+          schema: "public",
+          table: "users",
+          values: expect.objectContaining({ name: { mode: "value", value: "Alfie" } }),
+        }),
+      ),
+    );
+    // Refresh keeps filters and sort; no optimistic row injection.
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1]).toEqual(
+        expect.objectContaining({
+          database: "alpha",
+          filters: [{ column: "id", operator: "equals", value: "1" }],
+          sort: { column: "name", direction: "asc" },
+        }),
+      ),
+    );
+  });
+
+  it("keeps the dialog usable on backend error", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ row_capabilities: { insert: true } }) as never,
+    );
+    vi.mocked(insertRow).mockRejectedValueOnce(
+      new ApiClientError("the row violates a database constraint", "CONSTRAINT_VIOLATION", 409),
+    );
+    renderWithProviders(<TableDataView />);
+    fireEvent.click(await screen.findByTestId("table-data-add-row"));
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+
+    expect(await screen.findByTestId("add-row-dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("CONSTRAINT_VIOLATION");
   });
 });

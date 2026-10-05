@@ -172,6 +172,96 @@ func decodeMutationBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
+// InsertRowRequest is the body for a single-row INSERT (PRF-02/T08). Each value
+// carries an explicit mode (value/null/default); there is no SQL/expression
+// field. Numbers decode via json.Number so BIGINT/NUMERIC stay exact.
+type InsertRowRequest struct {
+	Database string                       `json:"database" example:"alpha"`
+	Schema   string                       `json:"schema" example:"public"`
+	Table    string                       `json:"table" example:"users"`
+	Values   map[string]model.InsertValue `json:"values"`
+}
+
+// InsertRow godoc
+// @Summary      Insert one row
+// @Description  Inserts one row into a base table. Values are structured {mode,value} (value/null/default); generated/identity columns reject explicit values; DEFAULT/omitted columns use the database default. The target is explicit; values are bound and the canonical row is returned where supported.
+// @Tags         table-data
+// @Accept       json
+// @Produce      json
+// @Param        id    path      string  true  "Connection id"
+// @Param        body  body      handler.InsertRowRequest  true  "Insert target and column values"
+// @Success      200  {object}  response.Envelope{data=model.RowMutationResult}
+// @Failure      400  {object}  response.ErrorEnvelope
+// @Failure      404  {object}  response.ErrorEnvelope
+// @Failure      502  {object}  response.ErrorEnvelope
+// @Failure      504  {object}  response.ErrorEnvelope
+// @Router       /connections/{id}/table-data/rows [post]
+func (h *ConnectionHandler) InsertRow(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "connection id is required")
+		return
+	}
+
+	var body InsertRowRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	body.Table = strings.TrimSpace(body.Table)
+	body.Schema = strings.TrimSpace(body.Schema)
+	if body.Table == "" {
+		response.ValidationError(w, "table is required")
+		return
+	}
+
+	profile, err := h.connections.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			response.WriteError(w, http.StatusNotFound, "NOT_FOUND", "connection profile not found")
+			return
+		}
+		h.internalError(w, r, "get_connection", err)
+		return
+	}
+	if profile.Driver == model.DriverPostgres && body.Schema == "" {
+		response.ValidationError(w, "schema is required for postgresql row mutations")
+		return
+	}
+
+	password := ""
+	if profile.EncryptedPassword != nil {
+		plaintext, err := h.cipher.Decrypt(*profile.EncryptedPassword)
+		if err != nil {
+			h.internalError(w, r, "decrypt_password", err)
+			return
+		}
+		password = string(plaintext)
+	}
+
+	effectiveDatabase, err := resolveTargetDatabase(profile, body.Database)
+	if err != nil {
+		writeResolveDatabaseError(w, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(defaultQueryTimeoutSeconds)*time.Second)
+	defer cancel()
+
+	cfg := toDatabaseConfig(profile, password)
+	cfg.Database = effectiveDatabase
+
+	result, err := h.manager.InsertRow(ctx, id, cfg, database.InsertRowRequest{
+		Schema: body.Schema,
+		Table:  body.Table,
+		Values: body.Values,
+	})
+	if err != nil {
+		h.rowMutationError(w, r, err)
+		return
+	}
+	response.Success(w, result)
+}
+
 // rowMutationError maps mutation failures to sanitized API errors.
 func (h *ConnectionHandler) rowMutationError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -187,6 +277,12 @@ func (h *ConnectionHandler) rowMutationError(w http.ResponseWriter, r *http.Requ
 		response.WriteError(w, http.StatusBadRequest, "ROW_IDENTITY_INVALID", "the row identity is invalid")
 	case errors.Is(err, database.ErrColumnReadOnly):
 		response.WriteError(w, http.StatusBadRequest, "COLUMN_READ_ONLY", "the column cannot be modified")
+	case errors.Is(err, database.ErrInvalidColumnValue):
+		response.WriteError(w, http.StatusBadRequest, "INVALID_COLUMN_VALUE", "a value is invalid for its column")
+	case errors.Is(err, database.ErrConstraintViolation):
+		response.WriteError(w, http.StatusConflict, "CONSTRAINT_VIOLATION", "the row violates a database constraint")
+	case errors.Is(err, database.ErrInsertFailed):
+		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "the insert did not affect exactly one row")
 	case errors.Is(err, database.ErrAffectedMultipleRows):
 		response.WriteError(w, http.StatusInternalServerError, "MUTATION_AFFECTED_MULTIPLE_ROWS", "the mutation matched more than one row and was rolled back")
 	case errors.Is(err, database.ErrTableNotFound):

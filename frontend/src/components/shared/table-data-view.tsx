@@ -4,6 +4,7 @@ import { Filter, Loader2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
+import { AddRowDialog } from "@/components/shared/add-row-dialog";
 import { TableDataFilterPanel } from "@/components/shared/table-data-filter-panel";
 import { Button } from "@/components/ui/button";
 import { useTableData } from "@/hooks/use-table-data";
@@ -28,6 +29,7 @@ export function TableDataView() {
   );
   const updateTableData = useWorkspaceStore((state) => state.updateTableData);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [addRowOpen, setAddRowOpen] = useState(false);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -142,6 +144,17 @@ export function TableDataView() {
               ))}
             </select>
           </label>
+          {data?.row_capabilities?.insert ? (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="table-data-add-row"
+              aria-label="Add row"
+              onClick={() => setAddRowOpen(true)}
+            >
+              Add Row
+            </Button>
+          ) : null}
           <Button
             variant={filterOpen || tab.filters.length > 0 ? "outline" : "ghost"}
             size="sm"
@@ -180,6 +193,21 @@ export function TableDataView() {
           onApply={applyFilters}
           onClear={clearFilters}
           onClose={() => setFilterOpen(false)}
+        />
+      ) : null}
+
+      {addRowOpen && data && tab.connectionId ? (
+        <AddRowDialog
+          connectionId={tab.connectionId}
+          database={tab.database}
+          schema={tab.schema}
+          table={tab.table}
+          columns={data.columns ?? []}
+          onClose={() => setAddRowOpen(false)}
+          onInserted={() => {
+            setAddRowOpen(false);
+            void query.refetch();
+          }}
         />
       ) : null}
 

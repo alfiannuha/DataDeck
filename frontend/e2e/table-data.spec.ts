@@ -90,6 +90,22 @@ async function applyFilter(
   await page.getByRole("button", { name: "Apply" }).click();
 }
 
+/** Reads a bounded table-data page through the API for verification. */
+async function apiTable(
+  request: APIRequestContext,
+  connectionId: string,
+  database: string,
+  table: string,
+  filters?: string,
+): Promise<{ rows: unknown[][]; capabilities: Record<string, boolean> }> {
+  const query = new URLSearchParams({ database, schema: "public", table, page: "1", page_size: "100" });
+  if (filters) query.set("filters", filters);
+  const response = await request.get(`/api/v1/connections/${connectionId}/table-data?${query.toString()}`);
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json();
+  return { rows: body.data.rows as unknown[][], capabilities: body.data.row_capabilities };
+}
+
 test.describe("table data browsing (PostgreSQL)", () => {
   test.skip(!PG_HOST, "E2E_PG_HOST not set; skipping PostgreSQL Table Data E2E");
 
@@ -131,6 +147,7 @@ test.describe("table data browsing (PostgreSQL)", () => {
         connection,
         `INSERT INTO public.users VALUES (1, '${marker}', NULL), (2, '${marker}', 'x')`,
       );
+      await exec(request, connection, "CREATE TABLE public.logs (message text)");
       // Same table name with different values for cross-database sorting.
       const names: Record<string, string[]> = {
         ALPHA: ["ZETA", "OMEGA", "THETA"],
@@ -159,7 +176,7 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await seed(DB_ALPHA, "ALPHA");
     await seed(DB_BETA, "BETA");
 
-    await createProfile(request, {
+    const serverId = await createProfile(request, {
       name: "E2E TD Server",
       driver: "postgres",
       host: PG_HOST,
@@ -284,6 +301,63 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await filteredNext.click();
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
     await expect(page.getByRole("gridcell").nth(1)).toHaveText("200");
+
+    // Cross-database insert (BLOCKER gate): explorer is on beta, but the alpha
+    // users tab's Add Row must target alpha only.
+    await page
+      .getByRole("region", { name: "Query tabs" })
+      .getByRole("button", { name: "users", exact: true })
+      .click();
+    await databaseButton(page, DB_BETA).click();
+    await page.getByTestId("table-data-add-row").click();
+    await page.getByLabel("id value").fill("100");
+    await page.getByLabel("marker mode").selectOption("value");
+    await page.getByLabel("marker value").fill("INSERTED_ALPHA");
+    await page.getByRole("button", { name: "Insert" }).click();
+    await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
+
+    const insertedAlpha = await apiTable(
+      request, serverId, DB_ALPHA, "users",
+      `[{"column":"marker","operator":"equals","value":"INSERTED_ALPHA"}]`,
+    );
+    expect(insertedAlpha.rows.length).toBe(1);
+    const insertedBeta = await apiTable(
+      request, serverId, DB_BETA, "users",
+      `[{"column":"marker","operator":"equals","value":"INSERTED_ALPHA"}]`,
+    );
+    expect(insertedBeta.rows.length).toBe(0);
+
+    // Explicit NULL mode.
+    await page.getByTestId("table-data-add-row").click();
+    await page.getByLabel("id value").fill("101");
+    await page.getByLabel("marker mode").selectOption("value");
+    await page.getByLabel("marker value").fill("INSERTED_NULL");
+    await page.getByLabel("note mode").selectOption("null");
+    await page.getByRole("button", { name: "Insert" }).click();
+    await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
+    const nullRow = await apiTable(
+      request, serverId, DB_ALPHA, "users",
+      `[{"column":"marker","operator":"equals","value":"INSERTED_NULL"}]`,
+    );
+    expect(nullRow.rows.length).toBe(1);
+    expect(nullRow.rows[0][2]).toBeNull();
+
+    // No-PK base table: Add Row enabled, Update/Delete remain unavailable.
+    await openTable(page, DB_ALPHA, "logs");
+    const logsCaps = await apiTable(request, serverId, DB_ALPHA, "logs");
+    expect(logsCaps.capabilities.insert).toBe(true);
+    expect(logsCaps.capabilities.update).toBe(false);
+    expect(logsCaps.capabilities.delete).toBe(false);
+    await page.getByTestId("table-data-add-row").click();
+    await page.getByLabel("message mode").selectOption("value");
+    await page.getByLabel("message value").fill("e2e-log");
+    await page.getByRole("button", { name: "Insert" }).click();
+    await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
+    const logsRows = await apiTable(
+      request, serverId, DB_ALPHA, "logs",
+      `[{"column":"message","operator":"equals","value":"e2e-log"}]`,
+    );
+    expect(logsRows.rows.length).toBe(1);
 
     // Cleanup (best-effort).
     await exec(request, admin, `DROP DATABASE IF EXISTS ${DB_ALPHA} WITH (FORCE)`);

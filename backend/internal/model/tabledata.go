@@ -41,6 +41,9 @@ type TableColumnInfo struct {
 	// not updatable in v0.1.0.
 	Insertable bool `json:"insertable"`
 	Updatable  bool `json:"updatable"`
+	// HasDefault reports whether the column has a database default (drives the
+	// Add Row DEFAULT default-mode; PRF-02/T08).
+	HasDefault bool `json:"has_default"`
 }
 
 // RowCapabilities is the effective table-level mutation capability. Update/
@@ -58,6 +61,15 @@ type RowCapabilities struct {
 type RowIdentityInfo struct {
 	Kind    string   `json:"kind"` // always "primary_key" in v0.1.0
 	Columns []string `json:"columns"`
+}
+
+// InsertValue is one column's input for a single-row INSERT (PRF-02/T08). Mode
+// is one of "value", "null", or "default"; Mode distinguishes an explicit NULL
+// and the database DEFAULT from an empty string or the literal text "NULL"/
+// "DEFAULT".
+type InsertValue struct {
+	Mode  string `json:"mode" enums:"value,null,default" example:"value"`
+	Value any    `json:"value,omitempty" example:"Alfie"`
 }
 
 // RowMutationResult is the bounded outcome of a single-row mutation. Row is the

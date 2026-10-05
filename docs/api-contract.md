@@ -122,6 +122,8 @@ Rules:
 | `ROW_NOT_FOUND` | 404 | Resource | PRF-02: identity no longer identifies a row |
 | `ROW_CONFLICT` | 409 | Concurrency | PRF-02: expected values no longer match |
 | `COLUMN_READ_ONLY` | 400 | Safety | PRF-02: PK/identity/generated column cannot be modified |
+| `INVALID_COLUMN_VALUE` | 400 | Validation | PRF-02: value invalid for its column (type/NULL/unknown column) |
+| `CONSTRAINT_VIOLATION` | 409 | Constraint | PRF-02: NOT NULL/UNIQUE/FK/CHECK rejection |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -400,6 +402,7 @@ here without an explicit requirement.
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
+| `POST` | `/api/v1/connections/{id}/table-data/rows` | Single-row INSERT with VALUE/NULL/DEFAULT modes (PRF-02/T08) |
 | `PATCH` | `/api/v1/connections/{id}/table-data/rows` | Single-row UPDATE by primary key with optimistic concurrency (PRF-02/T07) |
 | `DELETE` | `/api/v1/connections/{id}/table-data/rows` | Single-row DELETE by primary key with optimistic concurrency (PRF-02/T07) |
 | `POST` | `/api/v1/query/execute` | Synchronous raw SQL execution |
@@ -463,6 +466,18 @@ here without an explicit requirement.
   DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502 CONNECTION_ERROR`, `504
   QUERY_TIMEOUT`. Deep OFFSET can be slow on very large tables (documented
   limitation; keyset pagination is future work).
+- `POST /api/v1/connections/{id}/table-data/rows` — **PRF-02/T08**. Body:
+  `{ database, schema, table, values }` where each column value is
+  `{ mode: "value" | "null" | "default", value? }`. Modes are distinct: `null`
+  is a bound SQL NULL; `default` (and omitted columns) leave the value to the
+  database. Generated/identity columns reject explicit `value`
+  (`COLUMN_READ_ONLY`); `null` into NOT NULL → `INVALID_COLUMN_VALUE`; unknown
+  columns/modes/values are rejected. Values are bound and identifiers
+  metadata-validated; single-row only; no SQL/expressions from the client.
+  Returns `{ affected_rows, row? }` (canonical row via RETURNING on
+  PostgreSQL/SQLite; MySQL returns affected rows and the client refetches).
+  Base tables are insertable even without a primary key; views/matviews/foreign
+  tables → `ROW_NOT_MUTABLE`. Constraint failures → `409 CONSTRAINT_VIOLATION`.
 - `PATCH|DELETE /api/v1/connections/{id}/table-data/rows` — **PRF-02/T07**.
   Body: `{ database, schema, table, identity, expected?, changes? }` (JSON;
   numbers via `json.Number` so BIGINT stays exact). `identity` must contain

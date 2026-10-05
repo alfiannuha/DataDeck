@@ -214,6 +214,7 @@ func columnInfo(columns []model.Column, primaryKey *model.PrimaryKey) []model.Ta
 			PrimaryKey:      pk[column.Name],
 			Insertable:      insertable,
 			Updatable:       insertable && !pk[column.Name],
+			HasDefault:      column.Default != nil,
 		}
 	}
 	return out

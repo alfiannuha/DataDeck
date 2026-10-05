@@ -39,10 +39,12 @@ func seedSQLiteMutation(t *testing.T, db *sql.DB) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = raw.Close() })
-	if _, err := raw.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, amount INTEGER);
+	if _, err := raw.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, amount INTEGER);
 		CREATE TABLE logs (message TEXT, created_at TEXT);
 		CREATE TABLE big (id TEXT PRIMARY KEY, note TEXT);
-		INSERT INTO users VALUES (1, 'Alfie', 10), (2, 'Bea', 20);
+		CREATE TABLE uniq (email TEXT UNIQUE NOT NULL, name TEXT);
+		CREATE TABLE gen (a INTEGER PRIMARY KEY, b INTEGER GENERATED ALWAYS AS (a * 2) STORED);
+		INSERT INTO users VALUES (1, 'Alfie', NULL, 10), (2, 'Bea', 'B', 20);
 		INSERT INTO logs VALUES ('a', 'now');
 		INSERT INTO big VALUES ('9223372036854775807', 'x')`); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -76,7 +78,7 @@ func TestUpdateRowSQLite(t *testing.T) {
 	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if result.AffectedRows != 1 || len(result.Row) != 3 || result.Row[1] != "Alfred" {
+	if result.AffectedRows != 1 || len(result.Row) != 4 || result.Row[1] != "Alfred" {
 		t.Fatalf("result = %+v", result)
 	}
 }
@@ -184,5 +186,91 @@ func TestTableDataExposesRowCapabilities(t *testing.T) {
 	}
 	if noPKPage.RowCapabilities.Update || noPKPage.RowCapabilities.Delete {
 		t.Errorf("no-PK caps = %+v, want update/delete false", noPKPage.RowCapabilities)
+	}
+}
+
+func doInsert(t *testing.T, h *ConnectionHandler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := mutationRequest("sq", body)
+	req.Method = http.MethodPost
+	h.InsertRow(rec, req)
+	return rec
+}
+
+func TestInsertRowSQLite(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	// VALUE + NULL + DEFAULT (id omitted) with canonical DB defaults.
+	rec := doInsert(t, h, `{"table":"users","values":{"name":{"mode":"value","value":"Cara"},"nickname":{"mode":"null"}}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		AffectedRows int   `json:"affected_rows"`
+		Row          []any `json:"row"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.AffectedRows != 1 || len(result.Row) != 4 || result.Row[1] != "Cara" || result.Row[2] != nil {
+		t.Fatalf("result = %+v", result)
+	}
+
+	// Empty string is distinct from NULL.
+	rec = doInsert(t, h, `{"table":"users","values":{"name":{"mode":"value","value":""},"nickname":{"mode":"value","value":""}}}`)
+	row := decodeEnvelope(t, rec)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty-string insert status = %d", rec.Code)
+	}
+	_ = row
+}
+
+func TestInsertRowNoPKAndRejections(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	// No-PK base table is insertable (no identity required).
+	if rec := doInsert(t, h, `{"table":"logs","values":{"message":{"mode":"value","value":"hello"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("no-PK insert status = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name string
+		body string
+		code string
+	}{
+		{"generated column", `{"table":"gen","values":{"b":{"mode":"value","value":"1"}}}`, "COLUMN_READ_ONLY"},
+		{"unknown column", `{"table":"users","values":{"nope":{"mode":"value","value":"x"}}}`, "INVALID_COLUMN_VALUE"},
+		{"null into not null", `{"table":"users","values":{"name":{"mode":"null"}}}`, "INVALID_COLUMN_VALUE"},
+		{"unique violation", `{"table":"uniq","values":{"email":{"mode":"value","value":"dup@example.test"}}}`, "CONSTRAINT_VIOLATION"},
+	}
+	// Seed a duplicate unique row first.
+	if rec := doInsert(t, h, `{"table":"uniq","values":{"email":{"mode":"value","value":"dup@example.test"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("seed unique status = %d", rec.Code)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doInsert(t, h, tc.body)
+			env := decodeEnvelope(t, rec)
+			if env.Error == nil || env.Error.Code != tc.code {
+				t.Fatalf("status=%d error=%+v, want %s", rec.Code, env.Error, tc.code)
+			}
+			// Sanitized: no SQL/DSN.
+			if env.Error != nil && strings.Contains(strings.ToLower(env.Error.Message), "insert into") {
+				t.Errorf("error leaks SQL: %q", env.Error.Message)
+			}
+		})
+	}
+}
+
+func TestInsertRowBigintExact(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	rec := doInsert(t, h, `{"table":"big","values":{"id":{"mode":"value","value":"9223372036854775806"},"note":{"mode":"value","value":"y"}}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
 	}
 }

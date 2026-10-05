@@ -53,6 +53,14 @@ var (
 	ErrRowConflict          = errors.New("database: row changed since it was loaded")
 	ErrColumnReadOnly       = errors.New("database: column is read-only")
 	ErrAffectedMultipleRows = errors.New("database: mutation affected multiple rows")
+	// ErrInvalidColumnValue marks a value that is invalid for the target column
+	// (wrong shape/type, NULL for a NOT NULL column, ...).
+	ErrInvalidColumnValue = errors.New("database: invalid column value")
+	// ErrConstraintViolation marks a database constraint rejection (NOT NULL,
+	// UNIQUE, FOREIGN KEY, CHECK) with a sanitized message.
+	ErrConstraintViolation = errors.New("database: constraint violation")
+	// ErrInsertFailed marks an INSERT that did not affect exactly one row.
+	ErrInsertFailed = errors.New("database: insert did not affect exactly one row")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

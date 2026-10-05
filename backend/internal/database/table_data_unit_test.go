@@ -467,3 +467,109 @@ func TestFilterBigintExactValue(t *testing.T) {
 		t.Errorf("args = %#v, want exact BIGINT string", fake.args)
 	}
 }
+
+func insertFake(driver model.Driver, quote string) *browseFake {
+	return &browseFake{
+		driver: driver, quote: quote,
+		dbs: []model.Database{{Schemas: []model.Schema{{Name: "public", Tables: []model.Table{{
+			Schema: "public", Name: "users", Type: "BASE TABLE",
+			Columns: []model.Column{
+				{Name: "id", DataType: "bigint", OrdinalPosition: 1, Identity: true},
+				{Name: "name", DataType: "text", OrdinalPosition: 2},
+				{Name: "nickname", DataType: "text", Nullable: true, OrdinalPosition: 3},
+				{Name: "total", DataType: "numeric", OrdinalPosition: 4, Generated: true},
+			},
+			PrimaryKey: &model.PrimaryKey{Name: "pk", Columns: []string{"id"}},
+		}}}}}},
+		result: model.QueryResult{RowsAffected: 1, Rows: [][]any{{"1", "Alfie", nil, "10"}}},
+	}
+}
+
+func insertInto(t *testing.T, fake *browseFake, values map[string]model.InsertValue) error {
+	t.Helper()
+	m := NewManager(DefaultOptions(), fake)
+	_, err := m.InsertRow(context.Background(), "c1", Config{Driver: fake.driver, Database: "alpha"}, InsertRowRequest{
+		Schema: "public", Table: "users", Values: values,
+	})
+	return err
+}
+
+func TestInsertRowModesAndCanonicalOrder(t *testing.T) {
+	fake := insertFake(model.DriverPostgres, `"`)
+	err := insertInto(t, fake, map[string]model.InsertValue{
+		"nickname": {Mode: "null"},
+		"name":     {Mode: "value", Value: "Alfie"},
+		"id":       {Mode: "default"},
+	})
+	if err != nil {
+		t.Fatalf("InsertRow error = %v", err)
+	}
+	want := `INSERT INTO "public"."users" ("name", "nickname") VALUES ($1, $2) RETURNING "id", "name", "nickname", "total"`
+	if fake.sql != want {
+		t.Errorf("SQL = %q, want %q", fake.sql, want)
+	}
+	if len(fake.args) != 2 || fake.args[0] != "Alfie" || fake.args[1] != nil {
+		t.Errorf("args = %#v, want [Alfie nil]", fake.args)
+	}
+}
+
+func TestInsertRowAllDefaultsAndMySQLPlaceholder(t *testing.T) {
+	fake := insertFake(model.DriverMySQL, "`")
+	fake.result = model.QueryResult{RowsAffected: 1}
+	if err := insertInto(t, fake, map[string]model.InsertValue{"id": {Mode: "default"}}); err != nil {
+		t.Fatalf("InsertRow error = %v", err)
+	}
+	if fake.sql != "INSERT INTO `users` () VALUES ()" {
+		t.Errorf("SQL = %q, want MySQL default-values form", fake.sql)
+	}
+
+	fake = insertFake(model.DriverMySQL, "`")
+	fake.result = model.QueryResult{RowsAffected: 1}
+	if err := insertInto(t, fake, map[string]model.InsertValue{"name": {Mode: "value", Value: "x"}}); err != nil {
+		t.Fatalf("InsertRow error = %v", err)
+	}
+	if fake.sql != "INSERT INTO `users` (`name`) VALUES (?)" {
+		t.Errorf("SQL = %q", fake.sql)
+	}
+}
+
+func TestInsertRowRejections(t *testing.T) {
+	cases := map[string]map[string]model.InsertValue{
+		"generated":      {"total": {Mode: "value", Value: "1"}},
+		"identity":       {"id": {Mode: "value", Value: "1"}},
+		"null not null":  {"name": {Mode: "null"}},
+		"unknown mode":   {"name": {Mode: "raw", Value: "x"}},
+		"value missing":  {"name": {Mode: "value"}},
+		"unknown column": {"nope": {Mode: "value", Value: "x"}},
+	}
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := insertFake(model.DriverPostgres, `"`)
+			err := insertInto(t, fake, values)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !errors.Is(err, ErrColumnReadOnly) && !errors.Is(err, ErrInvalidColumnValue) {
+				t.Fatalf("error = %v, want read-only/invalid-value", err)
+			}
+		})
+	}
+}
+
+func TestInsertRowAllowsNoPKBaseTableAndRejectsView(t *testing.T) {
+	noPK := &browseFake{driver: model.DriverSQLite, quote: `"`, dbs: []model.Database{{
+		Tables: []model.Table{{Name: "logs", Type: "BASE TABLE", Columns: []model.Column{{Name: "message", DataType: "text", OrdinalPosition: 1}}}},
+	}}, result: model.QueryResult{RowsAffected: 1}}
+	m := NewManager(DefaultOptions(), noPK)
+	if _, err := m.InsertRow(context.Background(), "c1", Config{Driver: model.DriverSQLite}, InsertRowRequest{
+		Table: "logs", Values: map[string]model.InsertValue{"message": {Mode: "value", Value: "hi"}},
+	}); err != nil {
+		t.Fatalf("no-PK insert error = %v", err)
+	}
+
+	view := insertFake(model.DriverPostgres, `"`)
+	view.dbs[0].Schemas[0].Tables[0].Type = "VIEW"
+	if err := insertInto(t, view, map[string]model.InsertValue{"name": {Mode: "value", Value: "x"}}); !errors.Is(err, ErrRowNotMutable) {
+		t.Fatalf("view insert error = %v, want ErrRowNotMutable", err)
+	}
+}

@@ -538,7 +538,81 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
+        /**
+         * Insert one row
+         * @description Inserts one row into a base table. Values are structured {mode,value} (value/null/default); generated/identity columns reject explicit values; DEFAULT/omitted columns use the database default. The target is explicit; values are bound and the canonical row is returned where supported.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Insert target and column values */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.InsertRowRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
         /**
          * Delete one row
          * @description Applies a single-row, primary-key-identified DELETE with optional optimistic-concurrency expected values. Affected-row safety is enforced.
@@ -1274,6 +1348,17 @@ export interface components {
             /** @enum {string} */
             status?: "SUCCESS" | "ERROR";
         };
+        "handler.InsertRowRequest": {
+            /** @example alpha */
+            database?: string;
+            /** @example public */
+            schema?: string;
+            /** @example users */
+            table?: string;
+            values?: {
+                [key: string]: components["schemas"]["model.InsertValue"];
+            };
+        };
         "handler.QueryRequest": {
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */
             connection_id: string;
@@ -1375,6 +1460,15 @@ export interface components {
             primary?: boolean;
             unique?: boolean;
         };
+        "model.InsertValue": {
+            /**
+             * @example value
+             * @enum {string}
+             */
+            mode?: "value" | "null" | "default";
+            /** @example Alfie */
+            value?: unknown;
+        };
         "model.PrimaryKey": {
             columns?: string[];
             name?: string;
@@ -1420,6 +1514,11 @@ export interface components {
         };
         "model.TableColumnInfo": {
             database_type?: string;
+            /**
+             * @description HasDefault reports whether the column has a database default (drives the
+             *     Add Row DEFAULT default-mode; PRF-02/T08).
+             */
+            has_default?: boolean;
             /**
              * @description Insertable/Updatable are the effective per-column mutation flags
              *     (PRF-02/T07): generated columns are neither; PK and identity columns are

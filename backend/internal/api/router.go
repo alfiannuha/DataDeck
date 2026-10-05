@@ -73,6 +73,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/connections/{id}/schemas", connections.Schemas)
 		r.Get("/connections/{id}/databases", connections.Databases)
 		r.Get("/connections/{id}/table-data", connections.TableData)
+		r.Post("/connections/{id}/table-data/rows", connections.InsertRow)
 		r.Patch("/connections/{id}/table-data/rows", connections.UpdateRow)
 		r.Delete("/connections/{id}/table-data/rows", connections.DeleteRow)
 
