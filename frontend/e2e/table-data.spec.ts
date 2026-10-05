@@ -148,6 +148,16 @@ test.describe("table data browsing (PostgreSQL)", () => {
         `INSERT INTO public.users VALUES (1, '${marker}', NULL), (2, '${marker}', 'x')`,
       );
       await exec(request, connection, "CREATE TABLE public.logs (message text)");
+      await exec(
+        request,
+        connection,
+        "CREATE TABLE public.memberships (tenant_id text NOT NULL, user_id bigint NOT NULL, role text, PRIMARY KEY (tenant_id, user_id))",
+      );
+      await exec(
+        request,
+        connection,
+        "INSERT INTO public.memberships VALUES ('tenant-a', 9223372036854775807, 'viewer'), ('tenant-b', 9223372036854775807, 'viewer')",
+      );
       // Same table name with different values for cross-database sorting.
       const names: Record<string, string[]> = {
         ALPHA: ["ZETA", "OMEGA", "THETA"],
@@ -182,6 +192,17 @@ test.describe("table data browsing (PostgreSQL)", () => {
       host: PG_HOST,
       port: PG_PORT,
       database_name: "",
+      username: PG_USER,
+      password: PG_PASSWORD,
+      ssl_mode: "disable",
+    });
+    // Direct per-database profile for external verification mutations.
+    const alphaDirect = await createProfile(request, {
+      name: "E2E TD direct alpha",
+      driver: "postgres",
+      host: PG_HOST,
+      port: PG_PORT,
+      database_name: DB_ALPHA,
       username: PG_USER,
       password: PG_PASSWORD,
       ssl_mode: "disable",
@@ -252,12 +273,12 @@ test.describe("table data browsing (PostgreSQL)", () => {
     // continues the globally sorted dataset (a current-page sort would fail).
     await openTable(page, DB_ALPHA, "scores");
     await page.getByRole("button", { name: "Sort by score" }).click();
-    await expect(page.getByRole("gridcell").nth(1)).toHaveText("0");
+    await expect(page.getByRole("gridcell").nth(2)).toHaveText("0");
     const next = page.getByRole("button", { name: "Next page" });
     await expect(next).toBeEnabled();
     await next.click();
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
-    await expect(page.getByRole("gridcell").nth(1)).toHaveText("100");
+    await expect(page.getByRole("gridcell").nth(2)).toHaveText("100");
 
     // Server-side filtering: alpha.users marker = ALPHA (never beta). Switch to
     // the alpha users tab and filter it.
@@ -295,12 +316,12 @@ test.describe("table data browsing (PostgreSQL)", () => {
       .click();
     await page.getByLabel("Page size").selectOption("50");
     await applyFilter(page, "score", "greater_or_equal", "150");
-    await expect(page.getByRole("gridcell").nth(1)).toHaveText("150");
+    await expect(page.getByRole("gridcell").nth(2)).toHaveText("150");
     const filteredNext = page.getByRole("button", { name: "Next page" });
     await expect(filteredNext).toBeEnabled();
     await filteredNext.click();
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
-    await expect(page.getByRole("gridcell").nth(1)).toHaveText("200");
+    await expect(page.getByRole("gridcell").nth(2)).toHaveText("200");
 
     // Cross-database insert (BLOCKER gate): explorer is on beta, but the alpha
     // users tab's Add Row must target alpha only.
@@ -358,6 +379,62 @@ test.describe("table data browsing (PostgreSQL)", () => {
       `[{"column":"message","operator":"equals","value":"e2e-log"}]`,
     );
     expect(logsRows.rows.length).toBe(1);
+
+    // Wrong-database update (BLOCKER gate): explorer on beta, edit a row from
+    // the alpha tab, and only alpha may change.
+    await openTable(page, DB_ALPHA, "users");
+    await databaseButton(page, DB_BETA).click();
+    await exec(request, alphaDirect, "UPDATE public.users SET note = 'ONE' WHERE id = 1");
+    await page.getByRole("button", { name: "Refresh table data" }).click();
+    const firstAlphaRow = page.getByRole("row").filter({ hasText: "ONE" }).first();
+    await firstAlphaRow.getByLabel(/Edit row/).click();
+    await page.getByLabel("note value").fill("ALPHA_EDIT");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByTestId("edit-row-dialog")).toHaveCount(0);
+
+    const alphaEdited = await apiTable(
+      request, serverId, DB_ALPHA, "users",
+      `[{"column":"note","operator":"equals","value":"ALPHA_EDIT"}]`,
+    );
+    expect(alphaEdited.rows.length).toBe(1);
+    const betaEdited = await apiTable(
+      request, serverId, DB_BETA, "users",
+      `[{"column":"note","operator":"equals","value":"ALPHA_EDIT"}]`,
+    );
+    expect(betaEdited.rows.length).toBe(0);
+
+    // Optimistic concurrency: load the row, change it externally, then save.
+    await page.getByRole("button", { name: "Refresh table data" }).click();
+    const staleRow = page.getByRole("row").filter({ hasText: "x" }).first();
+    await staleRow.getByLabel(/Edit row/).click();
+    await exec(request, alphaDirect, "UPDATE public.users SET note = 'EXT' WHERE id = 2 AND note = 'x'");
+    await page.getByLabel("note value").fill("MINE");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("alert")).toContainText("ROW_CONFLICT");
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    // Row deleted during edit → ROW_NOT_FOUND.
+    await exec(request, alphaDirect, "INSERT INTO public.users VALUES (50, 'ALPHA', 'ZED')");
+    await page.getByRole("button", { name: "Refresh table data" }).click();
+    const doomedRow = page.getByRole("row").filter({ hasText: "ZED" }).first();
+    await doomedRow.getByLabel(/Edit row/).click();
+    await exec(request, alphaDirect, "DELETE FROM public.users WHERE id = 50");
+    await page.getByLabel("note value").fill("GONE");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("alert")).toContainText("ROW_NOT_FOUND");
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    // Composite PK update changes exactly one row.
+    await openTable(page, DB_ALPHA, "memberships");
+    const tenantARow = page.getByRole("row").filter({ hasText: "tenant-a" }).first();
+    await tenantARow.getByLabel(/Edit row/).click();
+    await page.getByLabel("role value").fill("admin");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByTestId("edit-row-dialog")).toHaveCount(0);
+    const memberships = await apiTable(request, serverId, DB_ALPHA, "memberships");
+    const roles = Object.fromEntries(memberships.rows.map((r) => [r[0], r[2]]));
+    expect(roles["tenant-a"]).toBe("admin");
+    expect(roles["tenant-b"]).toBe("viewer");
 
     // Cleanup (best-effort).
     await exec(request, admin, `DROP DATABASE IF EXISTS ${DB_ALPHA} WITH (FORCE)`);

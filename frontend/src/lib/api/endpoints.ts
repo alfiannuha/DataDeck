@@ -229,3 +229,27 @@ export function insertRow(
     { method: "POST", body: JSON.stringify(body) },
   );
 }
+
+export interface UpdateRowBody {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  identity: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+  changes: Record<string, unknown>;
+}
+
+/**
+ * Updates one row (PRF-02/T09). Identity, expected and changes are structured;
+ * no SQL/WHERE. The backend enforces optimistic concurrency and single-row
+ * affected-row safety.
+ */
+export function updateRow(
+  connectionId: string,
+  body: UpdateRowBody,
+): Promise<RowMutationResult> {
+  return apiFetch<RowMutationResult>(
+    `/connections/${encodeURIComponent(connectionId)}/table-data/rows`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}

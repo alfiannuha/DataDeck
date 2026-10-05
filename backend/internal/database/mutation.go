@@ -287,7 +287,8 @@ func planMutation(driver model.Driver, table *model.Table, req RowMutationReques
 		resolved.identity = append(resolved.identity, resolvedPredicate{column: name, value: value})
 	}
 
-	for name, raw := range req.Expected {
+	for _, name := range orderedNames(table, req.Expected) {
+		raw := req.Expected[name]
 		column := canonicalColumn(table.Columns, name)
 		if column == nil {
 			return nil, fmt.Errorf("%w: expected column %q not found", ErrRowIdentityInvalid, name)
@@ -307,7 +308,8 @@ func planMutation(driver model.Driver, table *model.Table, req RowMutationReques
 		if len(req.Changes) == 0 {
 			return nil, fmt.Errorf("%w: no changes supplied", ErrRowIdentityInvalid)
 		}
-		for name, raw := range req.Changes {
+		for _, name := range orderedNames(table, req.Changes) {
+			raw := req.Changes[name]
 			column := canonicalColumn(table.Columns, name)
 			if column == nil {
 				return nil, fmt.Errorf("%w: change column %q not found", ErrRowIdentityInvalid, name)
@@ -323,6 +325,29 @@ func planMutation(driver model.Driver, table *model.Table, req RowMutationReques
 		}
 	}
 	return resolved, nil
+}
+
+// orderedNames returns the map keys sorted by canonical metadata ordinal so
+// generated SET/expected predicates are deterministic and composite-safe.
+func orderedNames(table *model.Table, values map[string]any) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	ordinal := map[string]int{}
+	for _, column := range table.Columns {
+		ordinal[column.Name] = column.OrdinalPosition
+	}
+	sortNames(names, ordinal)
+	return names
+}
+
+func sortNames(names []string, ordinal map[string]int) {
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && ordinal[names[j-1]] > ordinal[names[j]]; j-- {
+			names[j-1], names[j] = names[j], names[j-1]
+		}
+	}
 }
 
 func containsString(values []string, target string) bool {

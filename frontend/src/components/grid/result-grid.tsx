@@ -40,6 +40,8 @@ export function ResultGrid({
   sortColumn = null,
   sortDirection = null,
   onSortColumn,
+  rowActionLabel,
+  onRowAction,
 }: {
   result: QueryResult;
   ariaLabel?: string;
@@ -49,20 +51,27 @@ export function ResultGrid({
   sortDirection?: "asc" | "desc" | null;
   /** When provided, headers become sort controls (server-side only). */
   onSortColumn?: (column: string) => void;
+  /** When provided, each row gets a leading action button (e.g. Edit Row). */
+  rowActionLabel?: string;
+  onRowAction?: (rowIndex: number) => void;
 }) {
   const rows = (result.rows ?? []) as Row[];
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasRowActions = Boolean(onRowAction);
 
-  const columns = useMemo<ColumnDef<Row, unknown>[]>(
-    () =>
-      (result.columns ?? []).map((column, index) => ({
-        id: String(index),
-        header: column.name ?? `column_${index}`,
-        size: DEFAULT_COLUMN_WIDTH,
-        minSize: MIN_COLUMN_WIDTH,
-      })),
-    [result.columns],
-  );
+  const columns = useMemo<ColumnDef<Row, unknown>[]>(() => {
+    const base = (result.columns ?? []).map((column, index) => ({
+      id: String(index),
+      header: column.name ?? `column_${index}`,
+      size: DEFAULT_COLUMN_WIDTH,
+      minSize: MIN_COLUMN_WIDTH,
+    }));
+    if (!hasRowActions) return base;
+    return [
+      { id: "__actions", header: "", size: 72, minSize: 72, enableResizing: false },
+      ...base,
+    ];
+  }, [result.columns, hasRowActions]);
 
   const table = useReactTable({
     data: rows,
@@ -114,6 +123,17 @@ export function ResultGrid({
           style={{ gridTemplateColumns }}
         >
           {headers.map((header) => {
+            if (header.id === "__actions") {
+              return (
+                <div
+                  key={header.id}
+                  role="columnheader"
+                  aria-label="Row actions"
+                  className="border-r border-border"
+                  style={{ width: header.getSize() }}
+                />
+              );
+            }
             const label = String(header.column.columnDef.header);
             const sortable = Boolean(onSortColumn);
             const active = sortable && sortColumn === label;
@@ -188,9 +208,22 @@ export function ResultGrid({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  {headers.map((header, index) => (
-                    <ResultCell key={header.id} value={row?.[index]} />
-                  ))}
+                  {headers.map((header, index) =>
+                    header.id === "__actions" ? (
+                      <button
+                        key={header.id}
+                        type="button"
+                        role="gridcell"
+                        aria-label={`${rowActionLabel ?? "Edit"} row ${virtualRow.index + 1}`}
+                        onClick={() => onRowAction?.(virtualRow.index)}
+                        className="flex items-center justify-center border-r border-border px-2 text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                      >
+                        {rowActionLabel ?? "Edit"}
+                      </button>
+                    ) : (
+                      <ResultCell key={header.id} value={row?.[index - (hasRowActions ? 1 : 0)]} />
+                    ),
+                  )}
                 </div>
               );
             })}

@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
 import { AddRowDialog } from "@/components/shared/add-row-dialog";
+import { EditRowDialog } from "@/components/shared/edit-row-dialog";
 import { TableDataFilterPanel } from "@/components/shared/table-data-filter-panel";
 import { Button } from "@/components/ui/button";
 import { useTableData } from "@/hooks/use-table-data";
@@ -30,6 +31,7 @@ export function TableDataView() {
   const updateTableData = useWorkspaceStore((state) => state.updateTableData);
   const [filterOpen, setFilterOpen] = useState(false);
   const [addRowOpen, setAddRowOpen] = useState(false);
+  const [editRow, setEditRow] = useState<{ row: unknown[] } | null>(null);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -211,6 +213,22 @@ export function TableDataView() {
         />
       ) : null}
 
+      {editRow && data && tab.connectionId ? (
+        <EditRowDialog
+          connectionId={tab.connectionId}
+          database={tab.database}
+          schema={tab.schema}
+          table={tab.table}
+          columns={data.columns ?? []}
+          row={editRow.row}
+          onClose={() => setEditRow(null)}
+          onUpdated={() => {
+            setEditRow(null);
+            void query.refetch();
+          }}
+        />
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-hidden bg-result-surface">
         {showError ? (
           <div
@@ -245,6 +263,15 @@ export function TableDataView() {
             sortColumn={tab.sort[0]?.column ?? null}
             sortDirection={tab.sort[0]?.direction ?? null}
             onSortColumn={handleSort}
+            rowActionLabel={data?.row_capabilities?.update ? "Edit" : undefined}
+            onRowAction={
+              data?.row_capabilities?.update
+                ? (index) => {
+                    const row = (gridResult?.rows ?? [])[index];
+                    if (row) setEditRow({ row: row as unknown[] });
+                  }
+                : undefined
+            }
           />
         ) : null}
       </div>

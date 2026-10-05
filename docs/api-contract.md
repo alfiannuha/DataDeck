@@ -487,7 +487,10 @@ here without an explicit requirement.
   NULL-safe optimistic concurrency: a mismatch after the row exists →
   `409 ROW_CONFLICT`; a vanished row → `404 ROW_NOT_FOUND`. PK/identity/generated
   columns are not updatable → `400 COLUMN_READ_ONLY`. Values are bound and
-  identifiers metadata-validated. A transaction enforces affected-row safety
+  identifiers metadata-validated. PRF-02/T09: the GUI Edit form submits **only
+  changed fields** and requires a declared PRIMARY KEY; the `expected` snapshot
+  is the normal GUI path (not optional), so stale edits return `409 ROW_CONFLICT`
+  instead of silently overwriting. A transaction enforces affected-row safety
   (0 = conflict/not-found, >1 = `500 MUTATION_AFFECTED_MULTIPLE_ROWS` +
   rollback). Response `data`: `{ affected_rows, row? }` (canonical
   post-mutation row where readable). The Table Data page also advertises

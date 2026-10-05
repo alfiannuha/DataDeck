@@ -274,3 +274,40 @@ func TestInsertRowBigintExact(t *testing.T) {
 		t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
 	}
 }
+
+func TestUpdateRowOnlyChangedFields(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	rec := doMutation(t, h, true, `{"table":"users","identity":{"id":"1"},"expected":{"name":"Alfie","amount":10},"changes":{"name":"Alfred"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	// amount must be untouched (only name was in changes).
+	rows := callTableData(t, h, "sq", mapValues("table", "users"))
+	var page struct {
+		Rows [][]any `json:"rows"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, rows).Data, &page); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, row := range page.Rows {
+		if row[0] == float64(1) && row[3] != float64(10) {
+			t.Fatalf("unrelated column changed: %#v", row)
+		}
+	}
+}
+
+func TestUpdateRowNoChangesAndAdversarialExpected(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	// No changes → rejected, no UPDATE issued.
+	if env := decodeEnvelope(t, doMutation(t, h, true, `{"table":"users","identity":{"id":"1"},"changes":{}}`)); env.Error == nil || env.Error.Code != "ROW_IDENTITY_INVALID" {
+		t.Fatalf("empty changes = %+v, want ROW_IDENTITY_INVALID", env.Error)
+	}
+	// Adversarial expected value is data: mismatch → ROW_CONFLICT, not SQL error.
+	if env := decodeEnvelope(t, doMutation(t, h, true, `{"table":"users","identity":{"id":"1"},"expected":{"name":"' OR 1=1 --"},"changes":{"name":"x"}}`)); env.Error == nil || env.Error.Code != "ROW_CONFLICT" {
+		t.Fatalf("adversarial expected = %+v, want ROW_CONFLICT", env.Error)
+	}
+}

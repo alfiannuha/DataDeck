@@ -125,3 +125,30 @@ func TestRowCapabilitiesMetadata(t *testing.T) {
 		t.Errorf("view caps = %+v, want read-only", caps)
 	}
 }
+
+func TestPlanMutationDeterministicColumnOrder(t *testing.T) {
+	table := &model.Table{
+		Name: "users", Type: "BASE TABLE",
+		Columns: []model.Column{
+			{Name: "id", DataType: "int", OrdinalPosition: 1},
+			{Name: "status", DataType: "text", OrdinalPosition: 2},
+			{Name: "name", DataType: "text", OrdinalPosition: 3},
+			{Name: "age", DataType: "int", OrdinalPosition: 4},
+		},
+		PrimaryKey: &model.PrimaryKey{Name: "pk", Columns: []string{"id"}},
+	}
+	resolved, err := planMutation(model.DriverPostgres, table, RowMutationRequest{
+		Identity: map[string]any{"id": 1},
+		Expected: map[string]any{"age": 20, "status": "active", "name": "Alice"},
+		Changes:  map[string]any{"name": "Alice Smith", "status": "disabled"},
+	}, true)
+	if err != nil {
+		t.Fatalf("planMutation error = %v", err)
+	}
+	if got := []string{resolved.changes[0].column, resolved.changes[1].column}; got[0] != "status" || got[1] != "name" {
+		t.Errorf("changes order = %v, want [status name]", got)
+	}
+	if got := []string{resolved.expected[0].column, resolved.expected[1].column, resolved.expected[2].column}; got[0] != "status" || got[1] != "name" || got[2] != "age" {
+		t.Errorf("expected order = %v, want [status name age]", got)
+	}
+}

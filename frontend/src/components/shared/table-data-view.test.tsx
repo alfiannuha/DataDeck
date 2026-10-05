@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { browseTableData, insertRow } from "@/lib/api/endpoints";
+import { browseTableData, insertRow, updateRow } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import { useWorkspaceStore, type TableDataTab } from "@/store/useWorkspaceStore";
@@ -11,6 +11,7 @@ import { TableDataView } from "./table-data-view";
 vi.mock("@/lib/api/endpoints", () => ({
   browseTableData: vi.fn(),
   insertRow: vi.fn(),
+  updateRow: vi.fn(),
 }));
 
 function tableTab(overrides: Partial<TableDataTab> = {}): TableDataTab {
@@ -486,5 +487,64 @@ describe("TableDataView add row", () => {
 
     expect(await screen.findByTestId("add-row-dialog")).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("CONSTRAINT_VIOLATION");
+  });
+});
+
+describe("TableDataView edit row", () => {
+  it("shows the Edit action only when update is allowed and submits against the tab binding", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: true, delete: false, duplicate: false },
+        columns: [
+          { name: "id", database_type: "bigint", primary_key: true, updatable: false },
+          { name: "name", database_type: "text", nullable: true, updatable: true },
+        ],
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    vi.mocked(updateRow).mockResolvedValue({ affected_rows: 1 } as never);
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ database: "alpha", filters: [{ column: "id", operator: "equals", value: "42" }] })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Edit row 1"));
+    fireEvent.change(await screen.findByLabelText("name value"), { target: { value: "Bob" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(updateRow).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          database: "alpha",
+          table: "users",
+          identity: { id: "42" },
+          changes: { name: "Bob" },
+        }),
+      ),
+    );
+    // Refresh preserves filters; no optimistic row patch.
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.at(-1)?.[1]).toEqual(
+        expect.objectContaining({
+          database: "alpha",
+          filters: [{ column: "id", operator: "equals", value: "42" }],
+        }),
+      ),
+    );
+  });
+
+  it("hides the Edit action when update is not allowed", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: true, update: false, delete: false, duplicate: false },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    expect(screen.queryByRole("button", { name: /Edit row/ })).not.toBeInTheDocument();
   });
 });
