@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -53,6 +54,25 @@ func browse(t *testing.T, h *ConnectionHandler, id string, query url.Values) (in
 		t.Fatalf("decode page: %v (%s)", err, rec.Body.String())
 	}
 	return rec.Code, page, ""
+}
+
+// mutate calls a row mutation endpoint with the srv profile and returns the
+// HTTP status plus the sanitized error code (empty on success).
+func mutate(t *testing.T, h *ConnectionHandler, update bool, body string) (int, string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := mutationRequest("srv", body)
+	if update {
+		h.UpdateRow(rec, req)
+	} else {
+		h.DeleteRow(rec, req)
+	}
+	env := decodeEnvelope(t, rec)
+	code := ""
+	if env.Error != nil {
+		code = env.Error.Code
+	}
+	return rec.Code, code
 }
 
 func pgTableConfig(t *testing.T) database.Config {
@@ -145,6 +165,22 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 		if _, err := pool.ExecContext(context.Background(),
 			`ALTER TABLE public.scores ADD PRIMARY KEY (id)`); err != nil {
 			t.Fatalf("scores pk in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.logs (message text, created_at timestamp)`); err != nil {
+			t.Fatalf("logs in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.uniq (email text UNIQUE NOT NULL, name text)`); err != nil {
+			t.Fatalf("uniq in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.memberships (tenant_id text NOT NULL, user_id bigint NOT NULL, role text, PRIMARY KEY (tenant_id, user_id))`); err != nil {
+			t.Fatalf("memberships in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`INSERT INTO public.memberships VALUES ('A', 9223372036854775807, 'admin')`); err != nil {
+			t.Fatalf("memberships insert in %s: %v", database, err)
 		}
 	}
 	seedTable(dbA, "ALPHA")
@@ -366,6 +402,58 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			t.Fatalf("beta sorted names = %v, want %v", betaNames, wantBeta)
 		}
 	})
+
+	t.Run("row mutation is isolated to the explicit database", func(t *testing.T) {
+		body := func(database, changes, expected string) string {
+			return `{"database":"` + database + `","schema":"public","table":"users","identity":{"id":"1"},` +
+				`"expected":{` + expected + `},"changes":{` + changes + `}}`
+		}
+		// Update alpha row 1; beta row 1 must be untouched.
+		if status, code := mutate(t, h, true, body(dbA, `"note":"ALPHA-EDIT"`, `"marker":"ALPHA"`)); status != http.StatusOK {
+			t.Fatalf("alpha update failed: status %d code %q", status, code)
+		}
+		_, alpha, _ := browse(t, h, "srv", url.Values{"database": {dbA}, "schema": {"public"}, "table": {"users"}, "filters": {`[{"column":"id","operator":"equals","value":1}]`}})
+		if alpha.Rows[0][3] != "ALPHA-EDIT" {
+			t.Fatalf("alpha note = %#v, want ALPHA-EDIT", alpha.Rows[0][3])
+		}
+		_, beta, _ := browse(t, h, "srv", url.Values{"database": {dbB}, "schema": {"public"}, "table": {"users"}, "filters": {`[{"column":"id","operator":"equals","value":1}]`}})
+		if beta.Rows[0][3] != nil {
+			t.Fatalf("beta note = %#v, want untouched NULL", beta.Rows[0][3])
+		}
+
+		// Opposite direction.
+		if status, code := mutate(t, h, true, body(dbB, `"note":"BETA-EDIT"`, `"marker":"BETA"`)); status != http.StatusOK {
+			t.Fatalf("beta update failed: status %d code %q", status, code)
+		}
+		_, alpha2, _ := browse(t, h, "srv", url.Values{"database": {dbA}, "schema": {"public"}, "table": {"users"}, "filters": {`[{"column":"id","operator":"equals","value":1}]`}})
+		if alpha2.Rows[0][3] != "ALPHA-EDIT" {
+			t.Fatalf("alpha note changed by beta mutation: %#v", alpha2.Rows[0][3])
+		}
+	})
+
+	t.Run("row conflict, not found and composite identity", func(t *testing.T) {
+		if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"users","identity":{"id":"1"},"expected":{"marker":"WRONG"},"changes":{"note":"x"}}`); code != "ROW_CONFLICT" {
+			t.Fatalf("expected ROW_CONFLICT, got %q", code)
+		}
+		if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"users","identity":{"id":"999"},"changes":{"note":"x"}}`); code != "ROW_NOT_FOUND" {
+			t.Fatalf("expected ROW_NOT_FOUND, got %q", code)
+		}
+		// Composite PK (tenant_id, user_id) with an exact BIGINT.
+		if status, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"memberships","identity":{"tenant_id":"A","user_id":"9223372036854775807"},"changes":{"role":"lead"}}`); status != http.StatusOK {
+			t.Fatalf("composite update failed: status %d code %q", status, code)
+		}
+		if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"memberships","identity":{"tenant_id":"A"},"changes":{"role":"x"}}`); code != "ROW_IDENTITY_INVALID" {
+			t.Fatalf("partial composite identity = %q, want ROW_IDENTITY_INVALID", code)
+		}
+	})
+
+	t.Run("read-only and no-identity tables reject mutation", func(t *testing.T) {
+		for _, table := range []string{"logs", "uniq"} {
+			if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"`+table+`","identity":{"message":"a"},"changes":{"message":"b"}}`); code != "ROW_IDENTITY_REQUIRED" {
+				t.Fatalf("%s mutation code = %q, want ROW_IDENTITY_REQUIRED", table, code)
+			}
+		}
+	})
 }
 
 func TestTableDataAPIIntegrationMySQL(t *testing.T) {
@@ -443,6 +531,33 @@ func TestTableDataAPIIntegrationMySQL(t *testing.T) {
 	})
 	if len(filtered.Rows) != 2 {
 		t.Fatalf("mysql filtered rows = %d, want 2", len(filtered.Rows))
+	}
+
+	// Mutation: ClientFoundRows makes an UPDATE that does not change the value
+	// still report 1 matched row (not ROW_NOT_FOUND).
+	myMutate := func(update bool, body string) (int, string) {
+		rec := httptest.NewRecorder()
+		req := mutationRequest("my", body)
+		if update {
+			h.UpdateRow(rec, req)
+		} else {
+			h.DeleteRow(rec, req)
+		}
+		env := decodeEnvelope(t, rec)
+		code := ""
+		if env.Error != nil {
+			code = env.Error.Code
+		}
+		return rec.Code, code
+	}
+	if status, code := myMutate(true, `{"table":"datadeck_td_users","identity":{"id":"1"},"expected":{"marker":"MY"},"changes":{"marker":"MY"}}`); status != http.StatusOK {
+		t.Fatalf("mysql unchanged update status=%d code=%q (want 200)", status, code)
+	}
+	if _, code := myMutate(true, `{"table":"datadeck_td_users","identity":{"id":"1"},"expected":{"marker":"WRONG"},"changes":{"marker":"Z"}}`); code != "ROW_CONFLICT" {
+		t.Fatalf("mysql conflict code = %q, want ROW_CONFLICT", code)
+	}
+	if _, code := myMutate(true, `{"table":"datadeck_td_users","identity":{"id":"999"},"changes":{"marker":"Z"}}`); code != "ROW_NOT_FOUND" {
+		t.Fatalf("mysql not found code = %q, want ROW_NOT_FOUND", code)
 	}
 }
 
@@ -586,5 +701,28 @@ func TestTableDataIntegrationSQLite(t *testing.T) {
 	})
 	if len(contains.Rows) != 1 {
 		t.Fatalf("sqlite bigint filter rows = %d, want 1", len(contains.Rows))
+	}
+
+	// Decimal-compatible mutation + optimistic conflict.
+	sqMutate := func(update bool, body string) (int, string) {
+		rec := httptest.NewRecorder()
+		req := mutationRequest("sq", body)
+		if update {
+			h.UpdateRow(rec, req)
+		} else {
+			h.DeleteRow(rec, req)
+		}
+		env := decodeEnvelope(t, rec)
+		code := ""
+		if env.Error != nil {
+			code = env.Error.Code
+		}
+		return rec.Code, code
+	}
+	if status, code := sqMutate(true, `{"table":"items","identity":{"id":"2"},"expected":{"label":null},"changes":{"label":"b"}}`); status != http.StatusOK {
+		t.Fatalf("sqlite null-expected update status=%d code=%q", status, code)
+	}
+	if _, code := sqMutate(true, `{"table":"items","identity":{"id":"2"},"expected":{"label":"NOPE"},"changes":{"label":"c"}}`); code != "ROW_CONFLICT" {
+		t.Fatalf("sqlite conflict code = %q", code)
 	}
 }

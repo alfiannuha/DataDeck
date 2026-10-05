@@ -115,6 +115,13 @@ Rules:
 | `TABLE_NOT_FOUND` | 404 | Resource | PRF-02: Table Data target not found in metadata |
 | `COLUMN_NOT_FOUND` | 400 | Validation | PRF-02: filter/sort/projection column not in metadata |
 | `INVALID_FILTER` | 400 | Validation | PRF-02: malformed or type-incompatible filter |
+| `MUTATION_AFFECTED_MULTIPLE_ROWS` | 500 | Safety | PRF-02: mutation matched >1 row; rolled back |
+| `ROW_NOT_MUTABLE` | 400 | Safety | PRF-02: view/matview/foreign table is read-only |
+| `ROW_IDENTITY_REQUIRED` | 400 | Safety | PRF-02: no primary key; Update/Delete disabled |
+| `ROW_IDENTITY_INVALID` | 400 | Validation | PRF-02: identity keys/values invalid |
+| `ROW_NOT_FOUND` | 404 | Resource | PRF-02: identity no longer identifies a row |
+| `ROW_CONFLICT` | 409 | Concurrency | PRF-02: expected values no longer match |
+| `COLUMN_READ_ONLY` | 400 | Safety | PRF-02: PK/identity/generated column cannot be modified |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -393,6 +400,8 @@ here without an explicit requirement.
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
+| `PATCH` | `/api/v1/connections/{id}/table-data/rows` | Single-row UPDATE by primary key with optimistic concurrency (PRF-02/T07) |
+| `DELETE` | `/api/v1/connections/{id}/table-data/rows` | Single-row DELETE by primary key with optimistic concurrency (PRF-02/T07) |
 | `POST` | `/api/v1/query/execute` | Synchronous raw SQL execution |
 | `GET` | `/api/v1/query/history` | Audit log of executed queries |
 | `POST` | `/api/v1/queries/saved` | Save a query snippet (PRD) |
@@ -454,6 +463,21 @@ here without an explicit requirement.
   DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502 CONNECTION_ERROR`, `504
   QUERY_TIMEOUT`. Deep OFFSET can be slow on very large tables (documented
   limitation; keyset pagination is future work).
+- `PATCH|DELETE /api/v1/connections/{id}/table-data/rows` — **PRF-02/T07**.
+  Body: `{ database, schema, table, identity, expected?, changes? }` (JSON;
+  numbers via `json.Number` so BIGINT stays exact). `identity` must contain
+  **exactly** the declared PRIMARY KEY columns (single or composite) — no
+  unique-index/ctid/rowid fallback; no-PK tables → `400 ROW_IDENTITY_REQUIRED`,
+  views/matviews/foreign tables → `400 ROW_NOT_MUTABLE`. `expected` enables
+  NULL-safe optimistic concurrency: a mismatch after the row exists →
+  `409 ROW_CONFLICT`; a vanished row → `404 ROW_NOT_FOUND`. PK/identity/generated
+  columns are not updatable → `400 COLUMN_READ_ONLY`. Values are bound and
+  identifiers metadata-validated. A transaction enforces affected-row safety
+  (0 = conflict/not-found, >1 = `500 MUTATION_AFFECTED_MULTIPLE_ROWS` +
+  rollback). Response `data`: `{ affected_rows, row? }` (canonical
+  post-mutation row where readable). The Table Data page also advertises
+  effective `row_capabilities` (insert/update/delete/duplicate), `row_identity`,
+  and per-column `insertable`/`updatable` flags.
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
   `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds

@@ -161,7 +161,9 @@ func queryColumns(ctx context.Context, db *sql.DB, builder *schemaBuilder) error
 		        pg_catalog.format_type(a.atttypid, a.atttypmod),
 		        NOT a.attnotnull AS nullable,
 		        pg_catalog.pg_get_expr(d.adbin, d.adrelid) AS default_expr,
-		        a.attnum
+		        a.attnum,
+		        a.attgenerated <> '' AS generated,
+		        a.attidentity <> '' AS identity
 		 FROM pg_catalog.pg_attribute a
 		 JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
 		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -180,8 +182,9 @@ func queryColumns(ctx context.Context, db *sql.DB, builder *schemaBuilder) error
 			nullable                        bool
 			defaultExpr                     sql.NullString
 			position                        int
+			generated, identity             bool
 		)
-		if err := rows.Scan(&schema, &table, &column, &dataType, &nullable, &defaultExpr, &position); err != nil {
+		if err := rows.Scan(&schema, &table, &column, &dataType, &nullable, &defaultExpr, &position, &generated, &identity); err != nil {
 			return fmt.Errorf("scan column: %w", err)
 		}
 		t := builder.table(schema, table)
@@ -194,6 +197,8 @@ func queryColumns(ctx context.Context, db *sql.DB, builder *schemaBuilder) error
 			Nullable:        nullable,
 			Default:         stringPtr(defaultExpr),
 			OrdinalPosition: position,
+			Generated:       generated,
+			Identity:        identity,
 		})
 	}
 	if err := rows.Err(); err != nil {

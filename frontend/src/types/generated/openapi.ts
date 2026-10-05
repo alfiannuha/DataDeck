@@ -529,6 +529,188 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/{id}/table-data/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one row
+         * @description Applies a single-row, primary-key-identified DELETE with optional optimistic-concurrency expected values. Affected-row safety is enforced.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Mutation target, identity and expected */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.RowMutationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update one row
+         * @description Applies a single-row, primary-key-identified UPDATE with optional optimistic-concurrency expected values. Values are bound; affected-row safety is enforced (0 = conflict/not found, >1 = abort).
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Mutation target, identity, expected and changes */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.RowMutationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1102,6 +1284,28 @@ export interface components {
             /** @example 30 */
             timeout_seconds?: number;
         };
+        "handler.RowMutationRequest": {
+            changes?: {
+                [key: string]: unknown;
+            };
+            /** @example alpha */
+            database?: string;
+            expected?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @example {
+             *       "{\"id\"": "\"10\"}"
+             *     }
+             */
+            identity?: {
+                [key: string]: unknown;
+            };
+            /** @example public */
+            schema?: string;
+            /** @example users */
+            table?: string;
+        };
         "handler.SavedQueryRequest": {
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */
             connection_id?: string;
@@ -1131,6 +1335,16 @@ export interface components {
         "model.Column": {
             data_type?: string;
             default?: string;
+            /**
+             * @description Generated marks computed/generated columns (never directly writable) where
+             *     the engine exposes this metadata (PRF-02/T07).
+             */
+            generated?: boolean;
+            /**
+             * @description Identity marks engine-assigned columns (identity/auto-increment/rowid
+             *     alias): excluded from Update, and from explicit Insert values in v0.1.0.
+             */
+            identity?: boolean;
             name?: string;
             nullable?: boolean;
             ordinal_position?: number;
@@ -1176,6 +1390,21 @@ export interface components {
             rows_affected?: number;
             truncated?: boolean;
         };
+        "model.RowCapabilities": {
+            delete?: boolean;
+            duplicate?: boolean;
+            insert?: boolean;
+            update?: boolean;
+        };
+        "model.RowIdentityInfo": {
+            columns?: string[];
+            /** @description always "primary_key" in v0.1.0 */
+            kind?: string;
+        };
+        "model.RowMutationResult": {
+            affected_rows?: number;
+            row?: unknown[];
+        };
         "model.Schema": {
             name?: string;
             tables?: components["schemas"]["model.Table"][];
@@ -1191,16 +1420,29 @@ export interface components {
         };
         "model.TableColumnInfo": {
             database_type?: string;
+            /**
+             * @description Insertable/Updatable are the effective per-column mutation flags
+             *     (PRF-02/T07): generated columns are neither; PK and identity columns are
+             *     not updatable in v0.1.0.
+             */
+            insertable?: boolean;
             name?: string;
             nullable?: boolean;
             ordinal_position?: number;
             primary_key?: boolean;
+            updatable?: boolean;
         };
         "model.TableDataPage": {
             columns?: components["schemas"]["model.TableColumnInfo"][];
             database?: string;
             object_type?: string;
             pagination?: components["schemas"]["model.TablePagination"];
+            /**
+             * @description RowCapabilities/RowIdentity describe mutation eligibility derived from
+             *     canonical metadata (PRF-02/T07). Update/Delete require a primary key.
+             */
+            row_capabilities?: components["schemas"]["model.RowCapabilities"];
+            row_identity?: components["schemas"]["model.RowIdentityInfo"];
             rows?: unknown[][];
             schema?: string;
             table?: string;

@@ -93,8 +93,8 @@ func querySQLiteTables(ctx context.Context, db *sql.DB, builder *sqliteBuilder) 
 
 func querySQLiteColumns(ctx context.Context, db *sql.DB, table *model.Table) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT cid, name, type, "notnull", dflt_value, pk
-		 FROM pragma_table_info(?) ORDER BY cid`, table.Name)
+		`SELECT cid, name, type, "notnull", dflt_value, pk, hidden
+		 FROM pragma_table_xinfo(?) ORDER BY cid`, table.Name)
 	if err != nil {
 		return fmt.Errorf("list sqlite columns for %q: %w", table.Name, err)
 	}
@@ -105,6 +105,7 @@ func querySQLiteColumns(ctx context.Context, db *sql.DB, table *model.Table) err
 		rank   int
 	}
 	var pkEntries []pkEntry
+	columnTypes := map[string]string{}
 
 	for rows.Next() {
 		var (
@@ -114,16 +115,20 @@ func querySQLiteColumns(ctx context.Context, db *sql.DB, table *model.Table) err
 			notNull    int
 			defaultV   sql.NullString
 			pkRank     int
+			hidden     int
 		)
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultV, &pkRank); err != nil {
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultV, &pkRank, &hidden); err != nil {
 			return fmt.Errorf("scan sqlite column: %w", err)
 		}
+		columnTypes[name] = columnType
 		table.Columns = append(table.Columns, model.Column{
 			Name:            name,
 			DataType:        columnType,
 			Nullable:        notNull == 0,
 			Default:         sqliteStringPtr(defaultV),
 			OrdinalPosition: cid + 1,
+			// hidden 2/3 mark VIRTUAL/STORED generated columns.
+			Generated: hidden == 2 || hidden == 3,
 		})
 		if pkRank > 0 {
 			pkEntries = append(pkEntries, pkEntry{column: name, rank: pkRank})
@@ -145,6 +150,14 @@ func querySQLiteColumns(ctx context.Context, db *sql.DB, table *model.Table) err
 			columns = append(columns, entry.column)
 		}
 		table.PrimaryKey = &model.PrimaryKey{Name: "PRIMARY", Columns: columns}
+		// A single INTEGER PRIMARY KEY is SQLite's rowid alias (auto-assigned).
+		if len(columns) == 1 && strings.Contains(strings.ToUpper(columnTypes[columns[0]]), "INT") {
+			for i := range table.Columns {
+				if table.Columns[i].Name == columns[0] {
+					table.Columns[i].Identity = true
+				}
+			}
+		}
 	}
 	return nil
 }

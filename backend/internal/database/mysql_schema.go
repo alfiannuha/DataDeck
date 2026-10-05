@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
 )
@@ -96,7 +97,7 @@ func queryMySQLTables(ctx context.Context, db *sql.DB, database string, builder 
 
 func queryMySQLColumns(ctx context.Context, db *sql.DB, database string, builder *mysqlBuilder) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION
+		`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION, EXTRA
 		 FROM information_schema.COLUMNS
 		 WHERE TABLE_SCHEMA = ?
 		 ORDER BY TABLE_NAME, ORDINAL_POSITION`, database)
@@ -110,8 +111,9 @@ func queryMySQLColumns(ctx context.Context, db *sql.DB, database string, builder
 			tableName, columnName, columnType, isNullable string
 			columnDefault                                 sql.NullString
 			position                                      int
+			extra                                         string
 		)
-		if err := rows.Scan(&tableName, &columnName, &columnType, &isNullable, &columnDefault, &position); err != nil {
+		if err := rows.Scan(&tableName, &columnName, &columnType, &isNullable, &columnDefault, &position, &extra); err != nil {
 			return fmt.Errorf("scan mysql column: %w", err)
 		}
 		table := builder.table(tableName)
@@ -124,6 +126,8 @@ func queryMySQLColumns(ctx context.Context, db *sql.DB, database string, builder
 			Nullable:        isNullable == "YES",
 			Default:         mysqlStringPtr(columnDefault),
 			OrdinalPosition: position,
+			Generated:       strings.Contains(strings.ToUpper(extra), "GENERATED"),
+			Identity:        strings.Contains(strings.ToLower(extra), "auto_increment"),
 		})
 	}
 	return rows.Err()

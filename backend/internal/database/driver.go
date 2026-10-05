@@ -45,6 +45,14 @@ var (
 	// ErrInvalidFilter marks a malformed or type-incompatible filter structure
 	// (unknown operator, missing/extra value, oversized IN, ...).
 	ErrInvalidFilter = errors.New("database: invalid filter")
+	// Mutation errors (PRF-02/T07).
+	ErrRowNotMutable        = errors.New("database: table is not mutable")
+	ErrRowIdentityRequired  = errors.New("database: a primary key is required for this mutation")
+	ErrRowIdentityInvalid   = errors.New("database: row identity is invalid")
+	ErrRowNotFound          = errors.New("database: row not found")
+	ErrRowConflict          = errors.New("database: row changed since it was loaded")
+	ErrColumnReadOnly       = errors.New("database: column is read-only")
+	ErrAffectedMultipleRows = errors.New("database: mutation affected multiple rows")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

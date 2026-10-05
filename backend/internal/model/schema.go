@@ -39,6 +39,12 @@ type Column struct {
 	Nullable        bool    `json:"nullable"`
 	Default         *string `json:"default,omitempty"`
 	OrdinalPosition int     `json:"ordinal_position"`
+	// Generated marks computed/generated columns (never directly writable) where
+	// the engine exposes this metadata (PRF-02/T07).
+	Generated bool `json:"generated,omitempty"`
+	// Identity marks engine-assigned columns (identity/auto-increment/rowid
+	// alias): excluded from Update, and from explicit Insert values in v0.1.0.
+	Identity bool `json:"identity,omitempty"`
 }
 
 // PrimaryKey describes a table's primary key.

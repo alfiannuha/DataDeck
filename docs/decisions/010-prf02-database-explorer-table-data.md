@@ -809,6 +809,14 @@ metadata:
    for v0.1.0 (**Needs Validation**).
 4. **Otherwise mutation is unavailable** (read-only).
 
+**Implementation lock (PRF02-T07):** v0.1.0 GUI Update/Delete identity is
+**declared PRIMARY KEY / composite PRIMARY KEY only**. Unique-index identities,
+`ctid`, `rowid`, OFFSET, filters, and "all displayed values" are never used.
+Tables without a PK expose `update:false`/`delete:false`; a mutation attempt
+returns `ROW_IDENTITY_REQUIRED`. The capability contract (`row_capabilities`,
+`row_identity`, per-column `insertable`/`updatable`) is derived from canonical
+metadata, and primary-key discovery preserves catalog order.
+
 Hard rules:
 
 - Never identify a row for UPDATE/DELETE using an arbitrary non-unique column.

@@ -62,12 +62,14 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 	})
 
 	page := model.TableDataPage{
-		Schema:     req.Schema,
-		Table:      req.Table,
-		ObjectType: table.Type,
-		Columns:    columnInfo(columns, table.PrimaryKey),
-		Rows:       [][]any{},
-		Pagination: model.TablePagination{Page: 1, PageSize: req.Limit},
+		Schema:          req.Schema,
+		Table:           req.Table,
+		ObjectType:      table.Type,
+		Columns:         columnInfo(columns, table.PrimaryKey),
+		Rows:            [][]any{},
+		Pagination:      model.TablePagination{Page: 1, PageSize: req.Limit},
+		RowCapabilities: rowCapabilities(table),
+		RowIdentity:     rowIdentity(table),
 	}
 	if len(columns) == 0 {
 		return page, nil
@@ -203,15 +205,48 @@ func columnInfo(columns []model.Column, primaryKey *model.PrimaryKey) []model.Ta
 	}
 	out := make([]model.TableColumnInfo, len(columns))
 	for i, column := range columns {
+		insertable := !column.Generated && !column.Identity
 		out[i] = model.TableColumnInfo{
 			Name:            column.Name,
 			DatabaseType:    column.DataType,
 			Nullable:        column.Nullable,
 			OrdinalPosition: column.OrdinalPosition,
 			PrimaryKey:      pk[column.Name],
+			Insertable:      insertable,
+			Updatable:       insertable && !pk[column.Name],
 		}
 	}
 	return out
+}
+
+// isBaseTable reports whether the relation is a mutable base table (views,
+// materialized views and foreign tables are read-only in v0.1.0).
+func isBaseTable(tableType string) bool {
+	upper := strings.ToUpper(tableType)
+	return strings.Contains(upper, "BASE TABLE") || strings.Contains(upper, "PARTITIONED TABLE")
+}
+
+// rowCapabilities derives the effective table-level mutation capability. Update
+// and Delete require a declared primary key (v0.1.0); no unique-index fallback.
+func rowCapabilities(table *model.Table) model.RowCapabilities {
+	base := isBaseTable(table.Type)
+	hasPK := table.PrimaryKey != nil && len(table.PrimaryKey.Columns) > 0
+	return model.RowCapabilities{
+		Insert:    base,
+		Update:    base && hasPK,
+		Delete:    base && hasPK,
+		Duplicate: base,
+	}
+}
+
+func rowIdentity(table *model.Table) *model.RowIdentityInfo {
+	if table.PrimaryKey == nil || len(table.PrimaryKey.Columns) == 0 {
+		return nil
+	}
+	return &model.RowIdentityInfo{
+		Kind:    "primary_key",
+		Columns: append([]string(nil), table.PrimaryKey.Columns...),
+	}
 }
 
 // quoteIdentifier quotes one metadata-validated identifier for the engine.

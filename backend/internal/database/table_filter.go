@@ -188,14 +188,7 @@ func convertValue(category filterCategory, raw any) (any, error) {
 	case nil:
 		return nil, fmt.Errorf("%w: null requires is_null/is_not_null", ErrInvalidFilter)
 	case json.Number:
-		if category == categoryText || category == categoryTemporal || category == categoryBoolean {
-			// Allow numeric text only for text columns; temporal/boolean are strict.
-			if category == categoryText {
-				return value.String(), nil
-			}
-			return nil, fmt.Errorf("%w: numeric value is not valid for this column", ErrInvalidFilter)
-		}
-		return value.String(), nil
+		return numericOrError(category, value.String())
 	case string:
 		if category == categoryBoolean {
 			return nil, fmt.Errorf("%w: boolean column requires true/false", ErrInvalidFilter)
@@ -206,8 +199,37 @@ func convertValue(category filterCategory, raw any) (any, error) {
 			return nil, fmt.Errorf("%w: boolean value is not valid for this column", ErrInvalidFilter)
 		}
 		return value, nil
+	case int:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case int8:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case int16:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case int32:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case int64:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case uint:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case uint64:
+		return numericOrError(category, fmt.Sprintf("%d", value))
+	case float32:
+		return numericOrError(category, fmt.Sprintf("%v", value))
+	case float64:
+		return numericOrError(category, fmt.Sprintf("%v", value))
 	default:
 		return nil, fmt.Errorf("%w: unsupported value type", ErrInvalidFilter)
+	}
+}
+
+// numericOrError returns the exact string form for text/numeric/temporal
+// categories and rejects other categories.
+func numericOrError(category filterCategory, text string) (any, error) {
+	switch category {
+	case categoryText, categoryNumeric, categoryTemporal, categoryEqualityOnly:
+		return text, nil
+	default:
+		return nil, fmt.Errorf("%w: numeric value is not valid for this column", ErrInvalidFilter)
 	}
 }
 

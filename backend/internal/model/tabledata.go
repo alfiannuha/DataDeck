@@ -36,6 +36,35 @@ type TableColumnInfo struct {
 	Nullable        bool   `json:"nullable"`
 	OrdinalPosition int    `json:"ordinal_position"`
 	PrimaryKey      bool   `json:"primary_key"`
+	// Insertable/Updatable are the effective per-column mutation flags
+	// (PRF-02/T07): generated columns are neither; PK and identity columns are
+	// not updatable in v0.1.0.
+	Insertable bool `json:"insertable"`
+	Updatable  bool `json:"updatable"`
+}
+
+// RowCapabilities is the effective table-level mutation capability. Update/
+// Delete require a declared primary key (v0.1.0); views/matviews/foreign tables
+// are read-only.
+type RowCapabilities struct {
+	Insert    bool `json:"insert"`
+	Update    bool `json:"update"`
+	Delete    bool `json:"delete"`
+	Duplicate bool `json:"duplicate"`
+}
+
+// RowIdentityInfo exposes the canonical row identity columns (primary key) so
+// the frontend can build mutation requests from canonical metadata.
+type RowIdentityInfo struct {
+	Kind    string   `json:"kind"` // always "primary_key" in v0.1.0
+	Columns []string `json:"columns"`
+}
+
+// RowMutationResult is the bounded outcome of a single-row mutation. Row is the
+// canonical post-mutation row (metadata column order) when it can be read back.
+type RowMutationResult struct {
+	AffectedRows int   `json:"affected_rows"`
+	Row          []any `json:"row,omitempty"`
 }
 
 // TablePagination is the bounded page descriptor. There is deliberately no
@@ -58,4 +87,8 @@ type TableDataPage struct {
 	Pagination TablePagination   `json:"pagination"`
 	// Truncated is true when the shared 50 MB result cap stopped the page short.
 	Truncated bool `json:"truncated"`
+	// RowCapabilities/RowIdentity describe mutation eligibility derived from
+	// canonical metadata (PRF-02/T07). Update/Delete require a primary key.
+	RowCapabilities RowCapabilities  `json:"row_capabilities"`
+	RowIdentity     *RowIdentityInfo `json:"row_identity,omitempty"`
 }

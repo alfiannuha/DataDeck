@@ -238,6 +238,38 @@
                 ],
                 "type": "object"
             },
+            "handler.RowMutationRequest": {
+                "properties": {
+                    "changes": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "database": {
+                        "example": "alpha",
+                        "type": "string"
+                    },
+                    "expected": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "identity": {
+                        "additionalProperties": {},
+                        "example": {
+                            "{\"id\"": "\"10\"}"
+                        },
+                        "type": "object"
+                    },
+                    "schema": {
+                        "example": "public",
+                        "type": "string"
+                    },
+                    "table": {
+                        "example": "users",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.SavedQueryRequest": {
                 "properties": {
                     "connection_id": {
@@ -312,6 +344,14 @@
                     },
                     "default": {
                         "type": "string"
+                    },
+                    "generated": {
+                        "description": "Generated marks computed/generated columns (never directly writable) where\nthe engine exposes this metadata (PRF-02/T07).",
+                        "type": "boolean"
+                    },
+                    "identity": {
+                        "description": "Identity marks engine-assigned columns (identity/auto-increment/rowid\nalias): excluded from Update, and from explicit Insert values in v0.1.0.",
+                        "type": "boolean"
                     },
                     "name": {
                         "type": "string"
@@ -463,6 +503,52 @@
                 },
                 "type": "object"
             },
+            "model.RowCapabilities": {
+                "properties": {
+                    "delete": {
+                        "type": "boolean"
+                    },
+                    "duplicate": {
+                        "type": "boolean"
+                    },
+                    "insert": {
+                        "type": "boolean"
+                    },
+                    "update": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "model.RowIdentityInfo": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "description": "always \"primary_key\" in v0.1.0",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "model.RowMutationResult": {
+                "properties": {
+                    "affected_rows": {
+                        "type": "integer"
+                    },
+                    "row": {
+                        "items": {},
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "model.Schema": {
                 "properties": {
                     "name": {
@@ -521,6 +607,10 @@
                     "database_type": {
                         "type": "string"
                     },
+                    "insertable": {
+                        "description": "Insertable/Updatable are the effective per-column mutation flags\n(PRF-02/T07): generated columns are neither; PK and identity columns are\nnot updatable in v0.1.0.",
+                        "type": "boolean"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -531,6 +621,9 @@
                         "type": "integer"
                     },
                     "primary_key": {
+                        "type": "boolean"
+                    },
+                    "updatable": {
                         "type": "boolean"
                     }
                 },
@@ -553,6 +646,13 @@
                     },
                     "pagination": {
                         "$ref": "#/components/schemas/model.TablePagination"
+                    },
+                    "row_capabilities": {
+                        "$ref": "#/components/schemas/model.RowCapabilities",
+                        "description": "RowCapabilities/RowIdentity describe mutation eligibility derived from\ncanonical metadata (PRF-02/T07). Update/Delete require a primary key."
+                    },
+                    "row_identity": {
+                        "$ref": "#/components/schemas/model.RowIdentityInfo"
                     },
                     "rows": {
                         "items": {
@@ -1260,6 +1360,230 @@
                     }
                 },
                 "summary": "Browse table data",
+                "tags": [
+                    "table-data"
+                ]
+            }
+        },
+        "/connections/{id}/table-data/rows": {
+            "delete": {
+                "description": "Applies a single-row, primary-key-identified DELETE with optional optimistic-concurrency expected values. Affected-row safety is enforced.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.RowMutationRequest",
+                                "summary": "body",
+                                "description": "Mutation target, identity and expected"
+                            }
+                        }
+                    },
+                    "description": "Mutation target, identity and expected",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Delete one row",
+                "tags": [
+                    "table-data"
+                ]
+            },
+            "patch": {
+                "description": "Applies a single-row, primary-key-identified UPDATE with optional optimistic-concurrency expected values. Values are bound; affected-row safety is enforced (0 = conflict/not found, \u003e1 = abort).",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.RowMutationRequest",
+                                "summary": "body",
+                                "description": "Mutation target, identity, expected and changes"
+                            }
+                        }
+                    },
+                    "description": "Mutation target, identity, expected and changes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Update one row",
                 "tags": [
                     "table-data"
                 ]

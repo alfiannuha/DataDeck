@@ -71,6 +71,10 @@ func mysqlDSN(cfg Config) string {
 	config.TLSConfig = mysqlTLSConfig(cfg.SSLMode)
 	config.Timeout = 5 * time.Second
 	config.ParseTime = true
+	// Report MATCHED rows on UPDATE (not just changed rows) so the mutation
+	// safety layer can distinguish "row not found" from "row unchanged" and
+	// enforce exactly-one-row semantics (PRF-02/T07).
+	config.ClientFoundRows = true
 	config.Params = map[string]string{"charset": "utf8mb4"}
 	return config.FormatDSN()
 }
