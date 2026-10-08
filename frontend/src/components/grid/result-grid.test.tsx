@@ -84,6 +84,54 @@ describe("ResultGrid", () => {
     expect(header.style.gridTemplateColumns).not.toBe(before);
   });
 
+  it("renders a row menu trigger per row and wires context/right-click", () => {
+    const onOpenChange = vi.fn();
+    const onRowContextMenu = vi.fn();
+    render(
+      <ResultGrid
+        result={result(["id"], [["1"], ["2"]])}
+        rowMenu={{
+          openIndex: null,
+          onOpenChange,
+          onRowContextMenu,
+          renderItems: () => <span role="menuitem">Edit Row</span>,
+        }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Row actions, row 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Row actions, row 2" })).toBeInTheDocument();
+    // Actions do not shift the data columns.
+    expect(screen.getByRole("columnheader", { name: "id" })).toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "Row actions, row 2" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(onOpenChange).toHaveBeenCalledWith(1, true);
+
+    const rows = screen.getAllByRole("row");
+    fireEvent.contextMenu(rows[2]); // header + 2 data rows
+    expect(onRowContextMenu).toHaveBeenCalledWith(1);
+  });
+
+  it("opens the menu content for the controlled open row", () => {
+    render(
+      <ResultGrid
+        result={result(["id"], [["1"], ["2"]])}
+        rowMenu={{
+          openIndex: 0,
+          onOpenChange: () => {},
+          onRowContextMenu: () => {},
+          renderItems: () => <span role="menuitem">Edit Row</span>,
+        }}
+      />,
+    );
+    expect(screen.getByRole("menuitem", { name: "Edit Row" })).toBeInTheDocument();
+  });
+
+  it("renders no row menu without rowMenu", () => {
+    render(<ResultGrid result={result(["id"], [["1"]])} />);
+    expect(screen.queryByRole("button", { name: /Row actions/ })).not.toBeInTheDocument();
+  });
+
   it("virtualizes rows: DOM rows stay bounded for 1,000 rows", () => {
     const rows = Array.from({ length: 1000 }, (_, i) => [String(i)]);
     render(<ResultGrid result={result(["n"], rows)} />);

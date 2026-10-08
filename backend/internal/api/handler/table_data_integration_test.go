@@ -207,6 +207,14 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 			`CREATE VIEW public.v_users AS SELECT id, marker FROM public.users`); err != nil {
 			t.Fatalf("view in %s: %v", database, err)
 		}
+		if _, err := pool.ExecContext(context.Background(),
+			`CREATE TABLE public.del_users (id int PRIMARY KEY, name text)`); err != nil {
+			t.Fatalf("del_users in %s: %v", database, err)
+		}
+		if _, err := pool.ExecContext(context.Background(),
+			`INSERT INTO public.del_users VALUES (1, '`+marker+`'), (2, '`+marker+`')`); err != nil {
+			t.Fatalf("del_users insert in %s: %v", database, err)
+		}
 	}
 	seedTable(dbA, "ALPHA")
 	seedTable(dbB, "BETA")
@@ -475,8 +483,19 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 	t.Run("read-only and no-identity tables reject mutation", func(t *testing.T) {
 		for _, table := range []string{"logs", "uniq"} {
 			if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"`+table+`","identity":{"message":"a"},"changes":{"message":"b"}}`); code != "ROW_IDENTITY_REQUIRED" {
-				t.Fatalf("%s mutation code = %q, want ROW_IDENTITY_REQUIRED", table, code)
+				t.Fatalf("%s update code = %q, want ROW_IDENTITY_REQUIRED", table, code)
 			}
+			if _, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"`+table+`","identity":{"message":"a"}}`); code != "ROW_IDENTITY_REQUIRED" {
+				t.Fatalf("%s delete code = %q, want ROW_IDENTITY_REQUIRED", table, code)
+			}
+		}
+		// Views reject update and delete as read-only (T11 §35), not as a
+		// missing-identity problem: the mutability check runs first.
+		if _, code := mutate(t, h, true, `{"database":"`+dbA+`","schema":"public","table":"v_users","identity":{"id":"1"},"changes":{"marker":"x"}}`); code != "ROW_NOT_MUTABLE" {
+			t.Fatalf("view update code = %q, want ROW_NOT_MUTABLE", code)
+		}
+		if _, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"v_users","identity":{"id":"1"}}`); code != "ROW_NOT_MUTABLE" {
+			t.Fatalf("view delete code = %q, want ROW_NOT_MUTABLE", code)
 		}
 	})
 
@@ -553,6 +572,44 @@ func TestTableDataAPIIntegrationPostgres(t *testing.T) {
 		}
 		if _, code, _ := insert(`{"database":"` + dbA + `","schema":"public","table":"v_users","values":{"marker":{"mode":"value","value":"x"}}}`); code != "ROW_NOT_MUTABLE" {
 			t.Fatalf("view insert code = %q, want ROW_NOT_MUTABLE", code)
+		}
+	})
+
+	t.Run("delete is identity-scoped, concurrency-safe and database-isolated", func(t *testing.T) {
+		// Wrong expected → conflict, row preserved.
+		if _, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"del_users","identity":{"id":"2"},"expected":{"name":"WRONG"}}`); code != "ROW_CONFLICT" {
+			t.Fatalf("delete conflict code = %q, want ROW_CONFLICT", code)
+		}
+		_, kept, _ := browse(t, h, "srv", url.Values{"database": {dbA}, "schema": {"public"}, "table": {"del_users"}, "filters": {`[{"column":"id","operator":"equals","value":2}]`}})
+		if len(kept.Rows) != 1 {
+			t.Fatalf("row was deleted despite conflict")
+		}
+
+		// Missing row.
+		if _, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"del_users","identity":{"id":"999"}}`); code != "ROW_NOT_FOUND" {
+			t.Fatalf("delete missing code = %q, want ROW_NOT_FOUND", code)
+		}
+
+		// Delete alpha row 1; beta's identical id=1 must remain.
+		if status, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"del_users","identity":{"id":"1"},"expected":{"name":"ALPHA"}}`); status != http.StatusOK {
+			t.Fatalf("delete status=%d code=%q", status, code)
+		}
+		_, alpha, _ := browse(t, h, "srv", url.Values{"database": {dbA}, "schema": {"public"}, "table": {"del_users"}, "filters": {`[{"column":"id","operator":"equals","value":1}]`}})
+		if len(alpha.Rows) != 0 {
+			t.Fatalf("alpha row not deleted")
+		}
+		_, beta, _ := browse(t, h, "srv", url.Values{"database": {dbB}, "schema": {"public"}, "table": {"del_users"}, "filters": {`[{"column":"id","operator":"equals","value":1}]`}})
+		if len(beta.Rows) != 1 || beta.Rows[0][1] != "BETA" {
+			t.Fatalf("beta row affected by alpha delete: %#v", beta.Rows)
+		}
+
+		// Composite PK delete removes exactly one row (tenant-a), keeps tenant-b.
+		if status, code := mutate(t, h, false, `{"database":"`+dbA+`","schema":"public","table":"memberships","identity":{"tenant_id":"A","user_id":"9223372036854775807"}}`); status != http.StatusOK {
+			t.Fatalf("composite delete status=%d code=%q", status, code)
+		}
+		_, remaining, _ := browse(t, h, "srv", url.Values{"database": {dbA}, "schema": {"public"}, "table": {"memberships"}})
+		if len(remaining.Rows) != 0 {
+			t.Fatalf("composite delete left rows: %#v", remaining.Rows)
 		}
 	})
 }
@@ -704,6 +761,17 @@ func TestTableDataAPIIntegrationMySQL(t *testing.T) {
 	}
 	if _, code := myInsert(`{"table":"datadeck_td_insert","values":{"name":{"mode":"value","value":"Dup"},"note":{"mode":"value","value":"uniq-note"}}}`); code != "CONSTRAINT_VIOLATION" {
 		t.Fatalf("mysql unique code = %q, want CONSTRAINT_VIOLATION", code)
+	}
+
+	// Delete: conflict (wrong expected), not found, and success.
+	if _, code := myMutate(false, `{"table":"datadeck_td_users","identity":{"id":"1"},"expected":{"marker":"WRONG"}}`); code != "ROW_CONFLICT" {
+		t.Fatalf("mysql delete conflict code = %q", code)
+	}
+	if _, code := myMutate(false, `{"table":"datadeck_td_users","identity":{"id":"999"}}`); code != "ROW_NOT_FOUND" {
+		t.Fatalf("mysql delete missing code = %q", code)
+	}
+	if status, code := myMutate(false, `{"table":"datadeck_td_users","identity":{"id":"3"},"expected":{"marker":"MY"}}`); status != http.StatusOK {
+		t.Fatalf("mysql delete status=%d code=%q", status, code)
 	}
 }
 
@@ -905,5 +973,16 @@ func TestTableDataIntegrationSQLite(t *testing.T) {
 	}
 	if status, code := sqInsert(`{"table":"nopk","values":{"message":{"mode":"value","value":"hi"}}}`); status != http.StatusOK {
 		t.Fatalf("sqlite no-PK insert status=%d code=%q", status, code)
+	}
+
+	// Delete: conflict, not found, success.
+	if _, code := sqMutate(false, `{"table":"items","identity":{"id":"2"},"expected":{"label":"WRONG"}}`); code != "ROW_CONFLICT" {
+		t.Fatalf("sqlite delete conflict code = %q", code)
+	}
+	if _, code := sqMutate(false, `{"table":"items","identity":{"id":"999"}}`); code != "ROW_NOT_FOUND" {
+		t.Fatalf("sqlite delete missing code = %q", code)
+	}
+	if status, code := sqMutate(false, `{"table":"items","identity":{"id":"1"},"expected":{"label":"a"}}`); status != http.StatusOK {
+		t.Fatalf("sqlite delete status=%d code=%q", status, code)
 	}
 }

@@ -94,6 +94,58 @@ describe("AddRowDialog", () => {
     );
   });
 
+  it("applies initialValues prefill for Duplicate and honors a custom title", () => {
+    renderDialog({
+      title: "Duplicate Row — users",
+      initialValues: {
+        name: { mode: "value", value: "Alice" },
+        nickname: { mode: "null" },
+        amount: { mode: "default" },
+      },
+    });
+    expect(screen.getByRole("dialog")).toHaveTextContent("Duplicate Row — users");
+    expect(screen.getByLabelText("name value")).toHaveValue("Alice");
+    expect(screen.getByLabelText("nickname mode")).toHaveTextContent("null");
+    expect(screen.getByLabelText("amount mode")).toHaveTextContent("default");
+    // Non-insertable columns still stay read-only.
+    expect(screen.queryByLabelText("id mode")).not.toBeInTheDocument();
+  });
+
+  it("blocks invalid integer input client-side without calling the API", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("amount mode"), { target: { value: "value" } });
+    fireEvent.change(screen.getByLabelText("amount value"), { target: { value: "12.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+
+    expect(await screen.findByTestId("row-field-error")).toHaveTextContent(
+      "amount: must be a whole number.",
+    );
+    expect(screen.getByLabelText("amount value")).toHaveAttribute("aria-invalid", "true");
+    expect(insertRow).toHaveBeenCalledTimes(0);
+  });
+
+  it("blocks DEFAULT on a NOT NULL column without a database default", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("name mode"), { target: { value: "default" } });
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+
+    expect(await screen.findByTestId("row-field-error")).toHaveTextContent(
+      "name: a value is required",
+    );
+    expect(insertRow).toHaveBeenCalledTimes(0);
+  });
+
+  it("clears a field error as soon as the field changes", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("amount mode"), { target: { value: "value" } });
+    fireEvent.change(screen.getByLabelText("amount value"), { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    await screen.findByTestId("row-field-error");
+
+    fireEvent.change(screen.getByLabelText("amount value"), { target: { value: "7" } });
+    expect(screen.queryByTestId("row-field-error")).not.toBeInTheDocument();
+  });
+
   it("prevents duplicate submission while inserting", async () => {
     let resolve: (value: unknown) => void = () => {};
     vi.mocked(insertRow).mockImplementation(

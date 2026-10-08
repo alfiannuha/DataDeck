@@ -253,3 +253,25 @@ export function updateRow(
     { method: "PATCH", body: JSON.stringify(body) },
   );
 }
+
+export interface DeleteRowBody {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  identity: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+}
+
+/**
+ * Deletes one row (PRF-02/T10). Identity/expected are structured; no SQL/WHERE.
+ * The backend enforces optimistic concurrency and single-row affected-row safety.
+ */
+export function deleteRow(
+  connectionId: string,
+  body: DeleteRowBody,
+): Promise<RowMutationResult> {
+  return apiFetch<RowMutationResult>(
+    `/connections/${encodeURIComponent(connectionId)}/table-data/rows`,
+    { method: "DELETE", body: JSON.stringify(body) },
+  );
+}

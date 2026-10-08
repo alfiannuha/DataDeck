@@ -90,6 +90,17 @@ async function applyFilter(
   await page.getByRole("button", { name: "Apply" }).click();
 }
 
+/** Opens a grid row's ⋯ action menu and clicks one of its items. */
+async function clickRowMenuAction(row: Locator, name: string | RegExp): Promise<void> {
+  await row.getByRole("button", { name: /^Row actions/ }).click();
+  await row.page().getByRole("menuitem", { name }).click();
+}
+
+/** Opens a grid row's ⋯ action menu and leaves it open for assertions. */
+async function openRowMenu(row: Locator): Promise<void> {
+  await row.getByRole("button", { name: /^Row actions/ }).click();
+}
+
 /** Reads a bounded table-data page through the API for verification. */
 async function apiTable(
   request: APIRequestContext,
@@ -108,6 +119,8 @@ async function apiTable(
 
 test.describe("table data browsing (PostgreSQL)", () => {
   test.skip(!PG_HOST, "E2E_PG_HOST not set; skipping PostgreSQL Table Data E2E");
+  // §30 copy flows read the clipboard back through the page.
+  test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
   test("alpha/beta isolation, pagination and refresh", async ({ page, request }) => {
     const admin = await createProfile(request, {
@@ -158,6 +171,17 @@ test.describe("table data browsing (PostgreSQL)", () => {
         connection,
         "INSERT INTO public.memberships VALUES ('tenant-a', 9223372036854775807, 'viewer'), ('tenant-b', 9223372036854775807, 'viewer')",
       );
+      // Unique-only table and a view: capability-matrix targets (T11 §28).
+      await exec(
+        request,
+        connection,
+        "CREATE TABLE public.uniq (email text UNIQUE NOT NULL, name text)",
+      );
+      await exec(
+        request,
+        connection,
+        "CREATE VIEW public.v_users AS SELECT id, marker FROM public.users",
+      );
       // Same table name with different values for cross-database sorting.
       const names: Record<string, string[]> = {
         ALPHA: ["ZETA", "OMEGA", "THETA"],
@@ -203,6 +227,16 @@ test.describe("table data browsing (PostgreSQL)", () => {
       host: PG_HOST,
       port: PG_PORT,
       database_name: DB_ALPHA,
+      username: PG_USER,
+      password: PG_PASSWORD,
+      ssl_mode: "disable",
+    });
+    const betaDirect = await createProfile(request, {
+      name: "E2E TD direct beta",
+      driver: "postgres",
+      host: PG_HOST,
+      port: PG_PORT,
+      database_name: DB_BETA,
       username: PG_USER,
       password: PG_PASSWORD,
       ssl_mode: "disable",
@@ -323,8 +357,10 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await expect(page.getByTestId("table-data-page")).toContainText("Page 2");
     await expect(page.getByRole("gridcell").nth(2)).toHaveText("200");
 
-    // Cross-database insert (BLOCKER gate): explorer is on beta, but the alpha
-    // users tab's Add Row must target alpha only.
+    // Cross-database insert (BLOCKER gate): the dialog snapshots its target
+    // when it opens (§21). Switching the explorer AND the active tab while the
+    // dialog is open must not retarget the insert (T11 §27). dispatchEvent:
+    // the modal overlay blocks real clicks.
     await page
       .getByRole("region", { name: "Query tabs" })
       .getByRole("button", { name: "users", exact: true })
@@ -334,6 +370,20 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await page.getByLabel("id value").fill("100");
     await page.getByLabel("marker mode").selectOption("value");
     await page.getByLabel("marker value").fill("INSERTED_ALPHA");
+    // Radix modal dialogs put aria-hidden on the rest of the app, so role
+    // queries cannot see these controls; CSS locators bypass the a11y filter.
+    const alphaNode = page
+      .locator("button")
+      .filter({ hasText: new RegExp(`^${DB_ALPHA}( database)?$`) })
+      .first();
+    await alphaNode.dispatchEvent("click");
+    const scoresTab = page
+      .locator('ul[aria-label="Open query tabs"] button')
+      .filter({ hasText: /^scores$/ })
+      .first();
+    await scoresTab.dispatchEvent("click");
+    await expect(page.getByTestId("add-row-dialog")).toBeVisible();
+    await expect(page.getByTestId("add-row-dialog")).toContainText("users");
     await page.getByRole("button", { name: "Insert" }).click();
     await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
 
@@ -347,6 +397,12 @@ test.describe("table data browsing (PostgreSQL)", () => {
       `[{"column":"marker","operator":"equals","value":"INSERTED_ALPHA"}]`,
     );
     expect(insertedBeta.rows.length).toBe(0);
+
+    // The §27 tab switch left the scores tab active; return to the users tab.
+    await page
+      .getByRole("region", { name: "Query tabs" })
+      .getByRole("button", { name: "users", exact: true })
+      .click();
 
     // Explicit NULL mode.
     await page.getByTestId("table-data-add-row").click();
@@ -363,7 +419,7 @@ test.describe("table data browsing (PostgreSQL)", () => {
     expect(nullRow.rows.length).toBe(1);
     expect(nullRow.rows[0][2]).toBeNull();
 
-    // No-PK base table: Add Row enabled, Update/Delete remain unavailable.
+    // No-PK base table: Add Row enabled, Update/Delete unavailable via menu.
     await openTable(page, DB_ALPHA, "logs");
     const logsCaps = await apiTable(request, serverId, DB_ALPHA, "logs");
     expect(logsCaps.capabilities.insert).toBe(true);
@@ -380,6 +436,49 @@ test.describe("table data browsing (PostgreSQL)", () => {
     );
     expect(logsRows.rows.length).toBe(1);
 
+    // §28 matrix — logs (no PK): Edit/Delete disabled with explanations,
+    // Duplicate stays available (it is a plain insert), Copy always works.
+    const logRow = page.getByRole("row").filter({ hasText: "e2e-log" }).first();
+    await openRowMenu(logRow);
+    await expect(page.getByTestId("row-menu-edit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("row-menu-edit")).toContainText(
+      "No primary key — row editing is unavailable.",
+    );
+    await expect(page.getByTestId("row-menu-delete")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("row-menu-delete")).toContainText(
+      "No primary key — row deletion is unavailable.",
+    );
+    await expect(page.getByTestId("row-menu-duplicate")).not.toHaveAttribute("aria-disabled");
+    await expect(page.getByTestId("row-menu-copy")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Unique-only table (no PK): same disabled explanations, Add Row enabled.
+    await exec(request, alphaDirect, "INSERT INTO public.uniq VALUES ('u@x', 'U')");
+    await openTable(page, DB_ALPHA, "uniq");
+    const uniqRow = page.getByRole("row").filter({ hasText: "u@x" }).first();
+    await openRowMenu(uniqRow);
+    await expect(page.getByTestId("row-menu-edit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("row-menu-edit")).toContainText("No primary key");
+    await expect(page.getByTestId("row-menu-delete")).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("table-data-add-row")).toBeEnabled();
+
+    // View: every row-mutation action is disabled with the read-only reason.
+    await openTable(page, DB_ALPHA, "v_users");
+    const viewRow = page.getByRole("row").filter({ hasText: "ALPHA" }).first();
+    await openRowMenu(viewRow);
+    for (const menuId of ["row-menu-edit", "row-menu-duplicate", "row-menu-delete"]) {
+      await expect(page.getByTestId(menuId)).toHaveAttribute("aria-disabled", "true");
+      await expect(page.getByTestId(menuId)).toContainText("This object is read-only.");
+    }
+    await expect(page.getByTestId("row-menu-copy")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("table-data-add-row")).toBeDisabled();
+    await expect(page.getByTestId("table-data-add-row")).toHaveAttribute(
+      "title",
+      "This object is read-only.",
+    );
+
     // Wrong-database update (BLOCKER gate): explorer on beta, edit a row from
     // the alpha tab, and only alpha may change.
     await openTable(page, DB_ALPHA, "users");
@@ -387,7 +486,7 @@ test.describe("table data browsing (PostgreSQL)", () => {
     await exec(request, alphaDirect, "UPDATE public.users SET note = 'ONE' WHERE id = 1");
     await page.getByRole("button", { name: "Refresh table data" }).click();
     const firstAlphaRow = page.getByRole("row").filter({ hasText: "ONE" }).first();
-    await firstAlphaRow.getByLabel(/Edit row/).click();
+    await clickRowMenuAction(firstAlphaRow, "Edit Row");
     await page.getByLabel("note value").fill("ALPHA_EDIT");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByTestId("edit-row-dialog")).toHaveCount(0);
@@ -406,18 +505,24 @@ test.describe("table data browsing (PostgreSQL)", () => {
     // Optimistic concurrency: load the row, change it externally, then save.
     await page.getByRole("button", { name: "Refresh table data" }).click();
     const staleRow = page.getByRole("row").filter({ hasText: "x" }).first();
-    await staleRow.getByLabel(/Edit row/).click();
+    await clickRowMenuAction(staleRow, "Edit Row");
     await exec(request, alphaDirect, "UPDATE public.users SET note = 'EXT' WHERE id = 2 AND note = 'x'");
     await page.getByLabel("note value").fill("MINE");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByRole("alert")).toContainText("ROW_CONFLICT");
+    // §21: Reload refetches the row and resets the draft to the fresh values.
+    await page.getByTestId("edit-row-reload").click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByLabel("note value")).toHaveValue("EXT");
+    await expect(page.getByLabel("marker value")).toHaveValue("ALPHA");
+    await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
     await page.getByRole("button", { name: "Cancel" }).click();
 
     // Row deleted during edit → ROW_NOT_FOUND.
     await exec(request, alphaDirect, "INSERT INTO public.users VALUES (50, 'ALPHA', 'ZED')");
     await page.getByRole("button", { name: "Refresh table data" }).click();
     const doomedRow = page.getByRole("row").filter({ hasText: "ZED" }).first();
-    await doomedRow.getByLabel(/Edit row/).click();
+    await clickRowMenuAction(doomedRow, "Edit Row");
     await exec(request, alphaDirect, "DELETE FROM public.users WHERE id = 50");
     await page.getByLabel("note value").fill("GONE");
     await page.getByRole("button", { name: "Save" }).click();
@@ -427,7 +532,7 @@ test.describe("table data browsing (PostgreSQL)", () => {
     // Composite PK update changes exactly one row.
     await openTable(page, DB_ALPHA, "memberships");
     const tenantARow = page.getByRole("row").filter({ hasText: "tenant-a" }).first();
-    await tenantARow.getByLabel(/Edit row/).click();
+    await clickRowMenuAction(tenantARow, "Edit Row");
     await page.getByLabel("role value").fill("admin");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByTestId("edit-row-dialog")).toHaveCount(0);
@@ -435,6 +540,109 @@ test.describe("table data browsing (PostgreSQL)", () => {
     const roles = Object.fromEntries(memberships.rows.map((r) => [r[0], r[2]]));
     expect(roles["tenant-a"]).toBe("admin");
     expect(roles["tenant-b"]).toBe("viewer");
+
+    // Duplicate: PK is never copied; value columns are prefilled from the row.
+    await openTable(page, DB_ALPHA, "users");
+    await databaseButton(page, DB_BETA).click();
+    await applyFilter(page, "id", "equals", "1");
+    const duplicateSource = page.getByRole("row").filter({ hasText: "ALPHA_EDIT" }).first();
+    await clickRowMenuAction(duplicateSource, "Duplicate Row");
+    const duplicateDialog = page.getByTestId("add-row-dialog");
+    await expect(duplicateDialog).toContainText("Duplicate Row — users");
+    await expect(page.getByLabel("marker value")).toHaveValue("ALPHA");
+    await page.getByLabel("id value").fill("200");
+    await page.getByRole("button", { name: "Insert" }).click();
+    await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
+    const duplicated = await apiTable(
+      request, serverId, DB_ALPHA, "users",
+      `[{"column":"id","operator":"equals","value":"200"}]`,
+    );
+    expect(duplicated.rows.length).toBe(1);
+    expect(duplicated.rows[0][1]).toBe("ALPHA");
+    // Duplicate targets only the tab's database.
+    const duplicatedBeta = await apiTable(
+      request, serverId, DB_BETA, "users",
+      `[{"column":"id","operator":"equals","value":"200"}]`,
+    );
+    expect(duplicatedBeta.rows.length).toBe(0);
+
+    // §30: Copy / Copy as JSON put the row on the clipboard and never mutate.
+    // The filter (id = 1) still shows exactly the source row.
+    const copiedRow = page.getByRole("row").filter({ hasText: "ALPHA_EDIT" }).first();
+    await openRowMenu(copiedRow);
+    await page.getByRole("menuitem", { name: "Copy", exact: true }).click();
+    const tsv = await page.evaluate(() => navigator.clipboard.readText());
+    expect(tsv.split("\t")[0]).toBe("1");
+    expect(tsv).toContain("ALPHA_EDIT");
+    await openRowMenu(copiedRow);
+    await page.getByRole("menuitem", { name: "Copy as JSON" }).click();
+    const copiedJson = JSON.parse(
+      await page.evaluate(() => navigator.clipboard.readText()),
+    ) as Record<string, unknown>;
+    expect(Object.keys(copiedJson)).toEqual(["id", "marker", "note"]);
+    expect(copiedJson.marker).toBe("ALPHA");
+    expect(copiedJson.note).toBe("ALPHA_EDIT");
+    // Right-click opens the same row menu (T11 §2 / ADR-010 menu family).
+    await copiedRow.click({ button: "right" });
+    await expect(page.getByTestId("row-menu-edit")).toBeVisible();
+    await page.keyboard.press("Escape");
+    // Zero mutations: no dialog opened and the row is still there.
+    await expect(page.getByTestId("add-row-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("edit-row-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("delete-row-dialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("row").filter({ hasText: "ALPHA_EDIT" }).first(),
+    ).toBeVisible();
+
+    // Same id in both databases: deleting it from the alpha tab must only
+    // delete alpha's row (cross-database delete BLOCKER gate).
+    await exec(request, alphaDirect, "INSERT INTO public.users VALUES (77, 'DELETE_ME', NULL)");
+    await exec(request, betaDirect, "INSERT INTO public.users VALUES (77, 'DELETE_ME', NULL)");
+    await applyFilter(page, "id", "equals", "77");
+    const deleteTarget = page.getByRole("row").filter({ hasText: "DELETE_ME" }).first();
+    await clickRowMenuAction(deleteTarget, "Delete Row");
+    const deleteDialog = page.getByTestId("delete-row-dialog");
+    await expect(deleteDialog).toContainText("id = 77");
+    await expect(deleteDialog).toContainText(`${DB_ALPHA} / public.users`);
+    // Cancel leaves the row untouched.
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByTestId("delete-row-dialog")).toHaveCount(0);
+    expect((await apiTable(request, serverId, DB_ALPHA, "users", `[{"column":"id","operator":"equals","value":"77"}]`)).rows.length).toBe(1);
+
+    await clickRowMenuAction(deleteTarget, "Delete Row");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByTestId("delete-row-dialog")).toHaveCount(0);
+    const alphaAfterDelete = await apiTable(
+      request, serverId, DB_ALPHA, "users",
+      `[{"column":"id","operator":"equals","value":"77"}]`,
+    );
+    expect(alphaAfterDelete.rows.length).toBe(0);
+    const betaAfterDelete = await apiTable(
+      request, serverId, DB_BETA, "users",
+      `[{"column":"id","operator":"equals","value":"77"}]`,
+    );
+    expect(betaAfterDelete.rows.length).toBe(1);
+
+    // Optimistic concurrency on delete: the row changes after it was loaded.
+    await applyFilter(page, "id", "equals", "1");
+    const conflictDeleteRow = page.getByRole("row").filter({ hasText: "ALPHA_EDIT" }).first();
+    await clickRowMenuAction(conflictDeleteRow, "Delete Row");
+    await exec(request, alphaDirect, "UPDATE public.users SET marker = 'CHANGED' WHERE id = 1");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("ROW_CONFLICT");
+    await page.getByRole("button", { name: "Cancel" }).click();
+    expect((await apiTable(request, serverId, DB_ALPHA, "users", `[{"column":"id","operator":"equals","value":"1"}]`)).rows.length).toBe(1);
+
+    // Row deleted externally → ROW_NOT_FOUND, dialog stays open.
+    await exec(request, alphaDirect, "INSERT INTO public.users VALUES (88, 'DOOMED', NULL)");
+    await applyFilter(page, "id", "equals", "88");
+    const notFoundDeleteRow = page.getByRole("row").filter({ hasText: "DOOMED" }).first();
+    await clickRowMenuAction(notFoundDeleteRow, "Delete Row");
+    await exec(request, alphaDirect, "DELETE FROM public.users WHERE id = 88");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("ROW_NOT_FOUND");
+    await expect(page.getByTestId("delete-row-dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
 
     // Cleanup (best-effort).
     await exec(request, admin, `DROP DATABASE IF EXISTS ${DB_ALPHA} WITH (FORCE)`);

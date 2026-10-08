@@ -1,25 +1,67 @@
 "use client";
 
 import { Filter, Loader2, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
 import { AddRowDialog } from "@/components/shared/add-row-dialog";
+import { DeleteRowDialog } from "@/components/shared/delete-row-dialog";
 import { EditRowDialog } from "@/components/shared/edit-row-dialog";
 import { TableDataFilterPanel } from "@/components/shared/table-data-filter-panel";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenuHint,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useTableData } from "@/hooks/use-table-data";
+import { copyText } from "@/lib/clipboard";
 import { ApiClientError } from "@/lib/api-client";
-import { useWorkspaceStore, type TableFilter, type TableSort } from "@/store/useWorkspaceStore";
-import type { QueryResult } from "@/types/api";
+import { rowToJSON, rowToTSV } from "@/lib/row-copy";
+import {
+  useWorkspaceStore,
+  type TableFilter,
+  type TableSort,
+} from "@/store/useWorkspaceStore";
+import type { QueryResult, TableColumnInfo } from "@/types/api";
+
+/** The immutable target a mutation dialog was opened with (never re-read live). */
+interface DialogTarget {
+  connectionId: string;
+  database: string | null;
+  schema: string | null;
+  table: string;
+}
+
+type DialogState =
+  | { kind: "add"; target: DialogTarget; columns: TableColumnInfo[] }
+  | {
+      kind: "duplicate";
+      target: DialogTarget;
+      columns: TableColumnInfo[];
+      prefill: Record<string, { mode: "default" | "value" | "null"; value?: string }>;
+    }
+  | { kind: "edit"; target: DialogTarget; columns: TableColumnInfo[]; row: unknown[] }
+  | {
+      kind: "delete";
+      target: DialogTarget;
+      identity: Record<string, unknown>;
+      expected: Record<string, unknown>;
+    };
+
+/** Views / foreign tables are read-only objects for UX wording (backend decides). */
+function isReadOnlyObject(objectType: string | undefined): boolean {
+  const type = (objectType ?? "").toUpperCase();
+  return type.includes("VIEW") || type.includes("FOREIGN");
+}
 
 /**
- * Table Data browse surface for one Table Data tab (PRF-02/T04).
+ * Table Data browse surface for one Table Data tab (PRF-02/T04 + T11).
  *
  * The tab owns its connection/database/schema/table/page binding; this component
  * only reads that binding and never consults the Explorer's global selection.
- * It renders a bounded page through the structured T03 API (no SQL), and stays
- * read-only (sorting/filtering/CRUD arrive in later tasks).
+ * Mutation dialogs capture their target when opened, so switching tabs or the
+ * Explorer selection can never retarget an in-flight action (T11 §21).
  */
 export function TableDataView() {
   const tab = useWorkspaceStore((state) =>
@@ -30,8 +72,10 @@ export function TableDataView() {
   );
   const updateTableData = useWorkspaceStore((state) => state.updateTableData);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [addRowOpen, setAddRowOpen] = useState(false);
-  const [editRow, setEditRow] = useState<{ row: unknown[] } | null>(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const statusTimer = useRef<number | null>(null);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -49,6 +93,13 @@ export function TableDataView() {
   const query = useTableData(target);
   const data = query.data;
 
+  useEffect(
+    () => () => {
+      if (statusTimer.current !== null) window.clearTimeout(statusTimer.current);
+    },
+    [],
+  );
+
   if (tab?.kind !== "table-data") return null;
 
   const qualified = tab.schema ? `${tab.schema}.${tab.table}` : tab.table;
@@ -57,7 +108,18 @@ export function TableDataView() {
   const showFirstLoad = query.isLoading && !data;
   const showError = query.isError && !data;
 
+  function flashStatus(message: string) {
+    setStatus(message);
+    if (statusTimer.current !== null) window.clearTimeout(statusTimer.current);
+    statusTimer.current = window.setTimeout(() => setStatus(null), 2500);
+  }
+
   function refresh() {
+    void query.refetch();
+  }
+
+  function closeDialogAndRefresh() {
+    setDialog(null);
     void query.refetch();
   }
 
@@ -96,6 +158,158 @@ export function TableDataView() {
     updateTableData(tab.id, { filters: [], page: 1 });
   }
 
+  // Snapshot the tab binding at the moment a dialog opens (T11 §21): later
+  // tab/Explorer switches can never change the mutation target.
+  function dialogTarget(): DialogTarget | null {
+    if (!tab || tab.kind !== "table-data" || !tab.connectionId) return null;
+    return {
+      connectionId: tab.connectionId,
+      database: tab.database,
+      schema: tab.schema,
+      table: tab.table,
+    };
+  }
+
+  const columns = data?.columns ?? [];
+
+  // Identity = PK values from the snapshot; expected = every non-PK column, so
+  // the backend's optimistic concurrency compares the whole row (PRF-02).
+  function rowIdentity(row: unknown[]): Record<string, unknown> {
+    return Object.fromEntries(
+      columns
+        .map((column, index) => [column, row[index]] as const)
+        .filter(([column]) => column.primary_key)
+        .map(([column, value]) => [column.name ?? "", value]),
+    );
+  }
+
+  function rowExpected(row: unknown[]): Record<string, unknown> {
+    return Object.fromEntries(
+      columns
+        .map((column, index) => [column, row[index]] as const)
+        .filter(([column]) => !column.primary_key)
+        .map(([column, value]) => [column.name ?? "", value ?? null]),
+    );
+  }
+
+  // Duplicate prefill: PKs and generated/identity columns are skipped (DB
+  // assigns them); normal values are copied; NULL stays NULL when nullable.
+  function duplicatePrefill(row: unknown[]): Record<
+    string,
+    { mode: "default" | "value" | "null"; value?: string }
+  > {
+    const prefill: Record<string, { mode: "default" | "value" | "null"; value?: string }> = {};
+    for (const [index, column] of columns.entries()) {
+      const name = column.name ?? "";
+      if (!name || column.insertable === false || column.primary_key) continue;
+      const value = row[index];
+      if (value === null || value === undefined) {
+        prefill[name] = { mode: column.nullable ? "null" : "default" };
+        continue;
+      }
+      prefill[name] = { mode: "value", value: String(value) };
+    }
+    return prefill;
+  }
+
+  async function copyRow(row: unknown[], kind: "tsv" | "json") {
+    setMenuOpenIndex(null);
+    const text = kind === "tsv" ? rowToTSV(columns, row) : rowToJSON(columns, row);
+    const ok = await copyText(text);
+    flashStatus(
+      !ok
+        ? "Copy failed — clipboard unavailable."
+        : kind === "tsv"
+          ? "Row copied."
+          : "Row copied as JSON.",
+    );
+  }
+
+  // The row context menu (T11 §2): capability-gated actions with explanations
+  // on unavailable items; Copy/Copy as JSON are always available and never
+  // mutate. Disabled items stay focusable (aria-disabled) so the reason is
+  // announced (T11 §10).
+  function rowMenuItems(row: unknown[]): ReactNode {
+    const capabilities = data?.row_capabilities;
+    const readOnlyObject = isReadOnlyObject(data?.object_type);
+    const hasIdentity = (data?.row_identity?.columns?.length ?? 0) > 0;
+    const editReason = readOnlyObject
+      ? "This object is read-only."
+      : !hasIdentity
+        ? "No primary key — row editing is unavailable."
+        : "Row editing is unavailable for this table.";
+    const deleteReason = readOnlyObject
+      ? "This object is read-only."
+      : !hasIdentity
+        ? "No primary key — row deletion is unavailable."
+        : "Row deletion is unavailable for this table.";
+    const duplicateReason = readOnlyObject
+      ? "This object is read-only."
+      : "Duplication is unavailable for this table.";
+
+    return (
+      <>
+        <DropdownMenuItem
+          disabled={!capabilities?.update}
+          data-testid="row-menu-edit"
+          onSelect={() => {
+            setMenuOpenIndex(null);
+            const target = dialogTarget();
+            if (target) setDialog({ kind: "edit", target, columns, row });
+          }}
+        >
+          Edit Row
+          {!capabilities?.update ? <DropdownMenuHint>{editReason}</DropdownMenuHint> : null}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!capabilities?.duplicate}
+          data-testid="row-menu-duplicate"
+          onSelect={() => {
+            setMenuOpenIndex(null);
+            const target = dialogTarget();
+            if (target) {
+              setDialog({ kind: "duplicate", target, columns, prefill: duplicatePrefill(row) });
+            }
+          }}
+        >
+          Duplicate Row
+          {!capabilities?.duplicate ? (
+            <DropdownMenuHint>{duplicateReason}</DropdownMenuHint>
+          ) : null}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          data-testid="row-menu-copy"
+          onSelect={() => void copyRow(row, "tsv")}
+        >
+          Copy
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="row-menu-copy-json"
+          onSelect={() => void copyRow(row, "json")}
+        >
+          Copy as JSON
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={!capabilities?.delete}
+          data-testid="row-menu-delete"
+          onSelect={() => {
+            setMenuOpenIndex(null);
+            const target = dialogTarget();
+            const identity = rowIdentity(row);
+            if (target && Object.keys(identity).length > 0) {
+              setDialog({ kind: "delete", target, identity, expected: rowExpected(row) });
+            }
+          }}
+        >
+          Delete Row
+          {!capabilities?.delete ? <DropdownMenuHint>{deleteReason}</DropdownMenuHint> : null}
+        </DropdownMenuItem>
+      </>
+    );
+  }
+
   // Adapt the structured Table Data page to the shared virtualized grid shape.
   const gridResult: QueryResult | null = data
     ? {
@@ -108,6 +322,14 @@ export function TableDataView() {
         execution_time_ms: 0,
         truncated: data.truncated ?? false,
       }
+    : null;
+
+  const addRowDisabledReason = data
+    ? data.row_capabilities?.insert
+      ? null
+      : isReadOnlyObject(data.object_type)
+        ? "This object is read-only."
+        : "This table does not support row insertion."
     : null;
 
   return (
@@ -128,6 +350,15 @@ export function TableDataView() {
           >
             {tab.database ?? "default database"}
           </span>
+          {status ? (
+            <span
+              data-testid="table-data-status"
+              aria-live="polite"
+              className="truncate text-[10px] text-muted-foreground"
+            >
+              {status}
+            </span>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -146,13 +377,18 @@ export function TableDataView() {
               ))}
             </select>
           </label>
-          {data?.row_capabilities?.insert ? (
+          {data ? (
             <Button
               variant="outline"
               size="sm"
               data-testid="table-data-add-row"
               aria-label="Add row"
-              onClick={() => setAddRowOpen(true)}
+              disabled={Boolean(addRowDisabledReason)}
+              title={addRowDisabledReason ?? undefined}
+              onClick={() => {
+                const target = dialogTarget();
+                if (target) setDialog({ kind: "add", target, columns });
+              }}
             >
               Add Row
             </Button>
@@ -198,34 +434,55 @@ export function TableDataView() {
         />
       ) : null}
 
-      {addRowOpen && data && tab.connectionId ? (
+      {dialog?.kind === "add" ? (
         <AddRowDialog
-          connectionId={tab.connectionId}
-          database={tab.database}
-          schema={tab.schema}
-          table={tab.table}
-          columns={data.columns ?? []}
-          onClose={() => setAddRowOpen(false)}
-          onInserted={() => {
-            setAddRowOpen(false);
-            void query.refetch();
-          }}
+          connectionId={dialog.target.connectionId}
+          database={dialog.target.database}
+          schema={dialog.target.schema}
+          table={dialog.target.table}
+          columns={dialog.columns}
+          onClose={() => setDialog(null)}
+          onInserted={closeDialogAndRefresh}
         />
       ) : null}
 
-      {editRow && data && tab.connectionId ? (
+      {dialog?.kind === "duplicate" ? (
+        <AddRowDialog
+          connectionId={dialog.target.connectionId}
+          database={dialog.target.database}
+          schema={dialog.target.schema}
+          table={dialog.target.table}
+          columns={dialog.columns}
+          initialValues={dialog.prefill}
+          title={`Duplicate Row — ${dialog.target.table}`}
+          onClose={() => setDialog(null)}
+          onInserted={closeDialogAndRefresh}
+        />
+      ) : null}
+
+      {dialog?.kind === "edit" ? (
         <EditRowDialog
-          connectionId={tab.connectionId}
-          database={tab.database}
-          schema={tab.schema}
-          table={tab.table}
-          columns={data.columns ?? []}
-          row={editRow.row}
-          onClose={() => setEditRow(null)}
-          onUpdated={() => {
-            setEditRow(null);
-            void query.refetch();
-          }}
+          connectionId={dialog.target.connectionId}
+          database={dialog.target.database}
+          schema={dialog.target.schema}
+          table={dialog.target.table}
+          columns={dialog.columns}
+          row={dialog.row}
+          onClose={() => setDialog(null)}
+          onUpdated={closeDialogAndRefresh}
+        />
+      ) : null}
+
+      {dialog?.kind === "delete" ? (
+        <DeleteRowDialog
+          connectionId={dialog.target.connectionId}
+          database={dialog.target.database}
+          schema={dialog.target.schema}
+          table={dialog.target.table}
+          identity={dialog.identity}
+          expected={dialog.expected}
+          onClose={() => setDialog(null)}
+          onDeleted={closeDialogAndRefresh}
         />
       ) : null}
 
@@ -263,20 +520,18 @@ export function TableDataView() {
             sortColumn={tab.sort[0]?.column ?? null}
             sortDirection={tab.sort[0]?.direction ?? null}
             onSortColumn={handleSort}
-            rowActionLabel={data?.row_capabilities?.update ? "Edit" : undefined}
-            onRowAction={
-              data?.row_capabilities?.update
-                ? (index) => {
-                    const row = (gridResult?.rows ?? [])[index];
-                    if (row) setEditRow({ row: row as unknown[] });
-                  }
-                : undefined
-            }
+            rowMenu={{
+              openIndex: menuOpenIndex,
+              onOpenChange: (rowIndex, open) =>
+                setMenuOpenIndex(open ? rowIndex : null),
+              onRowContextMenu: (rowIndex) => setMenuOpenIndex(rowIndex),
+              renderItems: rowMenuItems,
+            }}
           />
         ) : null}
       </div>
 
-      <footer className="flex h-8 shrink-0 items-center justify-between border-t border-border bg-panel px-3 text-[10px] text-muted-foreground">
+      <footer className="flex h-8 shrink-0 items-center justify-between border-b border-t border-border bg-panel px-3 text-[10px] text-muted-foreground">
         <span data-testid="table-data-page">
           Page {tab.page}
           {data?.pagination?.has_more ? " · more rows available" : ""}

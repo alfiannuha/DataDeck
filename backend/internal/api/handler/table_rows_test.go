@@ -138,6 +138,30 @@ func TestMutationRejections(t *testing.T) {
 	}
 }
 
+func TestDeleteMutationRejections(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	cases := []struct {
+		name string
+		body string
+		code string
+	}{
+		{"no primary key", `{"table":"logs","identity":{"message":"a"}}`, "ROW_IDENTITY_REQUIRED"},
+		{"unique-only table", `{"table":"uniq","identity":{"email":"a@b.c"}}`, "ROW_IDENTITY_REQUIRED"},
+		{"missing identity", `{"table":"users","identity":{}}`, "ROW_IDENTITY_REQUIRED"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doMutation(t, h, false, tc.body)
+			env := decodeEnvelope(t, rec)
+			if env.Error == nil || env.Error.Code != tc.code {
+				t.Fatalf("status=%d error=%+v, want %s", rec.Code, env.Error, tc.code)
+			}
+		})
+	}
+}
+
 func TestMutationBigintIdentityExact(t *testing.T) {
 	h, db, _ := newTestHandler(t)
 	seedSQLiteMutation(t, db)
@@ -309,5 +333,25 @@ func TestUpdateRowNoChangesAndAdversarialExpected(t *testing.T) {
 	// Adversarial expected value is data: mismatch → ROW_CONFLICT, not SQL error.
 	if env := decodeEnvelope(t, doMutation(t, h, true, `{"table":"users","identity":{"id":"1"},"expected":{"name":"' OR 1=1 --"},"changes":{"name":"x"}}`)); env.Error == nil || env.Error.Code != "ROW_CONFLICT" {
 		t.Fatalf("adversarial expected = %+v, want ROW_CONFLICT", env.Error)
+	}
+}
+
+func TestDeleteRowConflictAndComposite(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedSQLiteMutation(t, db)
+
+	rec := doMutation(t, h, false, `{"table":"users","identity":{"id":"2"},"expected":{"name":"WRONG"}}`)
+	if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "ROW_CONFLICT" {
+		t.Fatalf("delete conflict = %+v, want ROW_CONFLICT", env.Error)
+	}
+	// Row still present (server-side check).
+	var page struct {
+		Rows [][]any `json:"rows"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, callTableData(t, h, "sq", url.Values{"table": {"users"}, "filters": {`[{"column":"id","operator":"equals","value":2}]`}})).Data, &page); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(page.Rows) != 1 {
+		t.Fatalf("row was deleted despite conflict: %#v", page.Rows)
 	}
 }

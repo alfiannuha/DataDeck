@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { updateRow } from "@/lib/api/endpoints";
+import { browseTableData, updateRow } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import type { TableColumnInfo } from "@/types/api";
@@ -10,6 +10,7 @@ import { EditRowDialog } from "./edit-row-dialog";
 
 vi.mock("@/lib/api/endpoints", () => ({
   updateRow: vi.fn(),
+  browseTableData: vi.fn(),
 }));
 
 const columns: TableColumnInfo[] = [
@@ -41,6 +42,7 @@ function renderDialog(overrides: Partial<Parameters<typeof EditRowDialog>[0]> = 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(updateRow).mockResolvedValue({ affected_rows: 1 } as never);
+  vi.mocked(browseTableData).mockResolvedValue({ rows: [] } as never);
 });
 
 describe("EditRowDialog", () => {
@@ -80,7 +82,7 @@ describe("EditRowDialog", () => {
 
   it("supports explicit NULL and keeps BIGINT exact", async () => {
     renderDialog({ row: ["42", "Alice", "Al", "10", "9223372036854775807"] });
-    fireEvent.click(screen.getByLabelText("nickname null"));
+    fireEvent.change(screen.getByLabelText("nickname mode"), { target: { value: "null" } });
     fireEvent.change(screen.getByLabelText("amount value"), {
       target: { value: "9223372036854775806" },
     });
@@ -95,7 +97,7 @@ describe("EditRowDialog", () => {
     );
   });
 
-  it("keeps the dialog usable and surfaces ROW_CONFLICT", async () => {
+  it("keeps the dialog usable and surfaces ROW_CONFLICT with a Reload action", async () => {
     vi.mocked(updateRow).mockRejectedValueOnce(
       new ApiClientError("the row changed since it was loaded", "ROW_CONFLICT", 409),
     );
@@ -105,6 +107,72 @@ describe("EditRowDialog", () => {
 
     expect(await screen.findByTestId("edit-row-dialog")).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("ROW_CONFLICT");
+    expect(screen.getByTestId("edit-row-reload")).toBeInTheDocument();
+  });
+
+  it("Reload refetches the row by identity and resets the draft", async () => {
+    vi.mocked(updateRow).mockRejectedValueOnce(
+      new ApiClientError("the row changed since it was loaded", "ROW_CONFLICT", 409),
+    );
+    vi.mocked(browseTableData).mockResolvedValue({
+      rows: [["42", "Bob", null, "10", "9223372036854775807"]],
+    } as never);
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("name value"), { target: { value: "X" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByTestId("edit-row-reload"));
+
+    await waitFor(() =>
+      expect(browseTableData).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          table: "users",
+          filters: [{ column: "id", operator: "equals", value: "42" }],
+        }),
+      ),
+    );
+    // The draft now mirrors the fresh server row; Save is idle again.
+    await waitFor(() =>
+      expect(screen.getByLabelText("name value")).toHaveValue("Bob"),
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("blocks invalid values client-side without calling the API", async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("amount value"), { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByTestId("row-field-error")).toHaveTextContent(
+      "amount: must be a whole number.",
+    );
+    expect(screen.getByLabelText("amount value")).toHaveAttribute("aria-invalid", "true");
+    expect(updateRow).not.toHaveBeenCalled();
+  });
+
+  it("blocks malformed JSON before sending", async () => {
+    renderDialog({
+      columns: [
+        { name: "id", database_type: "bigint", primary_key: true, nullable: false, updatable: false },
+        { name: "meta", database_type: "jsonb", nullable: true, updatable: true },
+      ],
+      row: ["1", null],
+    });
+    fireEvent.change(screen.getByLabelText("meta mode"), { target: { value: "value" } });
+    fireEvent.change(screen.getByLabelText("meta value"), { target: { value: "{" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByTestId("row-field-error")).toHaveTextContent(
+      "meta: must be valid JSON.",
+    );
+    expect(updateRow).not.toHaveBeenCalled();
+  });
+
+  it("offers NULL only for nullable columns", () => {
+    renderDialog();
+    expect(screen.getByLabelText("nickname mode").querySelectorAll("option")).toHaveLength(2);
+    expect(screen.getByLabelText("name mode").querySelectorAll("option")).toHaveLength(1);
   });
 
   it("prevents duplicate Save while submitting", async () => {

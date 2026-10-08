@@ -7,8 +7,13 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { copyText } from "@/lib/clipboard";
 import {
   formatCellValue,
@@ -40,8 +45,7 @@ export function ResultGrid({
   sortColumn = null,
   sortDirection = null,
   onSortColumn,
-  rowActionLabel,
-  onRowAction,
+  rowMenu,
 }: {
   result: QueryResult;
   ariaLabel?: string;
@@ -51,13 +55,21 @@ export function ResultGrid({
   sortDirection?: "asc" | "desc" | null;
   /** When provided, headers become sort controls (server-side only). */
   onSortColumn?: (column: string) => void;
-  /** When provided, each row gets a leading action button (e.g. Edit Row). */
-  rowActionLabel?: string;
-  onRowAction?: (rowIndex: number) => void;
+  /**
+   * When provided, each row gets a compact menu trigger and right-click opens
+   * the same menu (PRF-02/T11). The parent owns which row's menu is open and
+   * renders the items; the grid only wires the trigger/context target.
+   */
+  rowMenu?: {
+    openIndex: number | null;
+    onOpenChange: (rowIndex: number, open: boolean) => void;
+    onRowContextMenu: (rowIndex: number) => void;
+    renderItems: (row: unknown[]) => ReactNode;
+  };
 }) {
   const rows = (result.rows ?? []) as Row[];
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hasRowActions = Boolean(onRowAction);
+  const hasRowMenu = Boolean(rowMenu);
 
   const columns = useMemo<ColumnDef<Row, unknown>[]>(() => {
     const base = (result.columns ?? []).map((column, index) => ({
@@ -66,12 +78,12 @@ export function ResultGrid({
       size: DEFAULT_COLUMN_WIDTH,
       minSize: MIN_COLUMN_WIDTH,
     }));
-    if (!hasRowActions) return base;
+    if (!hasRowMenu) return base;
     return [
-      { id: "__actions", header: "", size: 72, minSize: 72, enableResizing: false },
+      { id: "__actions", header: "", size: 40, minSize: 40, enableResizing: false },
       ...base,
     ];
-  }, [result.columns, hasRowActions]);
+  }, [result.columns, hasRowMenu]);
 
   const table = useReactTable({
     data: rows,
@@ -200,6 +212,14 @@ export function ResultGrid({
                 <div
                   key={virtualRow.key}
                   role="row"
+                  onContextMenu={
+                    rowMenu
+                      ? (event) => {
+                          event.preventDefault();
+                          rowMenu.onRowContextMenu(virtualRow.index);
+                        }
+                      : undefined
+                  }
                   className="absolute left-0 top-0 grid border-b border-border hover:bg-panel-raised/60"
                   style={{
                     gridTemplateColumns,
@@ -210,18 +230,31 @@ export function ResultGrid({
                 >
                   {headers.map((header, index) =>
                     header.id === "__actions" ? (
-                      <button
+                      <div
                         key={header.id}
-                        type="button"
                         role="gridcell"
-                        aria-label={`${rowActionLabel ?? "Edit"} row ${virtualRow.index + 1}`}
-                        onClick={() => onRowAction?.(virtualRow.index)}
-                        className="flex items-center justify-center border-r border-border px-2 text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                        className="flex items-center justify-center border-r border-border"
                       >
-                        {rowActionLabel ?? "Edit"}
-                      </button>
+                        <DropdownMenu
+                          open={rowMenu?.openIndex === virtualRow.index}
+                          onOpenChange={(open) =>
+                            rowMenu?.onOpenChange(virtualRow.index, open)
+                          }
+                        >
+                          <DropdownMenuTrigger
+                            aria-label={`Row actions, row ${virtualRow.index + 1}`}
+                            data-testid={`row-menu-trigger-${virtualRow.index + 1}`}
+                            className="rounded px-1.5 text-sm leading-none text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                          >
+                            ⋯
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            {row ? rowMenu?.renderItems(row) : null}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     ) : (
-                      <ResultCell key={header.id} value={row?.[index - (hasRowActions ? 1 : 0)]} />
+                      <ResultCell key={header.id} value={row?.[index - (hasRowMenu ? 1 : 0)]} />
                     ),
                   )}
                 </div>

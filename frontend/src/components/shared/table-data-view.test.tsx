@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { browseTableData, insertRow, updateRow } from "@/lib/api/endpoints";
+import { browseTableData, deleteRow, insertRow, updateRow } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import { useWorkspaceStore, type TableDataTab } from "@/store/useWorkspaceStore";
@@ -12,6 +12,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   browseTableData: vi.fn(),
   insertRow: vi.fn(),
   updateRow: vi.fn(),
+  deleteRow: vi.fn(),
 }));
 
 function tableTab(overrides: Partial<TableDataTab> = {}): TableDataTab {
@@ -38,7 +39,7 @@ function pageResult(overrides: Record<string, unknown> = {}) {
     table: "users",
     object_type: "BASE TABLE",
     columns: [
-      { name: "id", database_type: "bigint", primary_key: true },
+      { name: "id", database_type: "bigint", primary_key: true, nullable: false, insertable: false, updatable: false },
       { name: "name", database_type: "text", nullable: true },
     ],
     rows: [["1", "Alfie"]],
@@ -53,6 +54,13 @@ beforeEach(() => {
   vi.mocked(browseTableData).mockResolvedValue(pageResult() as never);
   useWorkspaceStore.setState({ tabs: [tableTab()], activeTabId: "td1" });
 });
+
+/** Opens the row menu for the 1-based row (Radix trigger opens on ArrowDown). */
+function openRowMenu(rowNumber: number) {
+  fireEvent.keyDown(screen.getByTestId(`row-menu-trigger-${rowNumber}`), {
+    key: "ArrowDown",
+  });
+}
 
 describe("TableDataView", () => {
   it("requests the tab's explicit binding (never global state)", async () => {
@@ -415,13 +423,32 @@ describe("TableDataView add row", () => {
     expect(await screen.findByTestId("table-data-add-row")).toBeInTheDocument();
   });
 
-  it("hides Add Row for read-only tables", async () => {
+  it("disables Add Row for read-only tables and explains why", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: false, delete: false, duplicate: false },
+        object_type: "VIEW",
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    const button = screen.getByTestId("table-data-add-row");
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "This object is read-only.");
+    fireEvent.click(button);
+    expect(screen.queryByTestId("add-row-dialog")).not.toBeInTheDocument();
+  });
+
+  it("explains a non-insertable base table instead of hiding the control", async () => {
     vi.mocked(browseTableData).mockResolvedValue(
       pageResult({ row_capabilities: { insert: false, update: false, delete: false, duplicate: false } }) as never,
     );
     renderWithProviders(<TableDataView />);
     await screen.findByRole("grid", { name: "Table data grid" });
-    expect(screen.queryByTestId("table-data-add-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("table-data-add-row")).toHaveAttribute(
+      "title",
+      "This table does not support row insertion.",
+    );
   });
 
   it("submits a structured insert against the tab binding and refreshes without clearing filters/sort", async () => {
@@ -510,7 +537,8 @@ describe("TableDataView edit row", () => {
     renderWithProviders(<TableDataView />);
     await screen.findByRole("grid", { name: "Table data grid" });
 
-    fireEvent.click(screen.getByLabelText("Edit row 1"));
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
     fireEvent.change(await screen.findByLabelText("name value"), { target: { value: "Bob" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -536,7 +564,34 @@ describe("TableDataView edit row", () => {
     );
   });
 
-  it("hides the Edit action when update is not allowed", async () => {
+  it("keeps unavailable row actions focusable with an explanation", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: true, update: false, delete: false, duplicate: false },
+        row_identity: { columns: ["id"], kind: "primary_key" },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    const edit = await screen.findByRole("menuitem", { name: /Edit Row/ });
+    expect(edit).toHaveAttribute("aria-disabled", "true");
+    expect(edit).toHaveTextContent("Row editing is unavailable for this table.");
+    const remove = screen.getByRole("menuitem", { name: /Delete Row/ });
+    expect(remove).toHaveAttribute("aria-disabled", "true");
+    expect(remove).toHaveTextContent("Row deletion is unavailable for this table.");
+    // Copy never mutates and stays available.
+    expect(screen.getByRole("menuitem", { name: "Copy" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    fireEvent.click(edit);
+    expect(updateRow).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("edit-row-dialog")).not.toBeInTheDocument();
+  });
+
+  it("names the missing primary key when the object reports no row identity", async () => {
     vi.mocked(browseTableData).mockResolvedValue(
       pageResult({
         row_capabilities: { insert: true, update: false, delete: false, duplicate: false },
@@ -545,6 +600,261 @@ describe("TableDataView edit row", () => {
     );
     renderWithProviders(<TableDataView />);
     await screen.findByRole("grid", { name: "Table data grid" });
-    expect(screen.queryByRole("button", { name: /Edit row/ })).not.toBeInTheDocument();
+
+    openRowMenu(1);
+    const edit = await screen.findByRole("menuitem", { name: /Edit Row/ });
+    expect(edit).toHaveTextContent("No primary key — row editing is unavailable.");
+    expect(screen.getByRole("menuitem", { name: /Delete Row/ })).toHaveTextContent(
+      "No primary key — row deletion is unavailable.",
+    );
+  });
+
+  it("submits against the tab binding captured when the dialog opened", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: true, update: true, delete: false, duplicate: false },
+        columns: [
+          { name: "id", database_type: "bigint", primary_key: true, updatable: false },
+          { name: "name", database_type: "text", nullable: true, updatable: true },
+        ],
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    vi.mocked(insertRow).mockResolvedValue({ affected_rows: 1 } as never);
+    vi.mocked(updateRow).mockResolvedValue({ affected_rows: 1 } as never);
+    useWorkspaceStore.setState({
+      tabs: [tableTab({ id: "td1", database: "alpha" }), tableTab({ id: "td2", database: "beta", table: "users" })],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
+    fireEvent.change(await screen.findByLabelText("name value"), { target: { value: "Bob" } });
+
+    // Switching tabs while the dialog is open must not retarget the mutation.
+    useWorkspaceStore.setState({ activeTabId: "td2" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(updateRow).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ database: "alpha" }),
+      ),
+    );
+  });
+});
+
+describe("TableDataView delete row", () => {
+  it("shows Delete only when allowed and confirms with identity and full-row expected", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: false, delete: true, duplicate: false },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    vi.mocked(deleteRow).mockResolvedValue({ affected_rows: 1 } as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete Row" }));
+
+    const dialog = await screen.findByTestId("delete-row-dialog");
+    expect(dialog).toHaveTextContent("id = 42");
+    expect(dialog).toHaveTextContent("alpha / public.users");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(deleteRow).toHaveBeenCalledWith("c1", {
+        database: "alpha",
+        schema: "public",
+        table: "users",
+        identity: { id: "42" },
+        expected: { name: "Alice" },
+      }),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(browseTableData).mock.calls.length).toBeGreaterThan(1),
+    );
+  });
+
+  it("keeps the dialog open on ROW_CONFLICT and does not refetch", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: false, delete: true, duplicate: false },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    vi.mocked(deleteRow).mockRejectedValueOnce(
+      new ApiClientError("the row changed since it was loaded", "ROW_CONFLICT", 409),
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete Row" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ROW_CONFLICT");
+    expect(screen.getByTestId("delete-row-dialog")).toBeInTheDocument();
+    expect(vi.mocked(browseTableData).mock.calls.length).toBe(1);
+  });
+
+  it("Cancel closes without calling the API", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: false, delete: true, duplicate: false },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete Row" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("delete-row-dialog")).not.toBeInTheDocument(),
+    );
+    expect(deleteRow).not.toHaveBeenCalled();
+  });
+});
+
+describe("TableDataView duplicate row", () => {
+  it("prefills Add Row from the snapshot, skipping PK columns, then inserts", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: true, update: false, delete: false, duplicate: true },
+        columns: [
+          { name: "id", database_type: "bigint", primary_key: true, insertable: false },
+          { name: "name", database_type: "text", nullable: false, insertable: true },
+          { name: "nickname", database_type: "text", nullable: true, insertable: true },
+        ],
+        rows: [["42", "Alice", null]],
+      }) as never,
+    );
+    vi.mocked(insertRow).mockResolvedValue({ affected_rows: 1 } as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Duplicate Row" }));
+    const dialog = await screen.findByTestId("add-row-dialog");
+    expect(dialog).toHaveTextContent("Duplicate Row — users");
+    // Value columns copy the source; NULL nullable stays NULL; PK is skipped.
+    expect(screen.getByLabelText("name value")).toHaveValue("Alice");
+    expect(screen.getByLabelText("nickname mode")).toHaveTextContent("null");
+    expect(screen.queryByLabelText("id mode")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    await waitFor(() =>
+      expect(insertRow).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          values: {
+            name: { mode: "value", value: "Alice" },
+            nickname: { mode: "null" },
+          },
+        }),
+      ),
+    );
+  });
+
+  it("disables Duplicate when the table reports no duplication capability", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: true, update: true, delete: true, duplicate: false },
+        rows: [["42", "Alice"]],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    const duplicate = await screen.findByRole("menuitem", { name: /Duplicate Row/ });
+    expect(duplicate).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(duplicate);
+    expect(screen.queryByTestId("add-row-dialog")).not.toBeInTheDocument();
+    // Edit and Delete remain available (capabilities allow them).
+    expect(screen.getByRole("menuitem", { name: /Edit Row/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.getByRole("menuitem", { name: /Delete Row/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+});
+
+describe("TableDataView row copy", () => {
+  async function openCopyFixture() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        row_capabilities: { insert: false, update: false, delete: false, duplicate: false },
+        columns: [
+          { name: "id", database_type: "bigint", primary_key: true },
+          { name: "name", database_type: "text", nullable: true },
+          { name: "big", database_type: "bigint", nullable: true },
+        ],
+        rows: [["9223372036854775807", "Alfie", null]],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    openRowMenu(1);
+    return writeText;
+  }
+
+  it("copies the row as TSV in column order with exact BIGINT and NULL", async () => {
+    const writeText = await openCopyFixture();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("9223372036854775807\tAlfie\tNULL"),
+    );
+    expect(await screen.findByTestId("table-data-status")).toHaveTextContent("Row copied.");
+    // Copy is pure: no refetch and no mutation.
+    expect(vi.mocked(browseTableData).mock.calls.length).toBe(1);
+    expect(insertRow).not.toHaveBeenCalled();
+    expect(updateRow).not.toHaveBeenCalled();
+    expect(deleteRow).not.toHaveBeenCalled();
+  });
+
+  it("copies the row as canonical JSON with BIGINT kept as a string", async () => {
+    const writeText = await openCopyFixture();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy as JSON" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const payload = JSON.parse(writeText.mock.calls[0][0] as string) as Record<string, unknown>;
+    expect(payload).toEqual({
+      id: "9223372036854775807",
+      name: "Alfie",
+      big: null,
+    });
+    expect(vi.mocked(browseTableData).mock.calls.length).toBe(1);
+  });
+
+  it("reports a copy failure without breaking the grid", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ rows: [["42", "Alice"]] }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy" }));
+
+    expect(await screen.findByTestId("table-data-status")).toHaveTextContent(
+      "Copy failed",
+    );
+    expect(screen.getByRole("grid", { name: "Table data grid" })).toBeInTheDocument();
   });
 });
