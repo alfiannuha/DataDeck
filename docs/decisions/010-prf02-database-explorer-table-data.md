@@ -346,8 +346,7 @@ Guarantees:
 
 ### 10. Table Context Menu
 
-Right-click a table (new Radix `ContextMenu` primitive; dependency justified in
-implementation) shows, gated by capabilities:
+Right-click a table shows its actions, gated by capabilities:
 
 | Action | Behavior |
 |---|---|
@@ -359,6 +358,16 @@ implementation) shows, gated by capabilities:
 | Import → CSV / XLSX / SQL | Opens import dialog (multipart upload) |
 | Copy Table Name | Clipboard: bare name |
 | Copy Qualified Name | Clipboard: `schema.table` (or `database.table` where applicable) |
+
+*Implementation note (PRF-02/T12):* the menu reuses the shared Radix
+`DropdownMenu` primitive (the T11 row menu’s family, ADR-010 §10 menu family)
+instead of adding a separate `@radix-ui/react-context-menu` dependency. The
+single DropdownMenu is already a justified dependency and covers the required
+interactions: right-click on the table row, a visible `⋯` trigger, and the
+keyboard `Shift+F10` / Context-Menu key. Export and Import render as
+`aria-disabled` items with inline explanations and never dispatch until T14/T15.
+Menu capabilities are computed from captured metadata at render time; opening
+the menu performs no network fetch.
 
 “Drop Table” (mentioned in PRD §7.2) is intentionally **not** part of PRF-02
 (non-goal); if added later it follows the §17 destructive pattern.

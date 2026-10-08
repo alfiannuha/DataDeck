@@ -1,9 +1,18 @@
 "use client";
 
-import { Check, ChevronRight, Copy, FileCode, Hash, ListOrdered } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import { Check, ChevronRight, Copy, FileCode, Hash, ListOrdered, MoreHorizontal } from "lucide-react";
+import { Fragment, memo, useState, type ReactNode } from "react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuHint,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { copyText } from "@/lib/clipboard";
+import { getTableActions, type TableActionId } from "@/lib/table-actions";
 import { cn } from "@/lib/utils";
 import type {
   DatabaseSchemaTree,
@@ -13,6 +22,22 @@ import type {
 } from "@/types/api";
 
 export type TableActionHandler = (schema: string, table: string) => void;
+
+/**
+ * Table context menu dispatch (PRF-02/T12). `database` is the explicit target
+ * captured at the node that owns the table (schema name for engines without a
+ * schema level), so the menu never resolves its target from the Explorer's
+ * current selection or the active tab.
+ */
+export type TableMenuHandler = (
+  action: TableActionId,
+  schema: string,
+  table: string,
+  database: string,
+) => void;
+
+/** A table-menu dispatch already closed over its owning database. */
+type TableMenuDispatch = (action: TableActionId, schema: string, table: string) => void;
 
 /**
  * Schema tree rendered from the M1 introspection response:
@@ -28,6 +53,7 @@ export function SchemaTree({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   databases: DatabaseSchemaTree[];
   connectionId: string;
@@ -36,6 +62,8 @@ export function SchemaTree({
   onCopyDdl?: TableActionHandler;
   /** Opens a Table Data tab; receives the owning database context. */
   onOpenTableData?: (schema: string, table: string, database: string) => void;
+  /** Table context menu dispatch; receives the owning database context. */
+  onTableMenu?: TableMenuHandler;
 }) {
   return (
     <ul aria-label="Schema tree" className="flex flex-col gap-0.5 py-1">
@@ -48,6 +76,7 @@ export function SchemaTree({
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
+          onTableMenu={onTableMenu}
         />
       ))}
     </ul>
@@ -65,6 +94,7 @@ const DatabaseNode = memo(function DatabaseNode({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   database: DatabaseSchemaTree;
   depth: number;
@@ -72,6 +102,7 @@ const DatabaseNode = memo(function DatabaseNode({
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: (schema: string, table: string, database: string) => void;
+  onTableMenu?: TableMenuHandler;
 }) {
   const [open, setOpen] = useState(true);
   const schemas = database.schemas ?? [];
@@ -105,6 +136,12 @@ const DatabaseNode = memo(function DatabaseNode({
                   onOpenTableData(schema, table, database.name ?? "")
               : undefined
           }
+          onTableMenu={
+            onTableMenu
+              ? (action, schema, table) =>
+                  onTableMenu(action, schema, table, database.name ?? "")
+              : undefined
+          }
         />
       )}
     </li>
@@ -124,6 +161,7 @@ export function DatabaseChildren({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   schemas: IntrospectedSchema[];
   tables: IntrospectedTable[];
@@ -132,6 +170,7 @@ export function DatabaseChildren({
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
+  onTableMenu?: TableMenuDispatch;
 }) {
   return (
     <ul>
@@ -144,6 +183,7 @@ export function DatabaseChildren({
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
+          onTableMenu={onTableMenu}
         />
       ))}
       <TableList
@@ -153,6 +193,7 @@ export function DatabaseChildren({
         onCountRows={onCountRows}
         onCopyDdl={onCopyDdl}
         onOpenTableData={onOpenTableData}
+        onTableMenu={onTableMenu}
       />
     </ul>
   );
@@ -165,6 +206,7 @@ const SchemaNode = memo(function SchemaNode({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   schema: IntrospectedSchema;
   depth: number;
@@ -172,6 +214,7 @@ const SchemaNode = memo(function SchemaNode({
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
+  onTableMenu?: TableMenuDispatch;
 }) {
   const [open, setOpen] = useState(false);
   const tables = schema.tables ?? [];
@@ -194,6 +237,7 @@ const SchemaNode = memo(function SchemaNode({
             onCountRows={onCountRows}
             onCopyDdl={onCopyDdl}
             onOpenTableData={onOpenTableData}
+            onTableMenu={onTableMenu}
           />
         </ul>
       )}
@@ -213,6 +257,7 @@ const TableList = memo(function TableList({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   tables: IntrospectedTable[];
   depth: number;
@@ -220,6 +265,7 @@ const TableList = memo(function TableList({
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
+  onTableMenu?: TableMenuDispatch;
 }) {
   const [visible, setVisible] = useState(TABLE_BATCH_SIZE);
   const shown = tables.slice(0, visible);
@@ -236,6 +282,7 @@ const TableList = memo(function TableList({
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
+          onTableMenu={onTableMenu}
         />
       ))}
       {remaining > 0 && (
@@ -263,6 +310,7 @@ const TableNode = memo(function TableNode({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   table: IntrospectedTable;
   depth: number;
@@ -270,14 +318,25 @@ const TableNode = memo(function TableNode({
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
+  onTableMenu?: TableMenuDispatch;
 }) {
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const columns = table.columns ?? [];
   const foreignKeys = table.foreign_keys ?? [];
   const indexes = table.indexes ?? [];
   const qualifiedName = table.schema
     ? `${table.schema}.${table.name ?? ""}`
     : table.name ?? "";
+
+  // Capabilities are computed from the captured tree metadata at render time;
+  // opening the menu never triggers a network fetch (T12 §33).
+  const tableActions = getTableActions({ objectType: table.type });
+
+  function openMenu(event: { preventDefault: () => void }) {
+    event.preventDefault();
+    setMenuOpen(true);
+  }
 
   return (
     <li>
@@ -291,6 +350,18 @@ const TableNode = memo(function TableNode({
         onOpen={
           onOpenTableData
             ? () => onOpenTableData(table.schema ?? "", table.name ?? "")
+            : undefined
+        }
+        onContextMenu={onTableMenu ? openMenu : undefined}
+        onKeyDown={
+          onTableMenu
+            ? (event) => {
+                if (event.key === "ContextMenu" || (
+                  event.key === "F10" && event.shiftKey
+                )) {
+                  openMenu(event);
+                }
+              }
             : undefined
         }
         actions={
@@ -329,6 +400,45 @@ const TableNode = memo(function TableNode({
               label={`Copy table name ${table.name ?? ""}`}
               text={qualifiedName}
             />
+            {onTableMenu && (
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`More actions for ${table.name ?? ""}`}
+                    title={`Actions for ${table.name ?? ""} (Shift+F10)`}
+                    className={actionButtonClass}
+                  >
+                    <MoreHorizontal size={12} aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {tableActions.map((action) => (
+                    <Fragment key={action.id}>
+                      {(action.id === "refresh" || action.id === "import") && (
+                        <DropdownMenuSeparator />
+                      )}
+                      <DropdownMenuItem
+                        disabled={action.disabled}
+                        data-testid={`table-menu-${action.id}`}
+                        onSelect={() => {
+                          onTableMenu(
+                            action.id,
+                            table.schema ?? "",
+                            table.name ?? "",
+                          );
+                        }}
+                      >
+                        {action.label}
+                        {action.reason ? (
+                          <DropdownMenuHint>{action.reason}</DropdownMenuHint>
+                        ) : null}
+                      </DropdownMenuItem>
+                    </Fragment>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </>
         }
       />
@@ -428,6 +538,8 @@ export function TreeRow({
   onOpen,
   actions,
   selected,
+  onContextMenu,
+  onKeyDown,
 }: {
   depth: number;
   label: string;
@@ -440,11 +552,17 @@ export function TreeRow({
   actions?: ReactNode;
   /** Marks the explorer's currently selected database (not a query binding). */
   selected?: boolean;
+  /** Right-click on the row (e.g. table context menu). */
+  onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  /** Keyboard context-menu keys (Shift+F10 / Menu). */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }) {
   return (
     <div
       style={indent(depth)}
       aria-current={selected ? "true" : undefined}
+      onContextMenu={onContextMenu}
+      onKeyDown={onKeyDown}
       className={cn(
         "group flex items-center gap-1 rounded py-0.5 pr-1 hover:bg-panel-raised",
         selected && "bg-panel-raised",

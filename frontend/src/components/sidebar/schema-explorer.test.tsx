@@ -735,3 +735,333 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
     expect(databases).toEqual(["alpha", "beta"]);
   });
 });
+
+describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
+  function connection(driver: string, database_name: string) {
+    return {
+      id: "c1",
+      name: "Conn",
+      driver,
+      database_name,
+      database: database_name,
+      ssl_mode: "disable",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    } as never;
+  }
+
+  function serverConnection(id = "c1", name = "Server") {
+    return {
+      id,
+      name,
+      driver: "postgres",
+      database_name: "",
+      host: "127.0.0.1",
+      port: 5432,
+      username: "u",
+      ssl_mode: "disable",
+    } as never;
+  }
+
+  function databaseTree(database: string) {
+    return [
+      {
+        name: database,
+        tables: [
+          {
+            schema: "",
+            name: `table_in_${database}`,
+            type: "BASE TABLE",
+            columns: [],
+          },
+        ],
+      },
+    ];
+  }
+
+  /**
+   * Opens a table's context menu. Radix labels the portal menu from the
+   * trigger (aria-labelledby), so the menu's accessible name is the trigger's.
+   */
+  async function openTableMenu(table: string) {
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: `More actions for ${table}` }),
+      { key: "ArrowDown" },
+    );
+    await screen.findByRole("menu", { name: `More actions for ${table}` });
+  }
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+  });
+
+  it("renders all capability-gated items and never fetches on open", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    const callsBefore = vi.mocked(getSchemas).mock.calls.length;
+
+    await openTableMenu("users");
+
+    for (const item of ["View Data", "New Query", "Structure", "Refresh"]) {
+      expect(screen.getByRole("menuitem", { name: item })).not.toHaveAttribute(
+        "aria-disabled",
+      );
+    }
+    expect(screen.getByTestId("table-menu-export")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByTestId("table-menu-export")).toHaveTextContent("later");
+    expect(screen.getByTestId("table-menu-import")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByTestId("table-menu-import")).toHaveTextContent("later");
+    for (const item of ["Copy Table Name", "Copy Qualified Name"]) {
+      expect(
+        screen.getByRole("menuitem", { name: item }),
+      ).not.toHaveAttribute("aria-disabled");
+    }
+    // §33: opening the menu is local-only — no network traffic.
+    expect(vi.mocked(getSchemas).mock.calls.length).toBe(callsBefore);
+  });
+
+  it("opens via right-click and Shift+F10", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    const row = screen.getByRole("button", { name: /^users/ });
+
+    fireEvent.contextMenu(row);
+    await screen.findByRole("menu", { name: "More actions for users" });
+
+    fireEvent.keyDown(row, { key: "Escape" });
+    expect(
+      screen.queryByRole("menu", { name: "More actions for users" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    await screen.findByRole("menu", { name: "More actions for users" });
+  });
+
+  it("View Data opens a Table Data tab bound to the captured target", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "View Data" }));
+
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.kind).toBe("table-data");
+    if (tab.kind !== "table-data") throw new Error("expected table-data");
+    expect(tab.connectionId).toBe("c1");
+    expect(tab.database).toBe("app");
+    expect(tab.schema).toBe("public");
+    expect(tab.table).toBe("users");
+  });
+
+  it("New Query opens a fresh Query tab with a quoted SELECT and never executes", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+    useWorkspaceStore.setState({
+      tabs: [
+        { kind: "query", id: "q1", title: "Query 1", sql: "SELECT 1;", connectionId: "c1", database: "app", dirty: true },
+      ],
+      activeTabId: "q1",
+    });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    // The dirty query tab is never overwritten.
+    const existing = state.tabs.find((tab) => tab.id === "q1");
+    expect(existing && "sql" in existing && existing.sql).toBe("SELECT 1;");
+    const added = state.tabs[state.tabs.length - 1];
+    expect(added.kind).toBe("query");
+    if (added.kind !== "query") throw new Error("expected query");
+    expect(added.sql).toBe('SELECT *\nFROM "public"."users"\nLIMIT 100;');
+    expect(added.connectionId).toBe("c1");
+    expect(added.database).toBe("app");
+    expect(added.dirty).toBe(false);
+    expect(state.activeTabId).toBe(added.id);
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("Structure opens a Table Structure tab with the captured identity", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Structure" }));
+
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.kind).toBe("table-structure");
+    if (tab.kind !== "table-structure") throw new Error("expected structure");
+    expect(tab.connectionId).toBe("c1");
+    expect(tab.database).toBe("app");
+    expect(tab.schema).toBe("public");
+    expect(tab.table).toBe("users");
+  });
+
+  it("copies the bare and the dialect-quoted qualified name", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Table Name" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenLastCalledWith("users"),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Table name copied");
+
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Qualified Name" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenLastCalledWith('"public"."users"'),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Qualified name copied");
+  });
+
+  it("quotes the qualified name for MySQL with the connection database", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.mocked(listConnections).mockResolvedValue([connection("mysql", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue([
+      {
+        name: "app",
+        tables: [
+          {
+            schema: "app",
+            name: "widgets",
+            type: "BASE TABLE",
+            columns: [{ name: "id", data_type: "integer" }],
+          },
+        ],
+      },
+    ] as never);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    await openTableMenu("widgets");
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Copy Qualified Name" }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("`app`.`widgets`"),
+    );
+  });
+
+  it("Refresh re-fetches explorer metadata without opening tabs", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Refresh" }));
+
+    await waitFor(() => expect(getSchemas).toHaveBeenCalledTimes(2));
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(useWorkspaceStore.getState().activeTabId).toBeNull();
+  });
+
+  it("never dispatches disabled Export/Import actions", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+
+    fireEvent.click(screen.getByTestId("table-menu-export"));
+    fireEvent.click(screen.getByTestId("table-menu-import"));
+
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("server-level: menu actions bind the expanded database (alpha/beta isolation)", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([
+      { name: "alpha" },
+      { name: "beta" },
+    ] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    await screen.findByText("table_in_alpha");
+    await openTableMenu("table_in_alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^beta/ }));
+    await screen.findByText("table_in_beta");
+    await openTableMenu("table_in_beta");
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
+
+    const tabs = useWorkspaceStore
+      .getState()
+      .tabs.filter((tab) => tab.kind === "query");
+    expect(tabs).toHaveLength(2);
+    if (tabs[0]?.kind !== "query" || tabs[1]?.kind !== "query") {
+      throw new Error("expected query tabs");
+    }
+    expect(tabs[0].database).toBe("alpha");
+    expect(tabs[1].database).toBe("beta");
+  });
+
+  it("server-level: menu Refresh re-fetches that database's explorer schema", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    await screen.findByText("table_in_alpha");
+
+    const before = vi.mocked(getSchemas).mock.calls.filter(
+      (call) => call[1]?.database === "alpha",
+    ).length;
+    await openTableMenu("table_in_alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(getSchemas).mock.calls.filter(
+          (call) => call[1]?.database === "alpha",
+        ).length,
+      ).toBe(before + 1),
+    );
+  });
+});

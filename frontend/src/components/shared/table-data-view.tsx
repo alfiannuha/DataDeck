@@ -17,6 +17,7 @@ import {
 import { useTableData } from "@/hooks/use-table-data";
 import { copyText } from "@/lib/clipboard";
 import { ApiClientError } from "@/lib/api-client";
+import { isReadOnlyObject } from "@/lib/table-actions";
 import { rowToJSON, rowToTSV } from "@/lib/row-copy";
 import {
   useWorkspaceStore,
@@ -48,12 +49,6 @@ type DialogState =
       identity: Record<string, unknown>;
       expected: Record<string, unknown>;
     };
-
-/** Views / foreign tables are read-only objects for UX wording (backend decides). */
-function isReadOnlyObject(objectType: string | undefined): boolean {
-  const type = (objectType ?? "").toUpperCase();
-  return type.includes("VIEW") || type.includes("FOREIGN");
-}
 
 /**
  * Table Data browse surface for one Table Data tab (PRF-02/T04 + T11).

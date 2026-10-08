@@ -30,6 +30,7 @@ export function TableStructurePanel() {
         <span className="font-medium text-foreground">{qualified}</span>
         <span aria-hidden="true">·</span>
         <span data-testid="table-structure-binding">
+          {tab.connectionId ?? "no connection"} ·{" "}
           {tab.database ?? "default database"}
         </span>
       </header>

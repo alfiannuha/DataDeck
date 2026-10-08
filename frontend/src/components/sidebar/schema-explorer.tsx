@@ -9,7 +9,7 @@ import { useDatabases } from "@/hooks/use-databases";
 import { useOnline } from "@/hooks/use-online";
 import { useSchema } from "@/hooks/use-schema";
 import { ApiClientError } from "@/lib/api-client";
-import { buildCopyDdlQuery, buildCountRows, buildSelectTop100, extractDdl, identifierQuoteFor, supportsCopyDdl } from "@/lib/sql/identifiers";
+import { buildCopyDdlQuery, buildCountRows, buildSelectTop100, extractDdl, identifierQuoteFor, qualifyTable, supportsCopyDdl } from "@/lib/sql/identifiers";
 import { executeQuery } from "@/lib/api/endpoints";
 import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
@@ -17,7 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
-import { DatabaseChildren, SchemaTree, TreeRow } from "./schema-tree";
+import { DatabaseChildren, SchemaTree, TreeRow, type TableMenuHandler } from "./schema-tree";
 
 /** A table action that also carries the database it belongs to (PRF-01). */
 type DatabaseTableAction = (schema: string, table: string, database: string) => void;
@@ -39,6 +39,12 @@ export function SchemaExplorer({
   const queryClient = useQueryClient();
   const insertQuerySql = useWorkspaceStore((state) => state.insertQuerySql);
   const openTableData = useWorkspaceStore((state) => state.openTableData);
+  const openTableStructure = useWorkspaceStore(
+    (state) => state.openTableStructure,
+  );
+  const openQueryForTable = useWorkspaceStore(
+    (state) => state.openQueryForTable,
+  );
   const setActiveDatabase = useConnectionStore(
     (state) => state.setActiveDatabase,
   );
@@ -141,6 +147,82 @@ export function SchemaExplorer({
       }
     : undefined;
 
+  // Re-fetch explorer metadata only — never tabs, never the databases list.
+  // Table-level Refresh must not retarget any open tab (T12 §10).
+  function refreshMetadata() {
+    if (serverLevel) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.schemaRoot(connectionId ?? ""),
+      });
+      return;
+    }
+    void query.refetch();
+  }
+
+  // Table context menu (PRF-02/T12). Every action receives the exact target
+  // captured when the menu opened (connectionId/database/schema/table); the
+  // target is never resolved from the Explorer selection or the active tab.
+  // Export/Import are disabled placeholders until T14/T15 and never dispatch.
+  const handleTableMenu: TableMenuHandler = (action, schema, table, database) => {
+    if (!connectionId) return;
+    switch (action) {
+      case "view-data":
+        handleOpenTableData(schema, table, database);
+        return;
+      case "new-query":
+        // A fresh Query tab with a quoted SELECT; never auto-executed and never
+        // merged into an existing tab (so dirty SQL is never overwritten).
+        openQueryForTable(
+          connectionId,
+          bindDatabase(database),
+          buildSelectTop100(
+            namespaceFor(schema, connection?.database_name ?? ""),
+            table,
+            100,
+            identifierQuote,
+          ),
+        );
+        return;
+      case "structure":
+        openTableStructure(
+          connectionId,
+          bindDatabase(database),
+          schema || null,
+          table,
+        );
+        return;
+      case "refresh":
+        refreshMetadata();
+        return;
+      case "copy-name":
+        void copyText(table).then((copied) =>
+          showNotice(
+            copied ? "success" : "error",
+            copied ? "Table name copied" : "Copy failed",
+          ),
+        );
+        return;
+      case "copy-qualified":
+        void copyText(
+          qualifyTable(
+            namespaceFor(schema, connection?.database_name ?? ""),
+            table,
+            identifierQuote,
+          ),
+        ).then((copied) =>
+          showNotice(
+            copied ? "success" : "error",
+            copied ? "Qualified name copied" : "Copy failed",
+          ),
+        );
+        return;
+      case "export":
+      case "import":
+        // Disabled until their engines land (T14/T15); never silently no-op.
+        return;
+    }
+  };
+
   function refresh() {
     if (serverLevel) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.databases(connectionId ?? "") });
@@ -191,6 +273,7 @@ export function SchemaExplorer({
             onCountRows={handleCountRows}
             onCopyDdl={handleCopyDdl}
             onOpenTableData={handleOpenTableData}
+            onTableMenu={handleTableMenu}
           />
         ) : query.isLoading ? (
           <p className="px-1 text-xs text-muted-foreground">Loading schema…</p>
@@ -215,6 +298,7 @@ export function SchemaExplorer({
             onOpenTableData={(schema, table, database) =>
               handleOpenTableData(schema, table, database)
             }
+            onTableMenu={handleTableMenu}
             onCopyDdl={
               handleCopyDdl
                 ? (schema, table) => handleCopyDdl(schema, table, "")
@@ -245,6 +329,7 @@ function DatabaseExplorer({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   connectionId: string;
   onSelectDatabase: (connectionId: string, database: string | null) => void;
@@ -252,6 +337,7 @@ function DatabaseExplorer({
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
+  onTableMenu?: TableMenuHandler;
 }) {
   const databases = useDatabases(connectionId, true);
   const activeDatabase = useConnectionStore(
@@ -297,6 +383,7 @@ function DatabaseExplorer({
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
+          onTableMenu={onTableMenu}
         />
       ))}
       {remaining > 0 && (
@@ -331,6 +418,7 @@ function LazyDatabaseNode({
   onCountRows,
   onCopyDdl,
   onOpenTableData,
+  onTableMenu,
 }: {
   connectionId: string;
   database: string;
@@ -341,6 +429,7 @@ function LazyDatabaseNode({
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
+  onTableMenu?: TableMenuHandler;
 }) {
   const [open, setOpen] = useState(false);
   const schema = useSchema(connectionId, database, { enabled: open });
@@ -425,6 +514,12 @@ function LazyDatabaseNode({
               onOpenTableData
                 ? (schema, table) =>
                     onOpenTableData(schema, table, database)
+                : undefined
+            }
+            onTableMenu={
+              onTableMenu
+                ? (action, schema, table) =>
+                    onTableMenu(action, schema, table, database)
                 : undefined
             }
           />
