@@ -50,6 +50,28 @@ export const queryKeys = {
   /** Prefix for every Table Data query of a connection (invalidation/refresh). */
   tableDataRoot: (connectionId: string) =>
     ["connections", connectionId, "table-data"] as const,
+  /**
+   * Table structure for one explicit tab binding (PRF-02/T13). The connection,
+   * database, schema and table are all part of the key so metadata never leaks
+   * between targets.
+   */
+  tableStructure: (
+    connectionId: string,
+    database: string | null,
+    schema: string | null,
+    table: string,
+  ) =>
+    [
+      "connections",
+      connectionId,
+      "table-structure",
+      database ?? "",
+      schema ?? "",
+      table,
+    ] as const,
+  /** Prefix for every table-structure query of a connection. */
+  tableStructureRoot: (connectionId: string) =>
+    ["connections", connectionId, "table-structure"] as const,
   /** Prefix for all history queries (used for invalidation). */
   queryHistoryRoot: ["query-history"] as const,
   queryHistory: (connectionId?: string, page = 1) =>

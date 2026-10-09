@@ -398,13 +398,37 @@ backend also returns `NOT_IMPLEMENTED` as defense in depth.
 
 ### 12. Table Structure Design
 
-`TableStructureTab` renders existing introspected metadata (`model.Table`:
-columns/type/nullable/default/ordinal, primary key, foreign keys, indexes,
-`Table.Type` for base/partitioned/view/matview/foreign). It is read-only in
-PRF-02 (no schema designer — non-goal). Reuses `GET /connections/{id}/schemas`
-(with `database`) rather than a new structure endpoint; a dedicated
-`GET …/tables/{table}` endpoint is **Needs Validation** only if per-table
-fetching proves necessary for very large schemas.
+`TableStructureTab` renders the read-only structure of exactly one relation
+(columns, primary key, indexes, constraints, foreign keys) fetched from a
+dedicated endpoint `GET /connections/{id}/table-structure` (PRF-02/T13) keyed by
+the explicit `(connectionId, database, schema, table)` binding. A dedicated
+endpoint was chosen over reusing `/schemas`: the tab needs per-relational
+detail (constraint `definition` text, indexes, FK actions, `normalized_type`,
+and T07 `insertable`/`updatable` flags) that the schema tree intentionally
+omits, and large schemas must not pay the full tree cost to render one table.
+
+- **Bounded reads.** The handler resolves the target through
+  `resolveTargetDatabase` and delegates to the driver's optional
+  `StructureReader` (`Manager.TableStructure`); it never concatenates a client
+  identifier into a catalog query (all values bound) and never reads a row of
+  data. Reuses the `introspectionTimeout` (default 30 s) and the
+  `INTROSPECTION_TIMEOUT`/`INTROSPECTION_ERROR` taxonomy; a missing relation is
+  `404 TABLE_NOT_FOUND`.
+- **Driver-native shape.** `object_type` uses each driver's native vocabulary
+  (PostgreSQL `BASE TABLE`/`VIEW`/…, SQLite `table`/`view`) so it stays the
+  authority used by the schema tree. A non-base relation is read-only end to
+  end.
+- **Mutability.** `structureColumnMutability(generated, identity, pk)`:
+  insertable = `!generated && !identity`; updatable = `insertable && !pk`.
+  SQLite treats a single `INTEGER PRIMARY KEY` as identity. Per-driver
+  post-pass `structureColumnMutabilityForTable` forces every column read-only
+  when `object_type` is not a base table.
+- **Limits & safety.** Constraint `definition` is text data returned as-is and
+  must be rendered as plain text on the client (never HTML). No COUNT/row scan,
+  no new dependencies, no unbounded output.
+
+Actions unsupported by an engine are hidden/disabled later, not silently failed;
+the backend also returns `NOT_IMPLEMENTED` as defense in depth.
 
 ### 13. CSV Export / Import
 
@@ -1071,7 +1095,8 @@ COMMIT
    maximum import size.
 5. `total` count strategy on very large tables (statement timeout vs
    approximate counts).
-6. Dedicated per-table structure endpoint vs reusing `/schemas`.
+6. ~~Dedicated per-table structure endpoint vs reusing `/schemas`.~~ Resolved by
+   §12: a dedicated `GET /connections/{id}/table-structure` endpoint (PRF-02/T13).
 7. DROP DATABASE privilege requirements per engine and whether MySQL needs a
    maintenance-database session.
 8. Whether capability descriptor is a new endpoint or embedded in the

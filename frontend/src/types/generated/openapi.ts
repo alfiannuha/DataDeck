@@ -785,6 +785,107 @@ export interface paths {
         };
         trace?: never;
     };
+    "/connections/{id}/table-structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get table structure
+         * @description Returns the read-only structure of one table or view (columns, primary key, indexes, constraints, foreign keys) for the explicit connection + database + schema + table. It never reads a row of data and never mutates anything.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Target database (required for server-level PostgreSQL) */
+                    database?: string;
+                    /** @description Schema (required for PostgreSQL) */
+                    schema?: string;
+                    /** @description Table or view name */
+                    table: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Implemented */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1503,6 +1604,48 @@ export interface components {
             name?: string;
             tables?: components["schemas"]["model.Table"][];
         };
+        "model.StructureColumn": {
+            collation?: string;
+            comment?: string;
+            database_type?: string;
+            default?: string;
+            generated?: boolean;
+            identity?: boolean;
+            insertable?: boolean;
+            length?: number;
+            name?: string;
+            normalized_type?: string;
+            nullable?: boolean;
+            ordinal_position?: number;
+            precision?: number;
+            primary_key?: boolean;
+            primary_key_position?: number;
+            scale?: number;
+            updatable?: boolean;
+        };
+        "model.StructureConstraint": {
+            columns?: string[];
+            definition?: string;
+            name?: string;
+            type?: string;
+        };
+        "model.StructureForeignKey": {
+            columns?: string[];
+            name?: string;
+            on_delete?: string;
+            on_update?: string;
+            referenced_columns?: string[];
+            referenced_schema?: string;
+            referenced_table?: string;
+        };
+        "model.StructureIndex": {
+            columns?: string[];
+            method?: string;
+            name?: string;
+            partial?: boolean;
+            primary?: boolean;
+            unique?: boolean;
+        };
         "model.Table": {
             columns?: components["schemas"]["model.Column"][];
             foreign_keys?: components["schemas"]["model.ForeignKey"][];
@@ -1552,6 +1695,17 @@ export interface components {
             has_more?: boolean;
             page?: number;
             page_size?: number;
+        };
+        "model.TableStructure": {
+            columns?: components["schemas"]["model.StructureColumn"][];
+            constraints?: components["schemas"]["model.StructureConstraint"][];
+            database?: string;
+            foreign_keys?: components["schemas"]["model.StructureForeignKey"][];
+            indexes?: components["schemas"]["model.StructureIndex"][];
+            object_type?: string;
+            primary_key?: components["schemas"]["model.PrimaryKey"];
+            schema?: string;
+            table?: string;
         };
         "response.APIError": {
             code?: string;

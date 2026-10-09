@@ -402,6 +402,7 @@ here without an explicit requirement.
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
+| `GET` | `/api/v1/connections/{id}/table-structure` | Read-only structure of one table/view (PRF-02/T13; columns, primary key, indexes, constraints, foreign keys) |
 | `POST` | `/api/v1/connections/{id}/table-data/rows` | Single-row INSERT with VALUE/NULL/DEFAULT modes (PRF-02/T08) |
 | `PATCH` | `/api/v1/connections/{id}/table-data/rows` | Single-row UPDATE by primary key with optimistic concurrency (PRF-02/T07) |
 | `DELETE` | `/api/v1/connections/{id}/table-data/rows` | Single-row DELETE by primary key with optimistic concurrency (PRF-02/T07) |
@@ -496,6 +497,26 @@ here without an explicit requirement.
   post-mutation row where readable). The Table Data page also advertises
   effective `row_capabilities` (insert/update/delete/duplicate), `row_identity`,
   and per-column `insertable`/`updatable` flags.
+- `GET /api/v1/connections/{id}/table-structure` — **PRF-02/T13**. Query
+  parameters: `database` (required for server-level PostgreSQL, else profile
+  default), `schema` (required for PostgreSQL; ignored for MySQL/SQLite),
+  `table` (required). Returns the read-only metadata of exactly one relation:
+  it never reads a row of data and never mutates anything. Response `data`:
+  `{ database, schema?, table, object_type, columns[]
+  (name/database_type/normalized_type/nullable/default/primary_key/ordinal_position/
+  insertable/updatable), primary_key{name?,columns[]}, indexes[]
+  (name/unique/primary/method/partial/columns[]), constraints[]
+  (name/type/columns[]/definition), foreign_keys[]
+  (name/columns[]/referenced_schema/referenced_table/referenced_columns[]/
+  on_update/on_delete) }`. `insertable`/`updatable` mirror T07: an
+  identity/generated column is not insertable and a primary-key column is not
+  updatable; non-base relations (views, foreign tables, matviews, partitions,
+  `sqlite_sequence`) are read-only. Constraint `definition` text is returned as
+  plain text and must be rendered as text only (never HTML) — see PRD §21.
+  Errors: `400 VALIDATION_ERROR` (missing/invalid args, missing database →
+  `DATABASE_REQUIRED`), `404 NOT_FOUND` (unknown connection) /
+  `TABLE_NOT_FOUND`, `400 DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502
+  CONNECTION_ERROR`, `504 INTROSPECTION_TIMEOUT`.
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
   `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds

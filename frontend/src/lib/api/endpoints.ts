@@ -14,6 +14,7 @@ import type {
   SavedQueryResponse,
   RowMutationResult,
   TableDataPage,
+  TableStructure,
   TestConnectionResponse,
 } from "@/types/api";
 
@@ -204,6 +205,31 @@ export function browseTableData(
   }
   return apiFetch<TableDataPage>(
     `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,
+    { signal },
+  );
+}
+
+export interface TableStructureParams {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+}
+
+/**
+ * Read-only table structure (PRF-02/T13). Bound to the explicit
+ * connection/database/schema/table; the backend never reads row data here.
+ */
+export function getTableStructure(
+  connectionId: string,
+  params: TableStructureParams,
+  signal?: AbortSignal,
+): Promise<TableStructure> {
+  const query = new URLSearchParams();
+  if (params.database) query.set("database", params.database);
+  if (params.schema) query.set("schema", params.schema);
+  query.set("table", params.table);
+  return apiFetch<TableStructure>(
+    `/connections/${encodeURIComponent(connectionId)}/table-structure?${query.toString()}`,
     { signal },
   );
 }

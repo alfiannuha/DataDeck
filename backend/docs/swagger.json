@@ -604,6 +604,144 @@
                 },
                 "type": "object"
             },
+            "model.StructureColumn": {
+                "properties": {
+                    "collation": {
+                        "type": "string"
+                    },
+                    "comment": {
+                        "type": "string"
+                    },
+                    "database_type": {
+                        "type": "string"
+                    },
+                    "default": {
+                        "type": "string"
+                    },
+                    "generated": {
+                        "type": "boolean"
+                    },
+                    "identity": {
+                        "type": "boolean"
+                    },
+                    "insertable": {
+                        "type": "boolean"
+                    },
+                    "length": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "normalized_type": {
+                        "type": "string"
+                    },
+                    "nullable": {
+                        "type": "boolean"
+                    },
+                    "ordinal_position": {
+                        "type": "integer"
+                    },
+                    "precision": {
+                        "type": "integer"
+                    },
+                    "primary_key": {
+                        "type": "boolean"
+                    },
+                    "primary_key_position": {
+                        "type": "integer"
+                    },
+                    "scale": {
+                        "type": "integer"
+                    },
+                    "updatable": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "model.StructureConstraint": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "definition": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "model.StructureForeignKey": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "on_delete": {
+                        "type": "string"
+                    },
+                    "on_update": {
+                        "type": "string"
+                    },
+                    "referenced_columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "referenced_schema": {
+                        "type": "string"
+                    },
+                    "referenced_table": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "model.StructureIndex": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "method": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "partial": {
+                        "type": "boolean"
+                    },
+                    "primary": {
+                        "type": "boolean"
+                    },
+                    "unique": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "model.Table": {
                 "properties": {
                     "columns": {
@@ -729,6 +867,54 @@
                     },
                     "page_size": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "model.TableStructure": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "$ref": "#/components/schemas/model.StructureColumn"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "constraints": {
+                        "items": {
+                            "$ref": "#/components/schemas/model.StructureConstraint"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "database": {
+                        "type": "string"
+                    },
+                    "foreign_keys": {
+                        "items": {
+                            "$ref": "#/components/schemas/model.StructureForeignKey"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "indexes": {
+                        "items": {
+                            "$ref": "#/components/schemas/model.StructureIndex"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "object_type": {
+                        "type": "string"
+                    },
+                    "primary_key": {
+                        "$ref": "#/components/schemas/model.PrimaryKey"
+                    },
+                    "schema": {
+                        "type": "string"
+                    },
+                    "table": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1731,6 +1917,131 @@
                 "summary": "Insert one row",
                 "tags": [
                     "table-data"
+                ]
+            }
+        },
+        "/connections/{id}/table-structure": {
+            "get": {
+                "description": "Returns the read-only structure of one table or view (columns, primary key, indexes, constraints, foreign keys) for the explicit connection + database + schema + table. It never reads a row of data and never mutates anything.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Target database (required for server-level PostgreSQL)",
+                        "in": "query",
+                        "name": "database",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Schema (required for PostgreSQL)",
+                        "in": "query",
+                        "name": "schema",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Table or view name",
+                        "in": "query",
+                        "name": "table",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Get table structure",
+                "tags": [
+                    "table-structure"
                 ]
             }
         },

@@ -135,6 +135,15 @@ type ArgumentExecutor interface {
 	ExecuteArgs(ctx context.Context, db *sql.DB, sqlText string, args []any) (model.QueryResult, error)
 }
 
+// StructureReader is an optional connector capability for per-table structure
+// introspection (PRF-02/T13). It reads metadata for exactly one relation —
+// never the whole database — so a structure request stays bounded. The schema
+// is only meaningful for engines with a schema level (PostgreSQL); MySQL/SQLite
+// ignore it. A missing relation must map to ErrTableNotFound.
+type StructureReader interface {
+	TableStructure(ctx context.Context, db *sql.DB, schema, table string) (model.TableStructure, error)
+}
+
 // Connector opens and health-checks pools for a single target database driver,
 // reads schema metadata, executes SQL, and advertises its capabilities.
 //

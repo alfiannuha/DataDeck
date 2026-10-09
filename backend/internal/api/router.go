@@ -76,6 +76,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/connections/{id}/table-data/rows", connections.InsertRow)
 		r.Patch("/connections/{id}/table-data/rows", connections.UpdateRow)
 		r.Delete("/connections/{id}/table-data/rows", connections.DeleteRow)
+		r.Get("/connections/{id}/table-structure", connections.TableStructure)
 
 		r.Post("/query/execute", queries.Execute)
 		r.Get("/query/history", queries.History)
