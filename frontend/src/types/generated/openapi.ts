@@ -529,6 +529,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/{id}/table-data/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export table data
+         * @description Streams a whole table (or the current filter set) as CSV, XLSX or an SQL INSERT script — no SQL required. The target is the explicit connection + database + schema + table; global/explorer selection is never used. CSV is served inline as an attachment as it streams; XLSX/SQL are spooled to a temp file and served only when the export completes, so client-visible failures always return a JSON envelope.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Export options */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["model.TableExportRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": Record<string, never>;
+                        "application/octet-stream": Record<string, never>;
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": Record<string, never>;
+                        "text/csv": Record<string, never>;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["response.ErrorEnvelope"];
+                        "text/csv": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["response.ErrorEnvelope"];
+                        "text/csv": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["response.ErrorEnvelope"];
+                        "text/csv": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["response.ErrorEnvelope"];
+                        "text/csv": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["response.ErrorEnvelope"];
+                        "text/csv": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connections/{id}/table-data/rows": {
         parameters: {
             query?: never;
@@ -1691,10 +1801,55 @@ export interface components {
             /** @description Truncated is true when the shared 50 MB result cap stopped the page short. */
             truncated?: boolean;
         };
+        "model.TableExportRequest": {
+            /** @example app */
+            database?: string;
+            filters?: components["schemas"]["model.TableFilter"][];
+            /**
+             * @example csv
+             * @enum {string}
+             */
+            format?: "csv" | "xlsx" | "sql";
+            include_headers?: boolean;
+            insertable_only?: boolean;
+            /** @example public */
+            schema?: string;
+            sort?: components["schemas"]["model.TableSort"];
+            /** @example customers */
+            table?: string;
+            transaction?: boolean;
+        };
+        "model.TableFilter": {
+            /** @example status */
+            column?: string;
+            /**
+             * @example equals
+             * @enum {string}
+             */
+            operator?: "equals" | "not_equals" | "contains" | "starts_with" | "ends_with" | "greater_than" | "greater_or_equal" | "less_than" | "less_or_equal" | "is_null" | "is_not_null" | "in";
+            /** @example active */
+            value?: unknown;
+            /**
+             * @example [
+             *       "active",
+             *       "pending"
+             *     ]
+             */
+            values?: unknown[];
+        };
         "model.TablePagination": {
             has_more?: boolean;
             page?: number;
             page_size?: number;
+        };
+        "model.TableSort": {
+            /** @example created_at */
+            column?: string;
+            /**
+             * @example desc
+             * @enum {string}
+             */
+            direction?: "asc" | "desc";
         };
         "model.TableStructure": {
             columns?: components["schemas"]["model.StructureColumn"][];

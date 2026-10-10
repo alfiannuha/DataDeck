@@ -61,6 +61,13 @@ var (
 	ErrConstraintViolation = errors.New("database: constraint violation")
 	// ErrInsertFailed marks an INSERT that did not affect exactly one row.
 	ErrInsertFailed = errors.New("database: insert did not affect exactly one row")
+	// Table export errors (PRF-02/T14).
+	// ErrExportFormatUnsupported marks an export format that is not applicable to
+	// the target relation (e.g. a SQL INSERT script on a view).
+	ErrExportFormatUnsupported = errors.New("database: export format is not supported for this relation")
+	// ErrNoExportableColumns marks a table whose relation offers nothing to
+	// export (all columns generated/identity, or no columns at all).
+	ErrNoExportableColumns = errors.New("database: table has no exportable columns")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.
@@ -142,6 +149,28 @@ type ArgumentExecutor interface {
 // ignore it. A missing relation must map to ErrTableNotFound.
 type StructureReader interface {
 	TableStructure(ctx context.Context, db *sql.DB, schema, table string) (model.TableStructure, error)
+}
+
+// TableStreamer is an optional connector capability for table export
+// (PRF-02/T14). It streams bounded rows through emit — never the full result
+// set. sqlText is built by the manager from quoted metadata identifiers; args
+// are the parameterized filter values. emit returning an error cancels the
+// cursor and that error is returned unchanged, so a failing writer aborts the
+// query. Column metadata travels separately via the sink's Begin: the row
+// values alone keep the streaming boundary minimal.
+type TableStreamer interface {
+	StreamTable(ctx context.Context, db *sql.DB, sqlText string, args []any, emit func(row []any) error) error
+}
+
+// ExportSink receives the column metadata and canonical row values of a
+// streaming export. It is implemented structurally by internal/export (CSV, SQL,
+// XLSX); the manager only drives Begin→Write…Write→End and never inspects sink
+// internals. There is no Abort: the caller owns cancellation and temp-file
+// cleanup, so a sink never has to roll back its own output.
+type ExportSink interface {
+	Begin(columns []model.QueryColumn) error
+	Write(row []any) error
+	End() error
 }
 
 // Connector opens and health-checks pools for a single target database driver,

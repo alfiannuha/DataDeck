@@ -857,6 +857,90 @@
                 },
                 "type": "object"
             },
+            "model.TableExportRequest": {
+                "properties": {
+                    "database": {
+                        "example": "app",
+                        "type": "string"
+                    },
+                    "filters": {
+                        "items": {
+                            "$ref": "#/components/schemas/model.TableFilter"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "format": {
+                        "enum": [
+                            "csv",
+                            "xlsx",
+                            "sql"
+                        ],
+                        "example": "csv",
+                        "type": "string"
+                    },
+                    "include_headers": {
+                        "type": "boolean"
+                    },
+                    "insertable_only": {
+                        "type": "boolean"
+                    },
+                    "schema": {
+                        "example": "public",
+                        "type": "string"
+                    },
+                    "sort": {
+                        "$ref": "#/components/schemas/model.TableSort"
+                    },
+                    "table": {
+                        "example": "customers",
+                        "type": "string"
+                    },
+                    "transaction": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "model.TableFilter": {
+                "properties": {
+                    "column": {
+                        "example": "status",
+                        "type": "string"
+                    },
+                    "operator": {
+                        "enum": [
+                            "equals",
+                            "not_equals",
+                            "contains",
+                            "starts_with",
+                            "ends_with",
+                            "greater_than",
+                            "greater_or_equal",
+                            "less_than",
+                            "less_or_equal",
+                            "is_null",
+                            "is_not_null",
+                            "in"
+                        ],
+                        "example": "equals",
+                        "type": "string"
+                    },
+                    "value": {
+                        "example": "active"
+                    },
+                    "values": {
+                        "example": [
+                            "active",
+                            "pending"
+                        ],
+                        "items": {},
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "model.TablePagination": {
                 "properties": {
                     "has_more": {
@@ -867,6 +951,23 @@
                     },
                     "page_size": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "model.TableSort": {
+                "properties": {
+                    "column": {
+                        "example": "created_at",
+                        "type": "string"
+                    },
+                    "direction": {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "example": "desc",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1590,6 +1691,191 @@
                     }
                 },
                 "summary": "Browse table data",
+                "tags": [
+                    "table-data"
+                ]
+            }
+        },
+        "/connections/{id}/table-data/export": {
+            "post": {
+                "description": "Streams a whole table (or the current filter set) as CSV, XLSX or an SQL INSERT script — no SQL required. The target is the explicit connection + database + schema + table; global/explorer selection is never used. CSV is served inline as an attachment as it streams; XLSX/SQL are spooled to a temp file and served only when the export completes, so client-visible failures always return a JSON envelope.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/model.TableExportRequest",
+                                "summary": "body",
+                                "description": "Export options"
+                            }
+                        }
+                    },
+                    "description": "Export options",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            },
+                            "text/csv": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Export table data",
                 "tags": [
                     "table-data"
                 ]

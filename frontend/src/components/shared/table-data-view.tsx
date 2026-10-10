@@ -1,6 +1,6 @@
 "use client";
 
-import { Filter, Loader2, RefreshCw } from "lucide-react";
+import { Download, Filter, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
@@ -19,6 +19,7 @@ import { copyText } from "@/lib/clipboard";
 import { ApiClientError } from "@/lib/api-client";
 import { isReadOnlyObject } from "@/lib/table-actions";
 import { rowToJSON, rowToTSV } from "@/lib/row-copy";
+import { useExportStore } from "@/store/useExportStore";
 import {
   useWorkspaceStore,
   type TableFilter,
@@ -388,6 +389,28 @@ export function TableDataView() {
               Add Row
             </Button>
           ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="table-data-export"
+            aria-label="Export table data"
+            disabled={!data || !tab.connectionId}
+            onClick={() => {
+              if (!tab.connectionId) return;
+              useExportStore.getState().open({
+                connectionId: tab.connectionId,
+                database: tab.database,
+                schema: tab.schema,
+                table: tab.table,
+                objectType: data?.object_type,
+                filters: tab.filters,
+                sort: target.sort,
+              });
+            }}
+          >
+            <Download size={12} aria-hidden="true" />
+            Export
+          </Button>
           <Button
             variant={filterOpen || tab.filters.length > 0 ? "outline" : "ghost"}
             size="sm"

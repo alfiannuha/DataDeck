@@ -18,21 +18,19 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
     ]);
   });
 
-  it("keeps browse/query/copy actions enabled and Export/Import disabled pre-T14/T15", () => {
+  it("keeps browse/query/copy/export actions enabled and Import disabled pre-T15", () => {
     const actions = getTableActions({ objectType: "BASE TABLE" });
     for (const id of [
       "view-data",
       "new-query",
       "structure",
       "refresh",
+      "export",
       "copy-name",
       "copy-qualified",
     ]) {
       expect(actions.find((action) => action.id === id)?.disabled).toBe(false);
     }
-    const exportAction = actions.find((action) => action.id === "export");
-    expect(exportAction?.disabled).toBe(true);
-    expect(exportAction?.reason).toContain("later");
     const importAction = actions.find((action) => action.id === "import");
     expect(importAction?.disabled).toBe(true);
     expect(importAction?.reason).toContain("later");
@@ -45,11 +43,11 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       );
       expect(importAction?.disabled).toBe(true);
       expect(importAction?.reason).toBe("This object is read-only.");
-      // Export is a read operation: it keeps the generic later-phase reason.
+      // Export is a read operation: it stays enabled for views too.
       const exportAction = getTableActions({ objectType }).find(
         (action) => action.id === "export",
       );
-      expect(exportAction?.reason).toContain("later");
+      expect(exportAction?.disabled).toBe(false);
     }
   });
 

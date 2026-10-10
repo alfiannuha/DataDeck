@@ -34,10 +34,16 @@ export type TableMenuHandler = (
   schema: string,
   table: string,
   database: string,
+  objectType?: string,
 ) => void;
 
 /** A table-menu dispatch already closed over its owning database. */
-type TableMenuDispatch = (action: TableActionId, schema: string, table: string) => void;
+type TableMenuDispatch = (
+  action: TableActionId,
+  schema: string,
+  table: string,
+  objectType?: string,
+) => void;
 
 /**
  * Schema tree rendered from the M1 introspection response:
@@ -138,8 +144,14 @@ const DatabaseNode = memo(function DatabaseNode({
           }
           onTableMenu={
             onTableMenu
-              ? (action, schema, table) =>
-                  onTableMenu(action, schema, table, database.name ?? "")
+              ? (action, schema, table, objectType) =>
+                  onTableMenu(
+                    action,
+                    schema,
+                    table,
+                    database.name ?? "",
+                    objectType,
+                  )
               : undefined
           }
         />
@@ -401,7 +413,7 @@ const TableNode = memo(function TableNode({
               text={qualifiedName}
             />
             {onTableMenu && (
-              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -426,6 +438,7 @@ const TableNode = memo(function TableNode({
                             action.id,
                             table.schema ?? "",
                             table.name ?? "",
+                            table.type,
                           );
                         }}
                       >

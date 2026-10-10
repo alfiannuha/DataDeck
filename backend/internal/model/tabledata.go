@@ -104,3 +104,27 @@ type TableDataPage struct {
 	RowCapabilities RowCapabilities  `json:"row_capabilities"`
 	RowIdentity     *RowIdentityInfo `json:"row_identity,omitempty"`
 }
+
+// TableExportRequest is the body of POST /connections/{id}/table-data/export
+// (PRF-02/T14). Database follows the explicit-target rule of Table Data: it is
+// required for a server-level PostgreSQL profile and must match the profile's
+// database for MySQL/SQLite. Format is one of csv/xlsx/sql; there is
+// deliberately no scope field — the optional Filters decide between the full
+// relation (nothing supplied) and the current filter set.
+type TableExportRequest struct {
+	Database       string        `json:"database,omitempty" example:"app"`
+	Format         string        `json:"format" enums:"csv,xlsx,sql" example:"csv"`
+	Schema         string        `json:"schema,omitempty" example:"public"`
+	Table          string        `json:"table" example:"customers"`
+	Sort           *TableSort    `json:"sort,omitempty"`
+	Filters        []TableFilter `json:"filters,omitempty"`
+	InsertableOnly bool          `json:"insertable_only,omitempty"`
+	IncludeHeaders *bool         `json:"include_headers,omitempty"`
+	Transaction    *bool         `json:"transaction,omitempty"`
+}
+
+// ExportFormatEnvelope carries the decoded export request format (used by
+// swagger docs).
+type ExportFormatEnvelope struct {
+	Request TableExportRequest `json:"request"`
+}

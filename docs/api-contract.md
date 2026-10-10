@@ -124,6 +124,8 @@ Rules:
 | `COLUMN_READ_ONLY` | 400 | Safety | PRF-02: PK/identity/generated column cannot be modified |
 | `INVALID_COLUMN_VALUE` | 400 | Validation | PRF-02: value invalid for its column (type/NULL/unknown column) |
 | `CONSTRAINT_VIOLATION` | 409 | Constraint | PRF-02: NOT NULL/UNIQUE/FK/CHECK rejection |
+| `EXPORT_FORMAT_UNSUPPORTED` | 400 | Validation | PRF-02 table export: format not supported by the driver, or no exportable columns |
+| `EXPORT_LIMIT_EXCEEDED` | 400 | Safety | PRF-02 table export: result would exceed the export row/byte safety limit |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -406,6 +408,7 @@ here without an explicit requirement.
 | `POST` | `/api/v1/connections/{id}/table-data/rows` | Single-row INSERT with VALUE/NULL/DEFAULT modes (PRF-02/T08) |
 | `PATCH` | `/api/v1/connections/{id}/table-data/rows` | Single-row UPDATE by primary key with optimistic concurrency (PRF-02/T07) |
 | `DELETE` | `/api/v1/connections/{id}/table-data/rows` | Single-row DELETE by primary key with optimistic concurrency (PRF-02/T07) |
+| `POST` | `/api/v1/connections/{id}/table-data/export` | Streamed table/view export (CSV \| XLSX \| SQL) honoring filters/sort (PRF-02/T14) |
 | `POST` | `/api/v1/query/execute` | Synchronous raw SQL execution |
 | `GET` | `/api/v1/query/history` | Audit log of executed queries |
 | `POST` | `/api/v1/queries/saved` | Save a query snippet (PRD) |
@@ -517,6 +520,32 @@ here without an explicit requirement.
   `DATABASE_REQUIRED`), `404 NOT_FOUND` (unknown connection) /
   `TABLE_NOT_FOUND`, `400 DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502
   CONNECTION_ERROR`, `504 INTROSPECTION_TIMEOUT`.
+- `POST /api/v1/connections/{id}/table-data/export` — **PRF-02/T14**. Body:
+  `{ database, schema, table, format: "csv" | "xlsx" | "sql", include_headers?
+  (default true; CSV only), transaction? (default true; SQL only),
+  insertable_only? (default false; SQL only), filters?, sort? }`. The target is
+  **explicit and never inferred from explorer/global state**: `database` is
+  required for server-level PostgreSQL (else profile default) and for
+  MySQL/SQLite must equal the profile database (`DATABASE_REQUIRED` /
+  `DATABASE_MISMATCH` otherwise). `filters`/`sort` use the exact table-data
+  operators and rules from `GET table-data` and run in the database before the
+  stream. Sinks: **CSV** streams directly (RFC 4180 quoting; formula-injection
+  guard prefixes `'` to cells/headers starting `= + @ -` subject to the plain
+  optional-number exception); **XLSX** writes a single typed sheet
+  (formula-like leading characters stay literal text cells); **SQL** writes
+  per-row `INSERT INTO <quoted> (<cols>) VALUES (…);` with a driver-matched
+  transaction wrapper (`BEGIN`/`COMMIT`, MySQL `START TRANSACTION`;
+  `transaction:false` omits it) and `insertable_only:true` restricts to
+  insertable columns. The response is raw bytes with `Content-Disposition:
+  attachment; filename="<sanitized>_<YYYYMMDD>.<ext>"` and `Cache-Control:
+  no-store` (not the JSON envelope; errors still use the envelope). BIGINT
+  serializes as string; `NULL` as empty/NULL; identifiers are dialect-quoted.
+  Export runs under its own timeout (default 300s). Success is bounded: a
+  result exceeding the export safety limit → `400 EXPORT_LIMIT_EXCEEDED`.
+  Errors: `400 EXPORT_FORMAT_UNSUPPORTED` (format or no-exportable-columns),
+  `404 TABLE_NOT_FOUND`, `400 VALIDATION_ERROR`/`INVALID_FILTER`/
+  `COLUMN_NOT_FOUND`, `400 DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502
+  CONNECTION_ERROR`, `504 QUERY_TIMEOUT`.
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
   `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds

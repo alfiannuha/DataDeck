@@ -15,6 +15,7 @@ import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/store/useConnectionStore";
+import { useExportStore } from "@/store/useExportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { DatabaseChildren, SchemaTree, TreeRow, type TableMenuHandler } from "./schema-tree";
@@ -162,8 +163,14 @@ export function SchemaExplorer({
   // Table context menu (PRF-02/T12). Every action receives the exact target
   // captured when the menu opened (connectionId/database/schema/table); the
   // target is never resolved from the Explorer selection or the active tab.
-  // Export/Import are disabled placeholders until T14/T15 and never dispatch.
-  const handleTableMenu: TableMenuHandler = (action, schema, table, database) => {
+  // Import stays a disabled placeholder until T15 and never dispatches.
+  const handleTableMenu: TableMenuHandler = (
+    action,
+    schema,
+    table,
+    database,
+    objectType,
+  ) => {
     if (!connectionId) return;
     switch (action) {
       case "view-data":
@@ -217,8 +224,18 @@ export function SchemaExplorer({
         );
         return;
       case "export":
+        // Explicit target captured at menu-open time (α/β): never the active
+        // tab or Explorer selection.
+        useExportStore.getState().open({
+          connectionId,
+          database: bindDatabase(database),
+          schema: schema || null,
+          table,
+          objectType,
+        });
+        return;
       case "import":
-        // Disabled until their engines land (T14/T15); never silently no-op.
+        // Disabled until its engine lands (T15); never silently no-op.
         return;
     }
   };
@@ -518,8 +535,8 @@ function LazyDatabaseNode({
             }
             onTableMenu={
               onTableMenu
-                ? (action, schema, table) =>
-                    onTableMenu(action, schema, table, database)
+                ? (action, schema, table, objectType) =>
+                    onTableMenu(action, schema, table, database, objectType)
                 : undefined
             }
           />

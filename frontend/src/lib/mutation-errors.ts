@@ -17,6 +17,10 @@ const MESSAGES: Record<string, string> = {
   CONSTRAINT_VIOLATION: "The change violates a database constraint.",
   MUTATION_AFFECTED_MULTIPLE_ROWS:
     "Safety failure: the change matched more than one row and was stopped. No data was modified.",
+  EXPORT_FORMAT_UNSUPPORTED:
+    "This object cannot be exported in that format. SQL scripts require a base table.",
+  EXPORT_LIMIT_EXCEEDED:
+    "The export is too large. Apply filters to narrow it down.",
 };
 
 /** True when the failure represents a mutation-safety violation, not a validation error. */

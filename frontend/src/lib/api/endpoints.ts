@@ -1,4 +1,10 @@
-import { apiFetch, apiFetchMeta, type Paginated } from "@/lib/api-client";
+import {
+  apiFetch,
+  apiFetchDownload,
+  apiFetchMeta,
+  type DownloadResult,
+  type Paginated,
+} from "@/lib/api-client";
 import type {
   ConnectionCreateRequest,
   DatabaseInfo,
@@ -6,6 +12,8 @@ import type {
   ConnectionTestRequest,
   DatabaseSchemaTree,
   DeleteConnectionResponse,
+  TableExportFormat,
+  FilterOperator,
   HealthResponse,
   QueryHistoryRecord,
   QueryRequest,
@@ -14,6 +22,7 @@ import type {
   SavedQueryResponse,
   RowMutationResult,
   TableDataPage,
+  TableExportRequest,
   TableStructure,
   TestConnectionResponse,
 } from "@/types/api";
@@ -164,7 +173,7 @@ export function deleteSavedQuery(
 
 export interface TableFilterParams {
   column: string;
-  operator: string;
+  operator: FilterOperator;
   value?: unknown;
   values?: unknown[];
 }
@@ -231,6 +240,51 @@ export function getTableStructure(
   return apiFetch<TableStructure>(
     `/connections/${encodeURIComponent(connectionId)}/table-structure?${query.toString()}`,
     { signal },
+  );
+}
+
+export interface TableExportParams {
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  format: TableExportFormat;
+  /** Structured sort/filters captured from the originating Table Data tab. */
+  sort?: { column: string; direction: "asc" | "desc" } | null;
+  filters?: TableFilterParams[];
+  insertableOnly?: boolean;
+  includeHeaders?: boolean;
+  transaction?: boolean;
+}
+
+/**
+ * Export a whole table (or the captured filter set) as a binary attachment
+ * (PRF-02/T14). The target is always the explicit connection/database/schema/
+ * table the caller supplies; the backend never falls back to the active tab or
+ * Explorer selection. Errors arrive as the standard JSON envelope.
+ */
+export function exportTableData(
+  connectionId: string,
+  params: TableExportParams,
+  signal?: AbortSignal,
+): Promise<DownloadResult> {
+  const body: TableExportRequest = {
+    format: params.format,
+    table: params.table,
+  };
+  if (params.database) body.database = params.database;
+  if (params.schema) body.schema = params.schema;
+  if (params.sort) body.sort = params.sort;
+  if (params.filters && params.filters.length > 0) body.filters = params.filters;
+  if (params.insertableOnly !== undefined) {
+    body.insertable_only = params.insertableOnly;
+  }
+  if (params.includeHeaders !== undefined) {
+    body.include_headers = params.includeHeaders;
+  }
+  if (params.transaction !== undefined) body.transaction = params.transaction;
+  return apiFetchDownload(
+    `/connections/${encodeURIComponent(connectionId)}/table-data/export`,
+    { method: "POST", body: JSON.stringify(body), signal },
   );
 }
 

@@ -5,6 +5,7 @@ import { ApiClientError } from "@/lib/api-client";
 import { executeQuery, getSchemas, listConnections, listDatabases } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
+import { useExportStore } from "@/store/useExportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
 
@@ -793,6 +794,7 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
 
   beforeEach(() => {
     useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useExportStore.setState({ target: null });
   });
 
   it("renders all capability-gated items and never fetches on open", async () => {
@@ -811,11 +813,9 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
         "aria-disabled",
       );
     }
-    expect(screen.getByTestId("table-menu-export")).toHaveAttribute(
+    expect(screen.getByTestId("table-menu-export")).not.toHaveAttribute(
       "aria-disabled",
-      "true",
     );
-    expect(screen.getByTestId("table-menu-export")).toHaveTextContent("later");
     expect(screen.getByTestId("table-menu-import")).toHaveAttribute(
       "aria-disabled",
       "true",
@@ -990,7 +990,7 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     expect(useWorkspaceStore.getState().activeTabId).toBeNull();
   });
 
-  it("never dispatches disabled Export/Import actions", async () => {
+  it("opens the export dialog for Export and never opens a workspace tab", async () => {
     vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
     vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
 
@@ -1000,8 +1000,13 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     await openTableMenu("users");
 
     fireEvent.click(screen.getByTestId("table-menu-export"));
-    fireEvent.click(screen.getByTestId("table-menu-import"));
-
+    expect(useExportStore.getState().target).toMatchObject({
+      connectionId: "c1",
+      database: "app",
+      schema: "public",
+      table: "users",
+    });
+    // Export never opens a workspace tab.
     expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
     expect(executeQuery).not.toHaveBeenCalled();
   });

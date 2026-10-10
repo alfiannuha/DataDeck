@@ -22,4 +22,10 @@ type Capabilities struct {
 	// IdentifierQuote is the character used to quote identifiers ("`" for
 	// MySQL, `"` for PostgreSQL/SQLite).
 	IdentifierQuote string `json:"identifier_quote"`
+	// TableExport reports whether the driver streams table exports and which
+	// formats it supports (PRF-02/T14). All three drivers advertise it in
+	// v0.1.0; per-object applicability (e.g. SQL export on a view) is derived
+	// from introspection metadata, not from this flag.
+	TableExport   bool     `json:"table_export"`
+	ExportFormats []string `json:"export_formats"`
 }

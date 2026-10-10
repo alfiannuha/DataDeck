@@ -79,18 +79,28 @@ export function buildExport(
 }
 
 /**
- * Trigger a browser download for an artifact. Kept separate from the serializers
- * so the export layer stays testable without a DOM.
+ * Trigger a browser download for a Blob under the given filename. Kept separate
+ * from the serializers so the export layer stays testable without a DOM.
  */
-export function downloadExport(artifact: ExportArtifact): void {
+export function downloadBlob(blob: Blob, filename: string): void {
   if (typeof document === "undefined") return;
-  const blob = new Blob([artifact.content], { type: artifact.mime });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = artifact.filename;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Trigger a browser download for an artifact. Kept separate from the serializers
+ * so the export layer stays testable without a DOM.
+ */
+export function downloadExport(artifact: ExportArtifact): void {
+  downloadBlob(
+    new Blob([artifact.content], { type: artifact.mime }),
+    artifact.filename,
+  );
 }

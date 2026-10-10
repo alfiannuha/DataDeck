@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiClientError, apiFetch, apiUrl } from "./api-client";
+import {
+  ApiClientError,
+  apiFetch,
+  apiFetchDownload,
+  apiUrl,
+  parseContentDispositionFilename,
+} from "./api-client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -119,5 +125,103 @@ describe("apiFetch", () => {
     expect(error).toBe(abortError);
     expect(error).not.toBeInstanceOf(ApiClientError);
     expect(error.name).toBe("AbortError");
+  });
+});
+
+/** A binary-capable response mock: headers map + blob(). */
+function downloadResponse({
+  status = 200,
+  ok = true,
+  contentType,
+  contentDisposition,
+  json,
+  blob,
+}: {
+  status?: number;
+  ok?: boolean;
+  contentType?: string;
+  contentDisposition?: string;
+  json?: () => Promise<unknown>;
+  blob?: () => Promise<Blob>;
+}): Response {
+  const headers = new Map<string, string>();
+  if (contentType) headers.set("Content-Type", contentType);
+  if (contentDisposition) headers.set("Content-Disposition", contentDisposition);
+  return {
+    status,
+    ok,
+    headers: { get: (name: string) => headers.get(name) ?? null },
+    json: json ?? (async () => {
+      throw new Error("not json");
+    }),
+    blob: blob ?? (async () => new Blob(["data"])),
+  } as unknown as Response;
+}
+
+describe("parseContentDispositionFilename", () => {
+  it("extracts a quoted filename", () => {
+    expect(
+      parseContentDispositionFilename(
+        'attachment; filename="datadeck_app_public_users_20260101.csv"',
+      ),
+    ).toBe("datadeck_app_public_users_20260101.csv");
+  });
+
+  it("returns null when missing or without a filename", () => {
+    expect(parseContentDispositionFilename(null)).toBeNull();
+    expect(parseContentDispositionFilename("attachment")).toBeNull();
+  });
+});
+
+describe("apiFetchDownload", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the blob and server-suggested filename on success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        downloadResponse({
+          contentType: "text/csv",
+          contentDisposition: 'attachment; filename="users.csv"',
+          blob: async () => new Blob(["a,b\n1,2\n"], { type: "text/csv" }),
+        }),
+      ),
+    );
+
+    const result = await apiFetchDownload("/connections/c1/table-data/export");
+    expect(result.filename).toBe("users.csv");
+    expect(result.blob).toBeInstanceOf(Blob);
+    expect(result.blob.size).toBeGreaterThan(0);
+  });
+
+  it("normalizes a JSON error envelope into ApiClientError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        downloadResponse({
+          status: 400,
+          ok: false,
+          contentType: "application/json",
+          json: async () => ({
+            success: false,
+            data: null,
+            error: {
+              code: "EXPORT_FORMAT_UNSUPPORTED",
+              message: "sql export requires a base table",
+            },
+            meta: {},
+          }),
+        }),
+      ),
+    );
+
+    const error = await captureError(
+      apiFetchDownload("/connections/c1/table-data/export"),
+    );
+    expect(error).toBeInstanceOf(ApiClientError);
+    expect(error.code).toBe("EXPORT_FORMAT_UNSUPPORTED");
+    expect(error.status).toBe(400);
   });
 });

@@ -33,15 +33,16 @@ export function isReadOnlyObject(objectType: string | undefined): boolean {
 }
 
 /**
- * Export/Import engines land in later PRF-02 tasks (T14/T15). Until then the
- * items exist so users can see the surface, but they are inert placeholders —
- * never faked or silently no-op'd.
+ * Import lands in a later PRF-02 task (T15). Until then the item exists so users
+ * can see the surface, but it is an inert placeholder — never faked or silently
+ * no-op'd. Export (T14) is live.
  */
 const LATER_PHASE_REASON = "This feature arrives in a later update.";
 
 /**
- * Menu items in display order. `import` is additionally gated on the object
- * being writable: importing into a view/foreign table is meaningless.
+ * Menu items in display order. `import` is gated on the object being writable:
+ * importing into a view/foreign table is meaningless. `export` is a read
+ * operation, so it stays enabled for views too (the dialog disables SQL there).
  */
 export function getTableActions(target: {
   objectType?: string;
@@ -52,12 +53,7 @@ export function getTableActions(target: {
     { id: "new-query", label: "New Query", disabled: false },
     { id: "structure", label: "Structure", disabled: false },
     { id: "refresh", label: "Refresh", disabled: false },
-    {
-      id: "export",
-      label: "Export",
-      disabled: true,
-      reason: LATER_PHASE_REASON,
-    },
+    { id: "export", label: "Export", disabled: false },
     {
       id: "import",
       label: "Import",

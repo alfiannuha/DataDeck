@@ -34,6 +34,8 @@ func (MySQL) Capabilities() model.Capabilities {
 		SSH:             true,
 		Dialect:         "mysql",
 		IdentifierQuote: "`",
+		TableExport:     true,
+		ExportFormats:   []string{"csv", "xlsx", "sql"},
 	}
 }
 

@@ -452,6 +452,15 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
     around DDL do not apply to CSV data inserts.
   - Partial failure reports counts inserted/rolled back and the first failing
     row numbers.
+  - **T14 (resolved):** CSV **export** is server-side from the table-data engine
+    under the same filters/sort as the grid (or the full table with none). The
+    formula-injection guard is a CSV-only `'` prefix for cells/headers starting
+    `= + @ -`, except plain optional-number-form strings (e.g. `-42.5`); the
+    guard was not reused from `frontend/src/lib/export/values.ts` — that
+    client-side helper remains for query-result export. CSV streams inline with
+    a `Content-Disposition` attachment filename (`<sanitized>_<YYYYMMDD>.csv`)
+    and a 300s export timeout (`exportTimeoutSeconds`). Import remains
+    unimplemented (T15).
 
 ### 14. SQL Export / Import
 
@@ -472,6 +481,16 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
   known risk.
 - Database-level import/export is designed **separately** from table-level
   (different endpoints, different limits/confirmations).
+  - **T14 (resolved):** table SQL export emits one `INSERT` per row into a
+    dialect-quoted relation with quoted column lists; values are canonical
+    table-data serializations (BIGINT/numeric as quoted strings, `NULL` where
+    NULL). A transaction wrapper matches the driver (`BEGIN`/`COMMIT`; MySQL
+    `START TRANSACTION`) and `transaction:false` omits it. `insertable_only`
+    drops non-insertable columns (generated columns; a SQLite single
+    `INTEGER PRIMARY KEY` rowid alias) and exporting a relation with no
+    insertable columns is rejected. SQL and XLSX responses spool to a temp file
+    and then stream; CSV streams inline. Database-level SQL export is a
+    separate, future endpoint.
 
 ### 15. XLSX Export / Import
 
@@ -480,14 +499,20 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
   text. Streamed/bounded write.
 - **Import:** read the first sheet (or a user-selected sheet), header row →
   mapping, blank cell → `NULL`; strict shared-string/number/date handling.
-- **Library:** no XLSX library exists in either stack. A pure-Go, CGO-free
-  writer/reader (e.g. `github.com/xuri/excelize/v2`) is the likely choice but is
-  **Needs Validation** and must be justified per AGENTS.md §11 (footprint,
-  license, advisories). Until approved, the `xlsx` capability is advertised as
-  false and the UI hides XLSX actions. A minimal hand-rolled reader/writer is
-  not acceptable for untrusted input (see §16 threat model).
+- **Library:** no XLSX library existed in either stack. A pure-Go, CGO-free
+  writer/reader (e.g. `github.com/xuri/excelize/v2`) was the likely choice.
+  **Resolved by T14:** `excelize/v2` (pure Go, CGO-free, MIT) is used for
+  export and its footprint is accepted per AGENTS.md §11; the `xlsx` export
+  capability is advertised for all three drivers. A minimal hand-rolled
+  reader/writer is not acceptable for untrusted input (see §16 threat model).
 - **ZIP-bomb / expansion limits** (XLSX is a ZIP): cap compressed and
   decompressed size, entry count, and compression ratio; reject on breach.
+  These caps currently apply to a **future XLSX import** path; export writes
+  are bounded by the export row/byte safety limit.
+- **T14 implementation notes:** a single typed sheet with a header row; cell
+  values written via `SetCellStr` (inline string cells) so formula-like
+  leading characters (`= + @ -`) remain literal and are never interpreted by
+  Excel, matching the CSV formula guard without a separate escape.
 
 ### 16. Database Import / Export
 
@@ -584,9 +609,10 @@ object-level behavior:
 | materialized view | read-only | n/a | n/a |
 | foreign table | insert/update/delete only if the foreign table exposes a safe identity and the FDW permits it; otherwise read-only | n/a | n/a |
 
-\* XLSX is advertised only after the library is validated (see §15); otherwise
-`xlsx` is omitted and the UI hides it. SQLite “database” actions are limited to
-the file/store; there is no logical database to create/drop.
+\* XLSX export shipped with T14 (see §15); XLSX **import** remains future work,
+so `table import` cells above still list XLSX with the asterisk. SQLite
+“database” actions are limited to the file/store; there is no logical database
+to create/drop.
 
 ### 19. PostgreSQL Behavior
 
@@ -1087,8 +1113,9 @@ COMMIT
 
 ## Open Questions (Needs Validation)
 
-1. XLSX library choice and license/footprint; whether XLSX ships in the first
-   PRF-02 implementation wave.
+1. ~~XLSX library choice and license/footprint; whether XLSX ships in the first
+   PRF-02 implementation wave.~~ Resolved by T14: `excelize/v2` (MIT, pure Go,
+   CGO-free) is used for table **export**; XLSX import remains future work.
 2. Table-data `page_size` default (100 vs 50) and `maxOffset` ceiling.
 3. Multi-column sorting and OR filter groups.
 4. Whole-file vs batched transaction semantics for large imports, and the

@@ -82,6 +82,7 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 		"/connections/{id}/databases",
 		"/connections/{id}/schemas",
 		"/connections/{id}/table-data",
+		"/connections/{id}/table-data/export",
 		"/connections/{id}/table-data/rows",
 		"/connections/{id}/table-structure",
 		"/health",
@@ -208,6 +209,8 @@ func TestEnvelopeConsistencyAcrossEndpoints(t *testing.T) {
 		{"schemas missing", http.MethodGet, "/api/v1/connections/missing/schemas", ""},
 		{"execute invalid", http.MethodPost, "/api/v1/query/execute", `{}`},
 		{"history", http.MethodGet, "/api/v1/query/history", ""},
+		{"export invalid format", http.MethodPost, "/api/v1/connections/abc/table-data/export", `{"format":"pdf"}`},
+		{"export missing connection", http.MethodPost, "/api/v1/connections/missing/table-data/export", `{"format":"csv","table":"t"}`},
 		{"saved queries", http.MethodGet, "/api/v1/queries/saved", ""},
 	}
 

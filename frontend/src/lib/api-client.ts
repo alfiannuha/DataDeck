@@ -140,3 +140,84 @@ export async function apiFetchMeta<T>(
     meta: envelope.meta as unknown as PaginationMeta,
   };
 }
+
+/** A binary attachment returned by a download endpoint. */
+export interface DownloadResult {
+  blob: Blob;
+  /** Server-suggested filename from Content-Disposition, when present. */
+  filename: string | null;
+}
+
+/**
+ * Extract the filename from a Content-Disposition header, handling both the
+ * quoted (`filename="a.csv"`) and, for simplicity, the first token form. Returns
+ * null when the header is missing or has no filename.
+ */
+export function parseContentDispositionFilename(
+  header: string | null,
+): string | null {
+  if (!header) return null;
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(header);
+  const name = match?.[1]?.trim();
+  return name ? name : null;
+}
+
+/**
+ * POST/GET binary download. A successful response (non-JSON) is returned as a
+ * Blob with its suggested filename; a JSON error envelope (any status) is
+ * normalized into an ApiClientError exactly like apiFetch. This keeps the
+ * "errors are envelopes, success is a file" contract in one place.
+ */
+export async function apiFetchDownload(
+  path: string,
+  init?: RequestInit,
+): Promise<DownloadResult> {
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(path), {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+  } catch (cause) {
+    if (isAbortError(cause)) {
+      throw cause;
+    }
+    throw new ApiClientError(
+      cause instanceof Error ? cause.message : "Network request failed",
+      "CONNECTION_ERROR",
+      0,
+    );
+  }
+
+  const contentType = response.headers.get("Content-Type") ?? "";
+  // Errors are always the JSON envelope; a file is never application/json.
+  if (!response.ok || contentType.includes("application/json")) {
+    const envelope = (await response
+      .json()
+      .catch(() => null)) as ApiEnvelope<unknown> | null;
+    if (envelope?.error) {
+      throw new ApiClientError(
+        envelope.error.message,
+        envelope.error.code,
+        response.status,
+        envelope.error.position,
+      );
+    }
+    throw new ApiClientError(
+      envelope ? "Request failed" : "Malformed API response",
+      "INTERNAL_ERROR",
+      response.status,
+    );
+  }
+
+  const blob = await response.blob();
+  return {
+    blob,
+    filename: parseContentDispositionFilename(
+      response.headers.get("Content-Disposition"),
+    ),
+  };
+}

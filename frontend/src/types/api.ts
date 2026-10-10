@@ -47,6 +47,8 @@ export type ErrorCode =
   | "BOOTSTRAP_DATABASE_UNAVAILABLE"
   | "DISCOVERY_TIMEOUT"
   | "PAYLOAD_TOO_LARGE"
+  | "EXPORT_FORMAT_UNSUPPORTED"
+  | "EXPORT_LIMIT_EXCEEDED"
   | "INTERNAL_ERROR";
 
 /* --------------------------------------------------------------------------
@@ -73,6 +75,10 @@ export type DatabaseSchemaTree = Schemas["model.Database"];
 export type DatabaseInfo = Schemas["model.DatabaseInfo"];
 export type TableDataPage = Schemas["model.TableDataPage"];
 export type TableColumnInfo = Schemas["model.TableColumnInfo"];
+export type TableExportRequest = Schemas["model.TableExportRequest"];
+export type TableExportFormat = NonNullable<TableExportRequest["format"]>;
+export type TableFilter = Schemas["model.TableFilter"];
+export type FilterOperator = NonNullable<TableFilter["operator"]>;
 export type RowCapabilities = Schemas["model.RowCapabilities"];
 export type RowIdentityInfo = Schemas["model.RowIdentityInfo"];
 export type RowMutationResult = Schemas["model.RowMutationResult"];

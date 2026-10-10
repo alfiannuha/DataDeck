@@ -32,6 +32,8 @@ func (Postgres) Capabilities() model.Capabilities {
 		MultipleDatabases: true,
 		Dialect:           "postgres",
 		IdentifierQuote:   `"`,
+		TableExport:       true,
+		ExportFormats:     []string{"csv", "xlsx", "sql"},
 	}
 }
 

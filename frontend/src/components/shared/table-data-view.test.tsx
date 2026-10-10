@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browseTableData, deleteRow, insertRow, updateRow } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
+import { useExportStore } from "@/store/useExportStore";
 import { useWorkspaceStore, type TableDataTab } from "@/store/useWorkspaceStore";
 
 import { TableDataView } from "./table-data-view";
@@ -53,6 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(browseTableData).mockResolvedValue(pageResult() as never);
   useWorkspaceStore.setState({ tabs: [tableTab()], activeTabId: "td1" });
+  useExportStore.setState({ target: null });
 });
 
 /** Opens the row menu for the 1-based row (Radix trigger opens on ArrowDown). */
@@ -298,6 +300,35 @@ describe("TableDataView", () => {
     const [t1, t2] = useWorkspaceStore.getState().tabs;
     expect(t1.kind === "table-data" && t1.sort).toEqual([{ column: "name", direction: "asc" }]);
     expect(t2.kind === "table-data" && t2.sort).toEqual([{ column: "id", direction: "desc" }]);
+  });
+
+  it("opens the export dialog bound to this tab (filters + sort + object type)", async () => {
+    useWorkspaceStore.setState({
+      tabs: [
+        tableTab({
+          filters: [{ column: "name", operator: "contains", value: "Al" }],
+          sort: [{ column: "name", direction: "asc" }],
+        }),
+      ],
+      activeTabId: "td1",
+    });
+    renderWithProviders(<TableDataView />);
+
+    const exportButton = await screen.findByRole("button", {
+      name: "Export table data",
+    });
+    await waitFor(() => expect(exportButton).toBeEnabled());
+    fireEvent.click(exportButton);
+
+    expect(useExportStore.getState().target).toMatchObject({
+      connectionId: "c1",
+      database: "alpha",
+      schema: "public",
+      table: "users",
+      objectType: "BASE TABLE",
+      filters: [{ column: "name", operator: "contains", value: "Al" }],
+      sort: { column: "name", direction: "asc" },
+    });
   });
 });
 

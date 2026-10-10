@@ -37,6 +37,8 @@ func (SQLite) Capabilities() model.Capabilities {
 		SSH:             false,
 		Dialect:         "sqlite",
 		IdentifierQuote: `"`,
+		TableExport:     true,
+		ExportFormats:   []string{"csv", "xlsx", "sql"},
 	}
 }
 

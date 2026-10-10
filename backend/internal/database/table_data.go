@@ -56,10 +56,7 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 		return model.TableDataPage{}, fmt.Errorf("%w: %s", ErrTableNotFound, qualifiedLabel(req.Schema, req.Table))
 	}
 
-	columns := append([]model.Column(nil), table.Columns...)
-	sort.SliceStable(columns, func(i, j int) bool {
-		return columns[i].OrdinalPosition < columns[j].OrdinalPosition
-	})
+	columns := sortedColumns(table.Columns)
 
 	page := model.TableDataPage{
 		Schema:          req.Schema,
@@ -90,14 +87,11 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 		projection[i] = quoteIdentifier(quote, column.Name)
 	}
 
-	// Structured filters → ANDed, fully parameterized WHERE (before ORDER BY).
-	whereSQL, filterArgs, err := filterClause(quote, string(cfg.Driver), req.Filters, columns)
+	// Structured filters → ANDed, fully parameterized WHERE (before ORDER BY);
+	// server-side ORDER BY with a validated column + PK tie-break (PRF-02/T05/T06).
+	whereClause, filterArgs, orderBy, err := tableWhereAndOrder(quote, string(cfg.Driver), table, columns, req.Sort, req.Filters)
 	if err != nil {
 		return model.TableDataPage{}, err
-	}
-	whereClause := ""
-	if whereSQL != "" {
-		whereClause = " WHERE " + whereSQL
 	}
 
 	limit := req.Limit
@@ -107,30 +101,6 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 	offset := req.Offset
 	if offset < 0 {
 		offset = 0
-	}
-
-	// Server-side ORDER BY. The requested column must be canonical metadata; the
-	// direction is an approved enum. Only quoted identifiers + ASC/DESC reach
-	// the SQL text.
-	orderBy := ""
-	if req.Sort != nil {
-		column := canonicalColumn(columns, req.Sort.Column)
-		if column == nil {
-			return model.TableDataPage{}, fmt.Errorf("%w: %s", ErrSortColumnNotFound, req.Sort.Column)
-		}
-		order := []string{quoteIdentifier(quote, column.Name) + " " + directionKeyword(req.Sort.Direction)}
-		// Deterministic tie-break by primary key (ascending) so OFFSET pages do
-		// not shift when sort values have duplicates; never exposed as UI sort
-		// state. No-PK tables stay engine-nondeterministic.
-		if table.PrimaryKey != nil {
-			for _, pk := range table.PrimaryKey.Columns {
-				if pk == "" || pk == column.Name {
-					continue
-				}
-				order = append(order, quoteIdentifier(quote, pk)+" ASC")
-			}
-		}
-		orderBy = " ORDER BY " + strings.Join(order, ", ")
 	}
 
 	// LIMIT/OFFSET are server-validated integers (never user text); identifiers
@@ -288,4 +258,61 @@ func directionKeyword(direction string) string {
 		return "DESC"
 	}
 	return "ASC"
+}
+
+// tableWhereAndOrder builds the shared " WHERE …"/" ORDER BY …" fragments used
+// by both paged browsing (BrowseTable) and streaming table export (ExportTable).
+// Identifiers are quoted metadata names — never user text — and filter values are
+// the only bound parameters (filterClause). A nil sort yields no ORDER BY.
+func tableWhereAndOrder(quote, driver string, table *model.Table, columns []model.Column, sort *model.TableSort, filters []model.TableFilter) (whereClause string, args []any, orderBy string, err error) {
+	whereSQL, args, err := filterClause(quote, driver, filters, columns)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if whereSQL != "" {
+		whereClause = " WHERE " + whereSQL
+	}
+	if sort != nil {
+		column := canonicalColumn(columns, sort.Column)
+		if column == nil {
+			return "", nil, "", fmt.Errorf("%w: %s", ErrSortColumnNotFound, sort.Column)
+		}
+		order := []string{quoteIdentifier(quote, column.Name) + " " + directionKeyword(sort.Direction)}
+		// Deterministic tie-break by primary key (ascending) so exports and
+		// pages do not shift when sort values have duplicates.
+		if table.PrimaryKey != nil {
+			for _, pk := range table.PrimaryKey.Columns {
+				if pk == "" || pk == column.Name {
+					continue
+				}
+				order = append(order, quoteIdentifier(quote, pk)+" ASC")
+			}
+		}
+		orderBy = " ORDER BY " + strings.Join(order, ", ")
+	}
+	return whereClause, args, orderBy, nil
+}
+
+// sortedColumns returns the columns ordered by their ordinal position. A fresh
+// slice is returned so callers never mutate shared introspection metadata.
+func sortedColumns(columns []model.Column) []model.Column {
+	out := append([]model.Column(nil), columns...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].OrdinalPosition < out[j].OrdinalPosition })
+	return out
+}
+
+// insertableColumns returns only the columns that should be INSERTed on export
+// (generated and identity columns are excluded). Empty result → ErrNoExportableColumns.
+func insertableColumns(columns []model.Column) ([]model.Column, error) {
+	out := make([]model.Column, 0, len(columns))
+	for _, column := range columns {
+		if column.Generated || column.Identity {
+			continue
+		}
+		out = append(out, column)
+	}
+	if len(out) == 0 {
+		return nil, ErrNoExportableColumns
+	}
+	return out, nil
 }

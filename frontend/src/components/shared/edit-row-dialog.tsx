@@ -179,7 +179,7 @@ export function EditRowDialog({
     try {
       const filters = pkColumns.map((name) => ({
         column: name,
-        operator: "equals",
+        operator: "equals" as const,
         value: original[name],
       }));
       const page = await browseTableData(connectionId, {

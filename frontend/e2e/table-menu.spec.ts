@@ -151,8 +151,8 @@ test.describe("table context menu (PostgreSQL)", () => {
     for (const item of ["View Data", "New Query", "Structure", "Refresh"]) {
       await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
     }
-    // PRF-02 non-goals: Export/Import are present but disabled and no-ops.
-    await expect(page.getByTestId("table-menu-export")).toHaveAttribute(
+    // PRF-02: Export is live (T14); Import is still a disabled placeholder (T15).
+    await expect(page.getByTestId("table-menu-export")).not.toHaveAttribute(
       "aria-disabled",
       "true",
     );
