@@ -445,7 +445,11 @@ here without an explicit requirement.
 ### Per-endpoint notes
 
 - `GET /api/v1/health` — returns `success: true` with
-  `data: { "status": "healthy" }` and `error: null`. Implemented in M1-T01.
+  `data: { "status": "healthy", "version": "0.1.0", "channel": "development" }`
+  and `error: null`. The `version`/`channel` fields (PRF02-R02) expose
+  non-sensitive build metadata; `version` is the canonical application version
+  and `channel` is `development` or `release`. Implemented in M1-T01; version
+  metadata added in R02.
 - `GET /api/v1/connections` — must mask/omit secrets.
 - `POST /api/v1/connections` — encrypts `password` and `ssh_password` at rest;
   returns masked profile. Creation status (`200` vs `201`) is **Needs Validation**.

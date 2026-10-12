@@ -1874,7 +1874,7 @@ export interface paths {
         };
         /**
          * Health check
-         * @description Reports whether the daemon is running.
+         * @description Reports whether the daemon is running, with the application version and build channel.
          */
         get: {
             parameters: {
@@ -2338,8 +2338,12 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         "api.HealthResponse": {
+            /** @example development */
+            channel?: string;
             /** @example healthy */
             status?: string;
+            /** @example 0.1.0 */
+            version?: string;
         };
         data: {
             data?: components["schemas"]["api.HealthResponse"];

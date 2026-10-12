@@ -29,7 +29,8 @@ RELEASE_DIR="$ROOT/release"
 DIST="$ROOT/backend/internal/web/dist"
 LDFLAGS="-s -w -X github.com/datadeck/datadeck/backend/internal/version.Version=$VERSION \
   -X github.com/datadeck/datadeck/backend/internal/version.Commit=$COMMIT \
-  -X github.com/datadeck/datadeck/backend/internal/version.BuildDate=$BUILD_DATE"
+  -X github.com/datadeck/datadeck/backend/internal/version.BuildDate=$BUILD_DATE \
+  -X github.com/datadeck/datadeck/backend/internal/version.Channel=release"
 
 echo "==> Version: $VERSION  Commit: $COMMIT  Build date: $BUILD_DATE"
 

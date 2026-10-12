@@ -11,6 +11,7 @@ import (
 
 	"github.com/datadeck/datadeck/backend/internal/config"
 	"github.com/datadeck/datadeck/backend/internal/security"
+	"github.com/datadeck/datadeck/backend/internal/version"
 )
 
 func newTestServer() *Server {
@@ -62,6 +63,12 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if env.Data["status"] != "healthy" {
 		t.Errorf("data.status = %q, want healthy", env.Data["status"])
+	}
+	if env.Data["version"] == "" {
+		t.Error("data.version is empty, want the application version")
+	}
+	if env.Data["channel"] != version.ChannelDevelopment {
+		t.Errorf("data.channel = %v, want %q", env.Data["channel"], version.ChannelDevelopment)
 	}
 	if env.Meta == nil {
 		t.Error("meta = nil, want empty object")

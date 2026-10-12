@@ -3,8 +3,16 @@
         "schemas": {
             "api.HealthResponse": {
                 "properties": {
+                    "channel": {
+                        "example": "development",
+                        "type": "string"
+                    },
                     "status": {
                         "example": "healthy",
+                        "type": "string"
+                    },
+                    "version": {
+                        "example": "0.1.0",
                         "type": "string"
                     }
                 },
@@ -3681,7 +3689,7 @@
         },
         "/health": {
             "get": {
-                "description": "Reports whether the daemon is running.",
+                "description": "Reports whether the daemon is running, with the application version and build channel.",
                 "responses": {
                     "200": {
                         "content": {

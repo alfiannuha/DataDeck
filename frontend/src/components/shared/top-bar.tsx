@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { BUILD_INFO } from "@/lib/build-info";
 import { useConnections } from "@/hooks/use-connections";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { activateUpdate } from "@/lib/pwa/service-worker";
@@ -80,6 +81,13 @@ export function TopBar() {
         </Button>
         <span className="text-sm font-semibold tracking-tight text-foreground">
           DataDeck
+        </span>
+        <span
+          className="text-[10px] text-subtle-foreground"
+          data-testid="app-version"
+          title={`${BUILD_INFO.channel} · ${BUILD_INFO.commit}`}
+        >
+          v{BUILD_INFO.version}
         </span>
       </div>
 

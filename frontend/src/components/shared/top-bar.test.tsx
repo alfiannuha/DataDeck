@@ -114,4 +114,11 @@ describe("TopBar PWA controls", () => {
 
     expect(mocks.activateUpdate).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the canonical application version", () => {
+    renderWithProviders(<TopBar />);
+    const version = screen.getByTestId("app-version");
+    expect(version).toHaveTextContent("v0.1.0");
+    expect(version).toHaveAttribute("title", expect.stringContaining("development"));
+  });
 });

@@ -14,10 +14,11 @@ RUN DATADECK_STATIC_EXPORT=true NEXT_PUBLIC_API_URL= npm run build:static
 # ---------------------------------------------------------------------------
 # Stage 2 — compile the CGO-free single binary with the frontend embedded.
 # ---------------------------------------------------------------------------
-FROM golang:1.26.6-alpine AS backend
-ARG VERSION=0.1.0-dev
+FROM golang:1.26.9-alpine AS backend
+ARG VERSION=0.1.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG CHANNEL=release
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -27,7 +28,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
       -ldflags "-s -w \
         -X github.com/datadeck/datadeck/backend/internal/version.Version=${VERSION} \
         -X github.com/datadeck/datadeck/backend/internal/version.Commit=${COMMIT} \
-        -X github.com/datadeck/datadeck/backend/internal/version.BuildDate=${BUILD_DATE}" \
+        -X github.com/datadeck/datadeck/backend/internal/version.BuildDate=${BUILD_DATE} \
+        -X github.com/datadeck/datadeck/backend/internal/version.Channel=${CHANNEL}" \
       -o /out/datadeck ./cmd/server
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
 # No Node, no Go toolchain, no source tree, no package-manager caches.
 # ---------------------------------------------------------------------------
 FROM alpine:3.20
+
+# Re-declare build args for OCI labels (values are only available in the stage
+# that declares them). Never a fake commit/timestamp: defaults are "unknown".
+ARG VERSION=0.1.0
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.title="DataDeck" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/alfiannuha/DataDeck"
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S datadeck -g 10001 \
