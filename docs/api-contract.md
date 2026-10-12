@@ -130,6 +130,12 @@ Rules:
 | `IMPORT_FORMAT_UNSUPPORTED` | 400 | Validation | PRF-02 table import: format not supported (XLSX deferred), or SQL script not a plain INSERT-only batch |
 | `IMPORT_VALIDATION_ERROR` | 400 | Validation | PRF-02 table import: parse/convert/mapping failure, or the file changed after upload |
 | `IMPORT_TOO_LARGE` | 413 | Validation | PRF-02 table import: upload exceeds the import size cap |
+| `RESTORE_FORMAT_UNSUPPORTED` | 400 | Validation | PRF-02/T17 restore: file is not a DataDeck SQL export artifact |
+| `RESTORE_TARGET_MISMATCH` | 400 | Validation | PRF-02/T17 restore: artifact engine/database does not match the explicit target |
+| `RESTORE_UNSUPPORTED_STATEMENT` | 400 | Safety | PRF-02/T17 restore: a statement is outside the allowlist |
+| `RESTORE_CONFLICT` | 409 | Safety | PRF-02/T17 restore: the target database is not empty |
+| `RESTORE_UNSUPPORTED` | 501 | Capability | PRF-02/T17 restore: engine cannot guarantee atomic restore (MySQL) |
+| `RESTORE_ERROR` | 400 | Execution | PRF-02/T17 restore: a validated statement failed (sanitized driver message) |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -406,6 +412,9 @@ here without an explicit requirement.
 | `POST` | `/api/v1/connections/test` | Verify connection parameters before saving |
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |
 | `POST` | `/api/v1/connections/{id}/reconnect` | Database-scoped reconnect: replace one `(connection, database)` pool with a fresh, health-checked one (PRF-02/T16) |
+| `POST` | `/api/v1/connections/{id}/database-export` | Streamed dialect SQL dump of one database's base tables (PRF-02/T17) |
+| `POST` | `/api/v1/connections/{id}/database-import` | Upload + preflight a database restore artifact (PRF-02/T17) |
+| `POST` | `/api/v1/connections/{id}/database-import/{token}/execute` | Execute a preflighted database restore (PRF-02/T17) |
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
@@ -450,6 +459,44 @@ here without an explicit requirement.
   `VALIDATION_ERROR`, `400 DATABASE_NOT_FOUND` / `DATABASE_CONNECT_DENIED`,
   `502 CONNECTION_ERROR`, `504 CONNECTION_TIMEOUT`, `499 QUERY_CANCELED`. The
   saved connection configuration is never modified.
+- `POST /api/v1/connections/{id}/database-export` — **PRF-02/T17**. Body:
+  `{ database, mode: "schema_data" | "schema" | "data" }`. Streams a
+  dialect-correct SQL script for the **base tables** of the explicit database.
+  **Self-contained:** no external `pg_dump`/`mysqldump`/`sqlite3` is invoked, so
+  the single-binary, CGO-free distribution is preserved. Coverage is **base
+  tables only** (columns/types/NOT NULL/DEFAULT/identity/generated, PRIMARY KEY,
+  UNIQUE, CHECK, indexes, FOREIGN KEY) — views, sequences, triggers, functions
+  and extensions are **excluded** and named in the artifact header. Ordering is
+  dependency-free: tables are created without foreign keys, data is loaded, then
+  indexes and foreign keys are added, so circular/self-referencing FKs need no
+  graph sort. The artifact carries a `-- datadeck:export` manifest (format
+  version, engine, database, mode, object counts). Response is
+  `application/octet-stream` with `Content-Disposition: attachment` and
+  `Cache-Control: no-store` (errors use the envelope). The target is the explicit
+  connection + database; the Explorer/active tab is never used.
+- `POST /api/v1/connections/{id}/database-import` — **PRF-02/T17** upload +
+  preflight. Body: `multipart/form-data` with `file` (a DataDeck SQL export
+  artifact) and `database`. Validates the manifest (format version, engine, and
+  database must equal the explicit target) and every statement against the
+  restore allowlist (`CREATE TABLE`, `CREATE [UNIQUE] INDEX`, `ALTER TABLE … ADD
+  CONSTRAINT`, `INSERT`, transaction control), then **preflights** the target:
+  it must be empty (no base tables). Nothing is written; the response is an
+  executable preview bound to a token. **MySQL is rejected with
+  `501 RESTORE_UNSUPPORTED`** (DDL implicitly commits, so no atomic restore).
+  Errors: `400 RESTORE_FORMAT_UNSUPPORTED` / `RESTORE_TARGET_MISMATCH` /
+  `RESTORE_UNSUPPORTED_STATEMENT`, `409 RESTORE_CONFLICT`, `404 NOT_FOUND`
+  (unknown profile), `413 IMPORT_TOO_LARGE`.
+- `POST /api/v1/connections/{id}/database-import/{token}/execute` — **PRF-02/T17**.
+  Re-validates the spooled artifact and applies it to the explicit target in a
+  **single all-or-nothing transaction** (PostgreSQL/SQLite). The SQL parser is
+  restricted and dialect-aware (never a regex/semicolon split): the whole script
+  is validated before any statement runs, `CREATE TABLE … AS SELECT` is rejected,
+  and statements that could redirect the operation (CREATE/DROP DATABASE, USE,
+  ATTACH, COPY, GRANT, …) are refused. Restore never replays a mutation and never
+  redirects to another database. Response `data`:
+  `{ status: "ok", database, statements }`. Errors: `400 RESTORE_ERROR`
+  (sanitized), `404 NOT_FOUND` (unknown/expired token), `501 RESTORE_UNSUPPORTED`,
+  `504 QUERY_TIMEOUT`.
 - `GET /api/v1/connections/{id}/schemas` — implemented in M1-T07. Returns a
   database-neutral tree in `data` (array of databases → schemas → tables with
   columns, primary key, foreign keys, indexes). Activates/reuses the managed

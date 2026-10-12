@@ -1,6 +1,7 @@
 import { EditorPanel } from "./editor-panel";
 import { ExportDialog } from "./export-dialog";
 import { ImportDialog } from "./import-dialog";
+import { DatabaseScriptDialogs } from "./database-script-dialogs";
 import { ResultsPanel } from "./results-panel";
 import { TableDataView } from "./table-data-view";
 import { TableStructurePanel } from "./table-structure-panel";
@@ -42,6 +43,7 @@ export function Workspace() {
       </div>
       <ExportDialog />
       <ImportDialog />
+      <DatabaseScriptDialogs />
     </main>
   );
 }

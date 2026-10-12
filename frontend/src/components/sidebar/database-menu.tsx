@@ -37,17 +37,19 @@ export type DatabaseMenuHandler = (
  */
 export function DatabaseMenu({
   database,
+  engine,
   open,
   onOpenChange,
   onAction,
 }: {
   database: string;
+  engine?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Receives an enabled action id; disabled items never dispatch. */
   onAction: (action: DatabaseActionId) => void;
 }) {
-  const actions = getDatabaseActions();
+  const actions = getDatabaseActions({ engine });
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
       <DropdownMenuTrigger asChild>

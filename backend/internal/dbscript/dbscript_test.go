@@ -1,0 +1,266 @@
+package dbscript
+
+import (
+	"bufio"
+	"context"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/datadeck/datadeck/backend/internal/model"
+)
+
+func strPtr(s string) *string { return &s }
+
+func TestManifestRoundTrip(t *testing.T) {
+	manifest := Manifest{
+		Engine:      "postgres",
+		Database:    "alpha",
+		Mode:        ModeSchemaData,
+		GeneratedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		Tables:      3,
+		Indexes:     2,
+		ForeignKeys: 1,
+		Excluded:    []string{"views", "triggers"},
+	}
+	var b strings.Builder
+	if err := WriteHeader(&b, manifest); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	got, err := ReadHeader(bufio.NewReader(strings.NewReader(b.String() + "SELECT 1;\n")))
+	if err != nil {
+		t.Fatalf("ReadHeader: %v", err)
+	}
+	if got.FormatVersion != FormatVersion || got.Engine != "postgres" || got.Database != "alpha" ||
+		got.Mode != ModeSchemaData || got.Tables != 3 || got.Indexes != 2 || got.ForeignKeys != 1 {
+		t.Fatalf("manifest round-trip mismatch: %+v", got)
+	}
+	if len(got.Excluded) != 2 {
+		t.Errorf("excluded = %v", got.Excluded)
+	}
+}
+
+func TestReadHeaderRejectsForeignScript(t *testing.T) {
+	if _, err := ReadHeader(bufio.NewReader(strings.NewReader("SELECT 1;\n"))); err != ErrNotDataDeckArtifact {
+		t.Fatalf("err = %v, want ErrNotDataDeckArtifact", err)
+	}
+}
+
+func TestValidateManifestBinding(t *testing.T) {
+	manifest := Manifest{FormatVersion: FormatVersion, Engine: "postgres", Database: "alpha"}
+	if err := ValidateManifest(manifest, "postgres", "alpha"); err != nil {
+		t.Fatalf("valid manifest rejected: %v", err)
+	}
+	if err := ValidateManifest(manifest, "mysql", "alpha"); err == nil {
+		t.Error("engine mismatch accepted")
+	}
+	if err := ValidateManifest(manifest, "postgres", "beta"); err == nil {
+		t.Error("database mismatch accepted")
+	}
+	if err := ValidateManifest(Manifest{FormatVersion: 9, Engine: "postgres", Database: "alpha"}, "postgres", "alpha"); err == nil {
+		t.Error("format version mismatch accepted")
+	}
+}
+
+func TestParseStatementsAllowlist(t *testing.T) {
+	script := `BEGIN;
+CREATE TABLE "t" ("id" integer NOT NULL, PRIMARY KEY ("id"));
+INSERT INTO "t" ("id") VALUES (1);
+CREATE UNIQUE INDEX "ix" ON "t" ("id");
+ALTER TABLE "t" ADD CONSTRAINT "fk" FOREIGN KEY ("id") REFERENCES "r" ("id");
+COMMIT;`
+	statements, err := ParseStatements(strings.NewReader(script))
+	if err != nil {
+		t.Fatalf("ParseStatements: %v", err)
+	}
+	wantKinds := []StatementKind{StmtTransaction, StmtCreateTable, StmtInsert, StmtCreateIndex, StmtAlterTable, StmtTransaction}
+	if len(statements) != len(wantKinds) {
+		t.Fatalf("got %d statements, want %d: %+v", len(statements), len(wantKinds), statements)
+	}
+	for i, want := range wantKinds {
+		if statements[i].Kind != want {
+			t.Errorf("statement %d kind = %s, want %s", i, statements[i].Kind, want)
+		}
+	}
+}
+
+func TestParseStatementsRejectsDangerous(t *testing.T) {
+	bad := []string{
+		`DROP TABLE "t";`,
+		`DELETE FROM "t";`,
+		`UPDATE "t" SET x = 1;`,
+		`TRUNCATE "t";`,
+		`CREATE DATABASE evil;`,
+		`CREATE VIEW v AS SELECT 1;`,
+		`CREATE TABLE "t" AS SELECT 1;`,
+		`ALTER TABLE "t" DROP COLUMN x;`,
+		`ATTACH DATABASE 'x' AS y;`,
+		`GRANT ALL ON "t" TO u;`,
+		`COPY "t" FROM '/etc/passwd';`,
+	}
+	for _, statement := range bad {
+		if _, err := ParseStatements(strings.NewReader(statement)); err == nil {
+			t.Errorf("accepted dangerous statement: %q", statement)
+		}
+	}
+}
+
+func TestSplitStatementsRespectsQuotes(t *testing.T) {
+	script := `INSERT INTO "t" ("a") VALUES ('semi;colon');INSERT INTO "t" ("a") VALUES ('it''s');`
+	statements, err := ParseStatements(strings.NewReader(script))
+	if err != nil {
+		t.Fatalf("ParseStatements: %v", err)
+	}
+	if len(statements) != 2 {
+		t.Fatalf("got %d statements, want 2: %#v", len(statements), statements)
+	}
+	if !strings.Contains(statements[0].SQL, "'semi;colon'") || !strings.Contains(statements[1].SQL, "'it''s'") {
+		t.Fatalf("quoted semicolons were mis-split: %#v", statements)
+	}
+}
+
+func TestRenderCreateTablePostgres(t *testing.T) {
+	structure := model.TableStructure{
+		Columns: []model.StructureColumn{
+			{Name: "id", DatabaseType: "integer", Nullable: false, Identity: true, PrimaryKey: true},
+			{Name: "name", DatabaseType: "character varying(100)", Nullable: false, Default: strPtr("'x'")},
+			{Name: "total", DatabaseType: "integer", Generated: true, Default: strPtr("(id + 1)")},
+		},
+		PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+		Constraints: []model.StructureConstraint{
+			{Name: "u", Type: "UNIQUE", Columns: []string{"name"}, Definition: "UNIQUE (\n  name\n)"},
+			{Name: "c", Type: "CHECK", Columns: []string{"id"}, Definition: "CHECK ((id > 0))"},
+		},
+	}
+	var b strings.Builder
+	if err := RenderCreateTable(&b, "postgres", TableRef{Schema: "public", Name: "t"}, structure); err != nil {
+		t.Fatalf("RenderCreateTable: %v", err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		`CREATE TABLE "public"."t" (`,
+		`"id" integer NOT NULL GENERATED BY DEFAULT AS IDENTITY`,
+		`"name" character varying(100) NOT NULL DEFAULT 'x'`,
+		`"total" integer GENERATED ALWAYS AS ((id + 1)) STORED`,
+		`PRIMARY KEY ("id")`,
+		`UNIQUE (`,
+		`CHECK ((id > 0))`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderCreateTableSQLiteInlinesForeignKey(t *testing.T) {
+	structure := model.TableStructure{
+		Columns:    []model.StructureColumn{{Name: "id", DatabaseType: "INTEGER", Nullable: false}},
+		PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+		ForeignKeys: []model.StructureForeignKey{
+			{Name: "fk", Columns: []string{"parent"}, ReferencedTable: "p", ReferencedColumns: []string{"id"}, OnDelete: "CASCADE"},
+		},
+	}
+	var b strings.Builder
+	if err := RenderCreateTable(&b, "sqlite", TableRef{Name: "t"}, structure); err != nil {
+		t.Fatalf("RenderCreateTable: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `FOREIGN KEY ("parent") REFERENCES "p" ("id") ON DELETE CASCADE`) {
+		t.Errorf("inline FK missing:\n%s", out)
+	}
+}
+
+func TestRenderIndexesAndForeignKeys(t *testing.T) {
+	structure := model.TableStructure{
+		Indexes: []model.StructureIndex{
+			{Name: "pk", Primary: true, Columns: []string{"id"}},
+			{Name: "ix_email", Unique: true, Columns: []string{"email"}},
+			{Name: "ix_expr", Columns: []string{""}}, // expression index: skipped
+		},
+		ForeignKeys: []model.StructureForeignKey{
+			{Name: "fk_role", Columns: []string{"role_id"}, ReferencedTable: "roles", ReferencedColumns: []string{"id"}, OnUpdate: "NO ACTION", OnDelete: "SET NULL"},
+		},
+	}
+	var b strings.Builder
+	if err := RenderIndexes(&b, "postgres", TableRef{Schema: "public", Name: "users"}, structure); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderForeignKeys(&b, "postgres", TableRef{Schema: "public", Name: "users"}, structure); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if strings.Contains(out, "pk") {
+		t.Errorf("primary index should be skipped:\n%s", out)
+	}
+	if !strings.Contains(out, `CREATE UNIQUE INDEX "ix_email" ON "public"."users" ("email");`) {
+		t.Errorf("unique index missing:\n%s", out)
+	}
+	if strings.Contains(out, "ix_expr") {
+		t.Errorf("expression index should be skipped:\n%s", out)
+	}
+	if !strings.Contains(out, `ALTER TABLE "public"."users" ADD CONSTRAINT "fk_role" FOREIGN KEY ("role_id") REFERENCES "public"."roles" ("id") ON DELETE SET NULL;`) {
+		t.Errorf("foreign key missing/incorrect:\n%s", out)
+	}
+}
+
+type fakeSource struct {
+	tables    []TableRef
+	structure model.TableStructure
+	data      string
+}
+
+func (s fakeSource) Tables(context.Context) ([]TableRef, error) { return s.tables, nil }
+func (s fakeSource) Structure(context.Context, TableRef) (model.TableStructure, error) {
+	return s.structure, nil
+}
+func (s fakeSource) Data(_ context.Context, _ TableRef, w io.Writer) error {
+	_, err := io.WriteString(w, s.data)
+	return err
+}
+
+func TestExportOrdersDdlDataThenConstraints(t *testing.T) {
+	src := fakeSource{
+		tables: []TableRef{{Schema: "public", Name: "t"}},
+		structure: model.TableStructure{
+			Columns:     []model.StructureColumn{{Name: "id", DatabaseType: "integer", Nullable: false}},
+			PrimaryKey:  &model.PrimaryKey{Columns: []string{"id"}},
+			Indexes:     []model.StructureIndex{{Name: "ix", Columns: []string{"id"}}},
+			ForeignKeys: []model.StructureForeignKey{{Name: "fk", Columns: []string{"id"}, ReferencedTable: "r", ReferencedColumns: []string{"id"}}},
+		},
+		data: `INSERT INTO "public"."t" ("id") VALUES (1);` + "\n",
+	}
+	manifest := Manifest{Engine: "postgres", Database: "alpha", Mode: ModeSchemaData, GeneratedAt: time.Now()}
+	var b strings.Builder
+	if err := Export(context.Background(), &b, manifest, src); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	out := b.String()
+	iTable := strings.Index(out, "CREATE TABLE")
+	iData := strings.Index(out, "INSERT INTO")
+	iIndex := strings.Index(out, "CREATE INDEX")
+	iFk := strings.Index(out, "ALTER TABLE")
+	iCommit := strings.LastIndex(out, "COMMIT;")
+	if !(iTable < iData && iData < iIndex && iIndex < iFk && iFk < iCommit) {
+		t.Errorf("unexpected order (table=%d data=%d index=%d fk=%d commit=%d):\n%s", iTable, iData, iIndex, iFk, iCommit, out)
+	}
+	if !strings.Contains(out, "-- datadeck:export") {
+		t.Errorf("missing manifest header:\n%s", out)
+	}
+}
+
+func TestExportDataOnlySkipsSchema(t *testing.T) {
+	src := fakeSource{tables: []TableRef{{Name: "t"}}, data: "INSERT INTO t (id) VALUES (1);\n"}
+	manifest := Manifest{Engine: "sqlite", Database: "d", Mode: ModeData, GeneratedAt: time.Now()}
+	var b strings.Builder
+	if err := Export(context.Background(), &b, manifest, src); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if strings.Contains(out, "CREATE TABLE") || strings.Contains(out, "CREATE INDEX") {
+		t.Errorf("data-only export emitted schema:\n%s", out)
+	}
+	if !strings.Contains(out, "INSERT INTO") {
+		t.Errorf("data-only export missing data:\n%s", out)
+	}
+}

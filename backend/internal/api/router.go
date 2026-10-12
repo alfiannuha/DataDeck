@@ -82,6 +82,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/connections/{id}/table-import", connections.TableImportUpload)
 		r.Post("/connections/{id}/table-import/{import_id}/validate", connections.TableImportValidate)
 		r.Post("/connections/{id}/table-import/{import_id}/execute", connections.TableImportExecute)
+		r.Post("/connections/{id}/database-export", connections.DatabaseExport)
+		r.Post("/connections/{id}/database-import", connections.DatabaseImportUpload)
+		r.Post("/connections/{id}/database-import/{token}/execute", connections.DatabaseImportExecute)
 
 		r.Post("/query/execute", queries.Execute)
 		r.Get("/query/history", queries.History)

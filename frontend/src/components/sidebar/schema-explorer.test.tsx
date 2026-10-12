@@ -5,6 +5,7 @@ import { ApiClientError } from "@/lib/api-client";
 import { executeQuery, getSchemas, listConnections, listDatabases, reconnectConnection } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
+import { useDatabaseScriptStore } from "@/store/useDatabaseScriptStore";
 import { useExportStore } from "@/store/useExportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
@@ -1127,6 +1128,7 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ tabs: [], activeTabId: null });
     useExportStore.setState({ target: null });
+    useDatabaseScriptStore.setState({ request: null });
     vi.mocked(reconnectConnection).mockReset();
     vi.mocked(reconnectConnection).mockResolvedValue({
       status: "ok",
@@ -1145,24 +1147,14 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
       "New Query",
       "Refresh Database",
       "Reconnect",
+      "Export SQL",
+      "Import SQL (Restore)",
       "Copy Database Name",
     ]) {
       expect(screen.getByRole("menuitem", { name: label })).not.toHaveAttribute(
         "aria-disabled",
       );
     }
-    // T17 boundary: deferred, disabled, explained — never an enabled no-op.
-    expect(screen.getByTestId("database-menu-import-sql")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    expect(screen.getByTestId("database-menu-import-sql")).toHaveTextContent(
-      "later update",
-    );
-    expect(screen.getByTestId("database-menu-export-sql")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
     // T18 boundary: Delete Database is absent, not an inert button.
     expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
     // Table actions never leak into the database menu.
@@ -1314,6 +1306,40 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("CONNECTION_ERROR");
     expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+  });
+
+  it("opens the database export dialog bound to the captured database", async () => {
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export SQL" }));
+
+    expect(useDatabaseScriptStore.getState().request).toMatchObject({
+      kind: "export",
+      target: { connectionId: "c1", database: "alpha", engine: "postgres" },
+    });
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+  });
+
+  it("opens the database restore dialog bound to the captured database", async () => {
+    setupServer();
+    // Explorer selection is beta; the action must still target alpha.
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "beta" },
+    });
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Import SQL (Restore)" }));
+
+    expect(useDatabaseScriptStore.getState().request).toMatchObject({
+      kind: "import",
+      target: { connectionId: "c1", database: "alpha" },
+    });
   });
 
   it("copies the canonical database name", async () => {

@@ -124,6 +124,53 @@ components:
       required:
       - driver
       type: object
+    handler.DatabaseExportRequest:
+      properties:
+        database:
+          example: alpha
+          type: string
+        mode:
+          enum:
+          - schema_data
+          - schema
+          - data
+          example: schema_data
+          type: string
+      type: object
+    handler.DatabaseImportPreview:
+      properties:
+        database:
+          type: string
+        engine:
+          type: string
+        excluded:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        foreign_keys:
+          type: integer
+        indexes:
+          type: integer
+        mode:
+          type: string
+        statements:
+          type: integer
+        tables:
+          type: integer
+        token:
+          type: string
+      type: object
+    handler.DatabaseRestoreResult:
+      properties:
+        database:
+          type: string
+        statements:
+          type: integer
+        status:
+          example: ok
+          type: string
+      type: object
     handler.DeleteConnectionResponse:
       properties:
         id:
@@ -1033,6 +1080,203 @@ paths:
       summary: Delete a connection profile
       tags:
       - connections
+  /connections/{id}/database-export:
+    post:
+      description: 'Streams a dialect SQL script for the base tables of the explicit
+        database (schema+data / schema-only / data-only). Self-contained: no external
+        pg_dump/mysqldump tooling. Views and other objects are excluded and listed
+        in the artifact header. The target is the explicit connection + database;
+        global/explorer selection is never used.'
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.DatabaseExportRequest'
+              description: Export options
+              summary: body
+        description: Export options
+        required: true
+      responses:
+        "200":
+          content:
+            application/octet-stream:
+              schema:
+                type: file
+          description: OK
+        "400":
+          content:
+            application/octet-stream:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/octet-stream:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/octet-stream:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Internal Server Error
+        "502":
+          content:
+            application/octet-stream:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+      summary: Export a database as a SQL script
+      tags:
+      - database
+  /connections/{id}/database-import:
+    post:
+      description: 'Validates a DataDeck SQL export artifact against the explicit
+        target (engine + database), checks every statement against the restore allowlist,
+        and preflights the target for conflicts. Nothing is written: this only produces
+        an executable preview bound to a token. The target database must be empty.
+        Restore is disabled for MySQL (DDL implicitly commits).'
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                database:
+                  description: Target database
+                  type: string
+                file:
+                  description: DataDeck SQL export artifact
+                  format: binary
+                  type: string
+              required:
+              - file
+              - database
+              type: object
+        description: DataDeck SQL export artifact
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Conflict
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Request Entity Too Large
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Implemented
+      summary: Upload and preflight a database restore artifact
+      tags:
+      - database
+  /connections/{id}/database-import/{token}/execute:
+    post:
+      description: Re-validates the spooled artifact and applies it to the explicit
+        target in a single all-or-nothing transaction (PostgreSQL/SQLite). Rejects
+        MySQL. Never replays a mutation and never redirects to another database.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Restore token
+        in: path
+        name: token
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Implemented
+      summary: Execute a preflighted database restore
+      tags:
+      - database
   /connections/{id}/databases:
     get:
       description: Discovers the databases available on a server-level connection

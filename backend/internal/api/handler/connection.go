@@ -61,6 +61,11 @@ type ConnectionHandler struct {
 	// (connection-scoped, TTL-expiring); see table_import.go.
 	importMu       sync.Mutex
 	importSessions map[string]*importSession
+
+	// scriptSessions holds the in-memory database-restore upload bindings
+	// (PRF-02/T17, TTL-expiring); see database_import.go.
+	scriptMu       sync.Mutex
+	scriptSessions map[string]*scriptSession
 }
 
 // NewConnectionHandler constructs a handler for connection profile endpoints.
@@ -76,6 +81,7 @@ func NewConnectionHandler(
 		cipher:         cipher,
 		logger:         logger,
 		importSessions: map[string]*importSession{},
+		scriptSessions: map[string]*scriptSession{},
 	}
 }
 

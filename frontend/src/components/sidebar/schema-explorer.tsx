@@ -15,6 +15,7 @@ import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/store/useConnectionStore";
+import { useDatabaseScriptStore } from "@/store/useDatabaseScriptStore";
 import { useExportStore } from "@/store/useExportStore";
 import { useImportStore } from "@/store/useImportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -200,10 +201,21 @@ export function SchemaExplorer({
           ),
         );
         return;
-      case "import-sql":
       case "export-sql":
-        // Owned by T17; the descriptors keep these disabled, so they never
-        // dispatch. Defensive no-op if reached.
+        // Explicit database target captured at menu-open time (T17). Never the
+        // Explorer selection or the active tab.
+        useDatabaseScriptStore.getState().open("export", {
+          connectionId,
+          database,
+          engine: driver ?? "",
+        });
+        return;
+      case "import-sql":
+        useDatabaseScriptStore.getState().open("import", {
+          connectionId,
+          database,
+          engine: driver ?? "",
+        });
         return;
     }
   };
@@ -367,6 +379,7 @@ export function SchemaExplorer({
         ) : serverLevel ? (
           <DatabaseExplorer
             connectionId={connectionId}
+            engine={driver ?? undefined}
             onSelectDatabase={setActiveDatabase}
             onSelectTop100={handleSelectTop100}
             onCountRows={handleCountRows}
@@ -393,6 +406,7 @@ export function SchemaExplorer({
             key={connectionId}
             databases={query.data ?? []}
             connectionId={connectionId}
+            engine={driver ?? undefined}
             onSelectTop100={(schema, table) => handleSelectTop100(schema, table, "")}
             onCountRows={(schema, table) => handleCountRows(schema, table, "")}
             onOpenTableData={(schema, table, database) =>
@@ -425,6 +439,7 @@ export const DATABASE_BATCH_SIZE = 50;
 /** Lists databases for a server-level connection (PRF-01) with lazy expansion. */
 function DatabaseExplorer({
   connectionId,
+  engine,
   onSelectDatabase,
   onSelectTop100,
   onCountRows,
@@ -434,6 +449,7 @@ function DatabaseExplorer({
   onDatabaseMenu,
 }: {
   connectionId: string;
+  engine?: string;
   onSelectDatabase: (connectionId: string, database: string | null) => void;
   onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
@@ -479,6 +495,7 @@ function DatabaseExplorer({
           key={database.name}
           connectionId={connectionId}
           database={database.name ?? ""}
+          engine={engine}
           selected={activeDatabase === database.name}
           onSelect={onSelectDatabase}
           onRefreshDatabases={() => void databases.refetch()}
@@ -515,6 +532,7 @@ function DatabaseExplorer({
 function LazyDatabaseNode({
   connectionId,
   database,
+  engine,
   selected,
   onSelect,
   onRefreshDatabases,
@@ -527,6 +545,7 @@ function LazyDatabaseNode({
 }: {
   connectionId: string;
   database: string;
+  engine?: string;
   selected: boolean;
   onSelect: (connectionId: string, database: string | null) => void;
   onRefreshDatabases: () => void;
@@ -584,6 +603,7 @@ function LazyDatabaseNode({
           onDatabaseMenu ? (
             <DatabaseMenu
               database={database}
+              engine={engine}
               open={menuOpen}
               onOpenChange={setMenuOpen}
               onAction={(action) => onDatabaseMenu(action, database)}

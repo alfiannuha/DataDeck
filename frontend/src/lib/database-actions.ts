@@ -32,26 +32,32 @@ export interface DatabaseActionDescriptor {
 
 /**
  * Menu items in display order, grouped as in the ADR-010 §11 design:
- * navigation/connection actions, then the (deferred) SQL import/export group,
- * then clipboard.
+ * navigation/connection actions, then the SQL import/export group, then
+ * clipboard. Export SQL is available for every engine; Import SQL / Restore is
+ * disabled for engines without a safe atomic restore (MySQL — DDL implicitly
+ * commits), shown disabled with an explanation rather than as an enabled no-op.
  */
-export function getDatabaseActions(): DatabaseActionDescriptor[] {
+export function getDatabaseActions(
+  target: { engine?: string } = {},
+): DatabaseActionDescriptor[] {
+  const restoreSupported = target.engine !== "mysql";
   return [
     { id: "new-query", label: "New Query", disabled: false },
     { id: "refresh", label: "Refresh Database", disabled: false },
     { id: "reconnect", label: "Reconnect", disabled: false },
     {
-      id: "import-sql",
-      label: "Import SQL",
-      disabled: true,
-      reason: "Database import arrives in a later update.",
+      id: "export-sql",
+      label: "Export SQL",
+      disabled: false,
       separatorBefore: true,
     },
     {
-      id: "export-sql",
-      label: "Export SQL",
-      disabled: true,
-      reason: "Database export arrives in a later update.",
+      id: "import-sql",
+      label: "Import SQL (Restore)",
+      disabled: !restoreSupported,
+      reason: restoreSupported
+        ? undefined
+        : "Restore is not supported for MySQL.",
     },
     {
       id: "copy-name",

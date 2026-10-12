@@ -598,9 +598,59 @@ against an explicit target database with the same transaction and timeout
 guarantees. Native command-line tools are **not** assumed. Database-level
 operations are capability-gated per engine.
 
-**T16 boundary:** the database context menu exposes **Import SQL** and **Export
-SQL** as disabled, explained slots; the engine is owned by **T17**. T15's
-restricted single-table SQL import is not reused for database-level scripts.
+**T17 (resolved).** Database-level SQL export/restore ships as a connector-driven
+implementation — **no external tooling** (`pg_dump`/`mysqldump`/`sqlite3`) is
+invoked, so the single-binary, CGO-free, cross-platform distribution is
+preserved. Coverage is deliberately **base-tables-only**, and the artifact is
+labelled accordingly (never "full backup").
+
+- **Export modes:** `schema_data` (default), `schema`, `data`.
+- **Object coverage (all engines):** base tables — columns/types/NOT NULL/
+  DEFAULT/identity/generated, PRIMARY KEY, UNIQUE, CHECK, indexes, FOREIGN KEY.
+  **Excluded (named in the artifact header):** views, materialized views,
+  sequences, triggers, functions/procedures, extensions, and expression/partial
+  indexes (not reproducible from canonical metadata). An object that cannot be
+  reproduced faithfully is reported, never silently dropped.
+- **Ordering:** dependency-free — `CREATE TABLE` (no FKs) → data → indexes →
+  `ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY`. Circular/self-referencing FKs
+  therefore need no graph sort and cannot break restore. SQLite, which cannot
+  `ALTER TABLE ADD CONSTRAINT`, renders FKs inline.
+- **Encoding:** reuses the T14 dialect SQL literal encoder (BIGINT/DECIMAL as
+  quoted strings, `NULL`, bytea `decode(…,'base64')`, MySQL/SQLite hex blobs,
+  JSON, temporal). Identifiers are dialect-quoted. No JavaScript/`float`
+  round-trip is involved.
+- **Streaming:** rows stream through the existing T14 `TableStreamer`; export
+  spools to a temp file and is served only when complete, so a mid-export
+  failure returns a JSON envelope rather than a truncated file.
+- **Restore (PostgreSQL, SQLite):** accepts only DataDeck artifacts (manifest
+  binding: format version + engine + database must equal the explicit target),
+  validates every statement against an allowlist with a restricted, dialect-aware
+  splitter (never a regex/semicolon split), and requires an **empty** target
+  (preflight; no DROP/TRUNCATE/REPLACE). Applied in one all-or-nothing
+  transaction. **MySQL restore is disabled** (`501 RESTORE_UNSUPPORTED`): MySQL
+  DDL implicitly commits, so a full-rollback guarantee cannot be made — the gap
+  is documented rather than silently claiming atomicity.
+- **Isolation:** all operations use the T16 explicit database target; the
+  Explorer selection/active tab is never used, and a mismatched artifact fails
+  closed.
+
+| Feature | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| SQL export (base tables; 3 modes) | yes | yes | yes |
+| SQL export of views/sequences/triggers/functions/extensions | no (excluded, reported) | no | no |
+| SQL restore (DataDeck artifact → empty DB, atomic) | yes | **disabled** (`RESTORE_UNSUPPORTED`) | yes |
+| Artifact format version | 1 | 1 | 1 |
+
+**T16 boundary:** the database context menu's **Import SQL (Restore)** and
+**Export SQL** items are enabled by this task (T17); restore is disabled for
+MySQL. Delete Database stays owned by **T18**.
+
+### Database Import / Export (original design note)
+
+The database context menu's **Import SQL (Restore)** and **Export SQL** items
+were shipped by **T17** (see the T17 note above); T15's restricted single-table
+SQL import is **not** reused for database-level scripts (different scope and
+risk).
 
 ### 17. Destructive Database-Management Safety (DROP DATABASE)
 

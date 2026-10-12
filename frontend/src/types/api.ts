@@ -68,6 +68,8 @@ export type TestConnectionResponse = Schemas["handler.TestConnectionResponse"];
 export type DeleteConnectionResponse = Schemas["handler.DeleteConnectionResponse"];
 export type ReconnectRequest = Schemas["handler.ReconnectRequest"];
 export type ReconnectResponse = Schemas["handler.ReconnectResponse"];
+export type DatabaseImportPreview = Schemas["handler.DatabaseImportPreview"];
+export type DatabaseRestoreResult = Schemas["handler.DatabaseRestoreResult"];
 /** Canonical engine identifier derived from the connection profile schema. */
 export type DatabaseEngine = NonNullable<ConnectionResponse["driver"]>;
 

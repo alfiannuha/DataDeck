@@ -11,6 +11,8 @@ import type {
   DatabaseInfo,
   ConnectionResponse,
   ConnectionTestRequest,
+  DatabaseImportPreview,
+  DatabaseRestoreResult,
   DatabaseSchemaTree,
   DeleteConnectionResponse,
   TableExportFormat,
@@ -320,6 +322,63 @@ export interface ImportTargetBody {
   table: string;
   /** Optional explicit source → target mapping; omission auto-maps by name. */
   mapping?: ImportMapping[];
+}
+
+/** Database-level SQL export mode (PRF-02/T17). */
+export type DatabaseExportMode = "schema_data" | "schema" | "data";
+
+/**
+ * Export a whole database as a dialect SQL script (PRF-02/T17). Self-contained
+ * (no external tooling). The target is the explicit connection + database; the
+ * backend never falls back to the Explorer selection. Errors arrive as the
+ * standard JSON envelope.
+ */
+export function exportDatabase(
+  connectionId: string,
+  params: { database?: string | null; mode: DatabaseExportMode },
+  signal?: AbortSignal,
+): Promise<DownloadResult> {
+  return apiFetchDownload(
+    `/connections/${encodeURIComponent(connectionId)}/database-export`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        database: params.database ?? "",
+        mode: params.mode,
+      }),
+      signal,
+    },
+  );
+}
+
+/**
+ * Upload a DataDeck SQL export artifact for a preflighted restore (PRF-02/T17).
+ * Nothing is written: the response is an executable preview bound to `token`.
+ */
+export function uploadDatabaseImport(
+  connectionId: string,
+  params: { database?: string | null; file: File },
+  signal?: AbortSignal,
+): Promise<DatabaseImportPreview> {
+  const form = new FormData();
+  form.append("file", params.file, params.file.name);
+  form.append("database", params.database ?? "");
+  return apiFetchForm<DatabaseImportPreview>(
+    `/connections/${encodeURIComponent(connectionId)}/database-import`,
+    form,
+    signal,
+  );
+}
+
+/** Execute a preflighted database restore (PRF-02/T17). */
+export function executeDatabaseImport(
+  connectionId: string,
+  token: string,
+): Promise<DatabaseRestoreResult> {
+  return apiFetch<DatabaseRestoreResult>(
+    `/connections/${encodeURIComponent(connectionId)}/database-import/${encodeURIComponent(token)}/execute`,
+    { method: "POST" },
+  );
 }
 
 /**

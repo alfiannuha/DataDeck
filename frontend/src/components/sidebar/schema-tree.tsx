@@ -57,6 +57,7 @@ type TableMenuDispatch = (
 export function SchemaTree({
   databases,
   connectionId,
+  engine,
   onSelectTop100,
   onCountRows,
   onCopyDdl,
@@ -66,6 +67,7 @@ export function SchemaTree({
 }: {
   databases: DatabaseSchemaTree[];
   connectionId: string;
+  engine?: string;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
@@ -83,6 +85,7 @@ export function SchemaTree({
           key={`${connectionId}:${database.name ?? index}`}
           database={database}
           depth={0}
+          engine={engine}
           onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
@@ -102,6 +105,7 @@ function indent(depth: number) {
 const DatabaseNode = memo(function DatabaseNode({
   database,
   depth,
+  engine,
   onSelectTop100,
   onCountRows,
   onCopyDdl,
@@ -111,6 +115,7 @@ const DatabaseNode = memo(function DatabaseNode({
 }: {
   database: DatabaseSchemaTree;
   depth: number;
+  engine?: string;
   onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
@@ -160,6 +165,7 @@ const DatabaseNode = memo(function DatabaseNode({
           onDatabaseMenu ? (
             <DatabaseMenu
               database={databaseName}
+              engine={engine}
               open={menuOpen}
               onOpenChange={setMenuOpen}
               onAction={(action) => onDatabaseMenu(action, databaseName)}
