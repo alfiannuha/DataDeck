@@ -161,3 +161,89 @@ func TestManagerReconnectUnsupportedDriver(t *testing.T) {
 		t.Errorf("Reconnect(unsupported) error = %v, want ErrUnsupportedDriver", err)
 	}
 }
+
+// blockingConnector blocks Execute until released, so a reconnect can be
+// exercised while an operation is in flight (§28 in-flight safety).
+type blockingConnector struct {
+	fakeConnector
+	entered chan struct{}
+	release chan struct{}
+}
+
+func newBlockingConnector() *blockingConnector {
+	return &blockingConnector{
+		fakeConnector: *newFakeConnector(),
+		entered:       make(chan struct{}),
+		release:       make(chan struct{}),
+	}
+}
+
+func (c *blockingConnector) Execute(ctx context.Context, _ *sql.DB, _ string) (model.QueryResult, error) {
+	close(c.entered)
+	select {
+	case <-c.release:
+		return model.QueryResult{}, nil
+	case <-ctx.Done():
+		return model.QueryResult{}, ctx.Err()
+	}
+}
+
+func TestManagerReconnectDoesNotCancelInFlightOperation(t *testing.T) {
+	ctx := context.Background()
+	c := newBlockingConnector()
+	m := NewManager(DefaultOptions(), c)
+
+	old, err := m.Open(ctx, "c1", dbConfig("d"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, execErr := m.Execute(ctx, "c1", dbConfig("d"), "SELECT 1")
+		done <- execErr
+	}()
+	<-c.entered // the operation is now in flight
+
+	if err := m.Reconnect(ctx, "c1", dbConfig("d")); err != nil {
+		t.Fatalf("Reconnect() error = %v", err)
+	}
+	after, ok := m.Get("c1", "d")
+	if !ok || after == old {
+		t.Error("Reconnect() did not replace the pool")
+	}
+
+	close(c.release)
+	if err := <-done; err != nil {
+		t.Errorf("in-flight operation failed after reconnect: %v", err)
+	}
+}
+
+// A failed reconnect can simply be retried; recovery establishes a fresh pool.
+func TestManagerReconnectRetriesAfterFailure(t *testing.T) {
+	ctx := context.Background()
+	fc := newFakeConnector()
+	m := NewManager(DefaultOptions(), fc)
+
+	old, err := m.Open(ctx, "c1", dbConfig("d"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	fc.pingErr = errors.New("connection refused")
+	if err := m.Reconnect(ctx, "c1", dbConfig("d")); err == nil {
+		t.Fatal("Reconnect() error = nil, want failure")
+	}
+	if got, _ := m.Get("c1", "d"); got != old {
+		t.Error("failed reconnect discarded the pool before a retry")
+	}
+
+	fc.pingErr = nil
+	if err := m.Reconnect(ctx, "c1", dbConfig("d")); err != nil {
+		t.Fatalf("retry Reconnect() error = %v", err)
+	}
+	got, ok := m.Get("c1", "d")
+	if !ok || got == old {
+		t.Error("retry did not establish a replacement pool")
+	}
+}
