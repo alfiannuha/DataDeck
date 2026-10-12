@@ -4,6 +4,18 @@ Status: M5-T08. Scope: Go modules, npm packages, lockfiles, lifecycle scripts,
 CI actions, and a direct-dependency license inventory. No dependency was
 upgraded or removed in this task (see "Deferred" items).
 
+> **Amendment — PRF-02 (T15 validation, post-M6).** Advisories published after
+> M6 turned the CI `govulncheck` gate red: 9 reachable findings from the Go
+> standard library (`net/http`, `net/textproto`, `crypto/tls`),
+> `golang.org/x/net`, `golang.org/x/text`, and `github.com/xuri/excelize/v2`.
+> Fixed by raising the build toolchain to **`go1.26.9`** and upgrading
+> `golang.org/x/net` → v0.60.0, `golang.org/x/text` → v0.42.0, and
+> `github.com/xuri/excelize/v2` → v2.11.0 (with their indirect deps, incl.
+> `golang.org/x/crypto` v0.57.0). CI workflows pin `go-version: "1.26.9"`.
+> `govulncheck ./...` now reports **0 reachable** findings. The §2 tables below
+> remain the historical M5-T08 snapshot. Frontend advisories are unchanged (see
+> §2/§3 — build-time `postcss`, no fix short of a Next major).
+
 ## Environment / Tooling
 
 | Tool | Status |

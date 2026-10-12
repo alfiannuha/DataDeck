@@ -343,10 +343,10 @@ func queryStructureIndexes(ctx context.Context, db *sql.DB, schema, table string
 	indexes := make([]model.StructureIndex, 0)
 	for rows.Next() {
 		var (
-			index                       string
-			unique, primary, partial    bool
-			method                      string
-			column                      sql.NullString
+			index                    string
+			unique, primary, partial bool
+			method                   string
+			column                   sql.NullString
 		)
 		if err := rows.Scan(&index, &unique, &primary, &method, &partial, &column); err != nil {
 			return nil, fmt.Errorf("scan structure index: %w", err)

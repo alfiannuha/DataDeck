@@ -228,16 +228,16 @@ func TestStructureColumnMutability(t *testing.T) {
 
 func TestNormalizedType(t *testing.T) {
 	cases := map[string]string{
-		"character varying(20)": "varchar",
-		"varchar(255)":          "varchar",
-		"int4":                  "integer",
-		"int8":                  "bigint",
-		"double precision":      "double",
+		"character varying(20)":    "varchar",
+		"varchar(255)":             "varchar",
+		"int4":                     "integer",
+		"int8":                     "bigint",
+		"double precision":         "double",
 		"timestamp with time zone": "timestamp",
-		"numeric(10,2)":         "numeric",
-		"UNKNOWN_TYPE":          "unknown_type",
-		"citext":                "text",
-		"jsonb":                 "json",
+		"numeric(10,2)":            "numeric",
+		"UNKNOWN_TYPE":             "unknown_type",
+		"citext":                   "text",
+		"jsonb":                    "json",
 	}
 	for input, want := range cases {
 		if got := normalizedType(input); got != want {
@@ -248,18 +248,18 @@ func TestNormalizedType(t *testing.T) {
 
 func TestMySQLCheckConstraintSupport(t *testing.T) {
 	cases := map[string]bool{
-		"8.0.15":                    false,
-		"8.0.16":                    true,
-		"8.0.36":                    true,
-		"5.7.44":                    false,
-		"9.0.1":                     true,
-		"10.1.26-MariaDB":           false,
-		"10.2.0-MariaDB":            true,
-		"10.5.19-MariaDB":           true,
-		"10.6.7-MariaDB":            true,
-		"5.5.5-10.11.2-MariaDB":     true,
-		"5.5.62-MariaDB":            false,
-		"8.0.36-0ubuntu0.24.04.1":   true,
+		"8.0.15":                  false,
+		"8.0.16":                  true,
+		"8.0.36":                  true,
+		"5.7.44":                  false,
+		"9.0.1":                   true,
+		"10.1.26-MariaDB":         false,
+		"10.2.0-MariaDB":          true,
+		"10.5.19-MariaDB":         true,
+		"10.6.7-MariaDB":          true,
+		"5.5.5-10.11.2-MariaDB":   true,
+		"5.5.62-MariaDB":          false,
+		"8.0.36-0ubuntu0.24.04.1": true,
 	}
 	for version, want := range cases {
 		if got := mysqlSupportsCheckConstraints(version); got != want {
