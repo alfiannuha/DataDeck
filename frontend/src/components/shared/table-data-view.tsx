@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Filter, Loader2, RefreshCw } from "lucide-react";
+import { Download, Filter, Loader2, RefreshCw, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
@@ -20,6 +20,7 @@ import { ApiClientError } from "@/lib/api-client";
 import { isReadOnlyObject } from "@/lib/table-actions";
 import { rowToJSON, rowToTSV } from "@/lib/row-copy";
 import { useExportStore } from "@/store/useExportStore";
+import { useImportStore } from "@/store/useImportStore";
 import {
   useWorkspaceStore,
   type TableFilter,
@@ -389,6 +390,27 @@ export function TableDataView() {
               Add Row
             </Button>
           ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="table-data-import"
+            aria-label="Import table data"
+            disabled={!data || !tab.connectionId || Boolean(addRowDisabledReason)}
+            title={addRowDisabledReason ?? undefined}
+            onClick={() => {
+              if (!tab.connectionId) return;
+              useImportStore.getState().open({
+                connectionId: tab.connectionId,
+                database: tab.database,
+                schema: tab.schema,
+                table: tab.table,
+                objectType: data?.object_type,
+              });
+            }}
+          >
+            <Upload size={12} aria-hidden="true" />
+            Import
+          </Button>
           <Button
             variant="ghost"
             size="sm"

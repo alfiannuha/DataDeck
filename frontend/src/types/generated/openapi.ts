@@ -342,6 +342,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/{id}/reconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconnect one database of a connection
+         * @description Replaces the pool for the explicit database target with a freshly opened, health-checked one (PRF-02/T16). Database-scoped: other databases on the same server-level profile are untouched. The saved profile and its credentials are reused; nothing is deleted and no SQL is executed. Fails closed (the existing pool is kept on failure) and never replays a mutation.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Explicit database target (required for server-level PostgreSQL) */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["handler.ReconnectRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connections/{id}/schemas": {
         parameters: {
             query?: never;
@@ -893,6 +983,329 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/connections/{id}/table-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file for table import
+         * @description Accepts a CSV (RFC 4180) or restricted SQL INSERT-only script for PRF-02/T15 import against the explicit connection + database + schema + table. The file is spooled, hashed, parsed into cells, and bound to the resolved target; returns a preview and an immutable import_id used by the validate/execute stages. The SQL format only parses single-table INSERT statements — never raw SQL/expressions.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description CSV or SQL script file */
+            requestBody?: {
+                content: {
+                    "multipart/form-data": {
+                        /**
+                         * @description Treat the first record as a header (csv only)
+                         * @enum {string}
+                         */
+                        csv_header?: "true" | "false";
+                        /** @description Target database (optional for postgres profiles with a default) */
+                        database: string;
+                        /**
+                         * Format: binary
+                         * @description CSV or SQL script file
+                         */
+                        file: string;
+                        /**
+                         * @description Import format
+                         * @enum {string}
+                         */
+                        format: "csv" | "sql";
+                        /** @description Target schema (required for postgres) */
+                        schema?: string;
+                        /** @description Target table */
+                        table: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Request Entity Too Large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{id}/table-import/{import_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute an uploaded import
+         * @description Streams the spooled upload into one all-or-nothing transaction of parameterized INSERTs. The target and mapping are re-resolved fresh from introspection; any single failure (constraint, NOT NULL, timeout) rolls the whole import back — never a partial commit. The request target must exactly echo the upload binding.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                    /** @description Import session id */
+                    import_id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Echo the upload binding plus the resolved mapping */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ImportValidationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{id}/table-import/{import_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate an uploaded import
+         * @description Re-introspects the target and converts every row against the resolved mapping without writing anything, returning localized validation errors (first 50), the effective mapping and the column plan. The request target must exactly echo the upload binding; the spooled file is re-hashed to guarantee immutability. No data is written.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                    /** @description Import session id */
+                    import_id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Echo the upload binding plus the resolved mapping */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ImportValidationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/connections/{id}/table-structure": {
@@ -1559,6 +1972,12 @@ export interface components {
             /** @enum {string} */
             status?: "SUCCESS" | "ERROR";
         };
+        "handler.ImportValidationRequest": {
+            database?: string;
+            mapping?: components["schemas"]["model.ImportMapping"][];
+            schema?: string;
+            table?: string;
+        };
         "handler.InsertRowRequest": {
             /** @example alpha */
             database?: string;
@@ -1579,6 +1998,16 @@ export interface components {
             sql: string;
             /** @example 30 */
             timeout_seconds?: number;
+        };
+        "handler.ReconnectRequest": {
+            /** @example alpha */
+            database?: string;
+        };
+        "handler.ReconnectResponse": {
+            /** @example alpha */
+            database?: string;
+            /** @example ok */
+            status?: string;
         };
         "handler.RowMutationRequest": {
             changes?: {
@@ -1664,6 +2093,32 @@ export interface components {
             referenced_columns?: string[];
             referenced_schema?: string;
             referenced_table?: string;
+        };
+        "model.ImportCell": {
+            /**
+             * @description IsNull reports an explicit NULL (empty unquoted CSV field, or the NULL
+             *     literal in an SQL script).
+             */
+            is_null?: boolean;
+            value?: string;
+        };
+        "model.ImportMapping": {
+            /** @example 0 */
+            source?: number;
+            /** @example name */
+            target?: string;
+        };
+        "model.ImportMappingResolved": {
+            source?: number;
+            target?: string;
+        };
+        "model.ImportValidationError": {
+            /** @example age */
+            column?: string;
+            /** @example value is not numeric */
+            message?: string;
+            /** @example 17 */
+            row?: number;
         };
         "model.Index": {
             columns?: string[];
@@ -1836,6 +2291,39 @@ export interface components {
              *     ]
              */
             values?: unknown[];
+        };
+        "model.TableImportExecutionResult": {
+            database?: string;
+            elapsed_ms?: number;
+            inserted?: number;
+            rows?: number;
+            schema?: string;
+            table?: string;
+        };
+        "model.TableImportSession": {
+            columns?: string[];
+            created_at?: string;
+            database?: string;
+            filename?: string;
+            format?: string;
+            header_row?: boolean;
+            import_id?: string;
+            preview?: components["schemas"]["model.ImportCell"][][];
+            row_count?: number;
+            schema?: string;
+            size_bytes?: number;
+            table?: string;
+        };
+        "model.TableImportValidation": {
+            columns?: components["schemas"]["model.TableColumnInfo"][];
+            database?: string;
+            errors?: components["schemas"]["model.ImportValidationError"][];
+            mapping?: components["schemas"]["model.ImportMappingResolved"][];
+            object_type?: string;
+            row_count?: number;
+            schema?: string;
+            table?: string;
+            valid?: boolean;
         };
         "model.TablePagination": {
             has_more?: boolean;

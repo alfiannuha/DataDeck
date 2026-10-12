@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "@/lib/api-client";
-import { executeQuery, getSchemas, listConnections, listDatabases } from "@/lib/api/endpoints";
+import { executeQuery, getSchemas, listConnections, listDatabases, reconnectConnection } from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useExportStore } from "@/store/useExportStore";
@@ -17,6 +17,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   createConnection: vi.fn(),
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
+  reconnectConnection: vi.fn(),
   getSchemas: vi.fn(),
   listDatabases: vi.fn().mockResolvedValue([]),
   executeQuery: vi.fn(),
@@ -816,11 +817,9 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     expect(screen.getByTestId("table-menu-export")).not.toHaveAttribute(
       "aria-disabled",
     );
-    expect(screen.getByTestId("table-menu-import")).toHaveAttribute(
+    expect(screen.getByTestId("table-menu-import")).not.toHaveAttribute(
       "aria-disabled",
-      "true",
     );
-    expect(screen.getByTestId("table-menu-import")).toHaveTextContent("later");
     for (const item of ["Copy Table Name", "Copy Qualified Name"]) {
       expect(
         screen.getByRole("menuitem", { name: item }),
@@ -1068,5 +1067,266 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
         ).length,
       ).toBe(before + 1),
     );
+  });
+});
+
+describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
+  function serverConnection(id = "c1", name = "Server") {
+    return {
+      id,
+      name,
+      driver: "postgres",
+      database_name: "",
+      host: "127.0.0.1",
+      port: 5432,
+      username: "u",
+      ssl_mode: "disable",
+    } as never;
+  }
+
+  function databaseTree(database: string) {
+    return [
+      {
+        name: database,
+        tables: [
+          {
+            schema: "",
+            name: `table_in_${database}`,
+            type: "BASE TABLE",
+            columns: [],
+          },
+        ],
+      },
+    ];
+  }
+
+  function setupServer(databases = ["alpha", "beta"]) {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue(
+      databases.map((name) => ({ name })) as never,
+    );
+    vi.mocked(getSchemas).mockImplementation((_id, options) =>
+      Promise.resolve(databaseTree(options?.database ?? "none") as never),
+    );
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: {},
+    });
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+  }
+
+  /** Opens a database node's context menu via its ⋯ trigger. */
+  async function openDatabaseMenu(database: string) {
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: `More actions for ${database}` }),
+      { key: "ArrowDown" },
+    );
+    await screen.findByRole("menu", { name: `More actions for ${database}` });
+  }
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+    useExportStore.setState({ target: null });
+    vi.mocked(reconnectConnection).mockReset();
+    vi.mocked(reconnectConnection).mockResolvedValue({
+      status: "ok",
+      database: "alpha",
+    } as never);
+  });
+
+  it("exposes the T16 actions and honestly defers T17 import/export and T18 delete", async () => {
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+
+    for (const label of [
+      "New Query",
+      "Refresh Database",
+      "Reconnect",
+      "Copy Database Name",
+    ]) {
+      expect(screen.getByRole("menuitem", { name: label })).not.toHaveAttribute(
+        "aria-disabled",
+      );
+    }
+    // T17 boundary: deferred, disabled, explained — never an enabled no-op.
+    expect(screen.getByTestId("database-menu-import-sql")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByTestId("database-menu-import-sql")).toHaveTextContent(
+      "later update",
+    );
+    expect(screen.getByTestId("database-menu-export-sql")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    // T18 boundary: Delete Database is absent, not an inert button.
+    expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
+    // Table actions never leak into the database menu.
+    expect(screen.queryByRole("menuitem", { name: "View Data" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Structure" })).toBeNull();
+  });
+
+  it("opens via right-click for the captured database and via Shift+F10", async () => {
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    const alpha = await screen.findByRole("button", { name: /^alpha/ });
+
+    fireEvent.contextMenu(alpha);
+    await screen.findByRole("menu", { name: "More actions for alpha" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    alpha.focus();
+    fireEvent.keyDown(alpha, { key: "F10", shiftKey: true });
+    await screen.findByRole("menu", { name: "More actions for alpha" });
+  });
+
+  it("New Query binds the captured database, never executes, and preserves a dirty tab", async () => {
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    // A dirty query tab must never be overwritten.
+    useWorkspaceStore.getState().openQuery("c1", "beta", "SELECT 1");
+    useWorkspaceStore.getState().updateActiveSql("SELECT 1 -- dirty");
+    const dirtyId = useWorkspaceStore.getState().activeTabId;
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
+
+    const tabs = useWorkspaceStore.getState().tabs;
+    expect(tabs).toHaveLength(2);
+    const dirty = tabs.find((tab) => tab.id === dirtyId);
+    expect(dirty?.kind === "query" && dirty.sql).toBe("SELECT 1 -- dirty");
+    const created = tabs.at(-1);
+    expect(created?.kind).toBe("query");
+    if (created?.kind !== "query") throw new Error("expected query tab");
+    expect(created.connectionId).toBe("c1");
+    expect(created.database).toBe("alpha");
+    expect(created.sql).toBe("");
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("Refresh Database re-fetches only the targeted database and never rebinds tabs", async () => {
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    await screen.findByText("table_in_alpha");
+
+    const alphaCalls = () =>
+      vi
+        .mocked(getSchemas)
+        .mock.calls.filter((call) => call[1]?.database === "alpha").length;
+    const before = alphaCalls();
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Refresh Database" }));
+
+    await waitFor(() => expect(alphaCalls()).toBe(before + 1));
+    expect(
+      vi.mocked(getSchemas).mock.calls.some((call) => call[1]?.database === "beta"),
+    ).toBe(false);
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(reconnectConnection).not.toHaveBeenCalled();
+  });
+
+  it("Reconnect targets the node's database, not the Explorer selection", async () => {
+    setupServer();
+    // Explorer selection is elsewhere; the action must still target alpha.
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "beta" },
+    });
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+
+    await waitFor(() =>
+      expect(reconnectConnection).toHaveBeenCalledWith("c1", "alpha"),
+    );
+    expect(reconnectConnection).not.toHaveBeenCalledWith("c1", "beta");
+    await screen.findByRole("status");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnected alpha");
+  });
+
+  it("shows Reconnecting immediately and Reconnected only after success", async () => {
+    setupServer();
+    let resolve!: (value: unknown) => void;
+    vi.mocked(reconnectConnection).mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }) as never,
+    );
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reconnecting alpha",
+    );
+    resolve({ status: "ok", database: "alpha" });
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Reconnected alpha"),
+    );
+  });
+
+  it("does not start a second reconnect while one is in flight", async () => {
+    setupServer();
+    let resolve!: (value: unknown) => void;
+    vi.mocked(reconnectConnection).mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }) as never,
+    );
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).toBeNull(),
+    );
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+
+    expect(reconnectConnection).toHaveBeenCalledTimes(1);
+    resolve({ status: "ok", database: "alpha" });
+  });
+
+  it("surfaces a reconnect failure without switching database or opening tabs", async () => {
+    setupServer();
+    vi.mocked(reconnectConnection).mockRejectedValue(
+      new ApiClientError("failed to reconnect to the database", "CONNECTION_ERROR", 502),
+    );
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("CONNECTION_ERROR");
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+  });
+
+  it("copies the canonical database name", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    setupServer();
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Database Name" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("alpha"));
+    expect(screen.getByRole("status")).toHaveTextContent("Database name copied");
   });
 });

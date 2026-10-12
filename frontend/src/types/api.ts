@@ -49,6 +49,10 @@ export type ErrorCode =
   | "PAYLOAD_TOO_LARGE"
   | "EXPORT_FORMAT_UNSUPPORTED"
   | "EXPORT_LIMIT_EXCEEDED"
+  | "IMPORT_FORMAT_UNSUPPORTED"
+  | "IMPORT_VALIDATION_ERROR"
+  | "IMPORT_TOO_LARGE"
+  | "ROW_NOT_MUTABLE"
   | "INTERNAL_ERROR";
 
 /* --------------------------------------------------------------------------
@@ -62,6 +66,10 @@ export type ConnectionCreateRequest = Schemas["handler.ConnectionRequest"];
 export type ConnectionTestRequest = Schemas["handler.ConnectionTestRequest"];
 export type TestConnectionResponse = Schemas["handler.TestConnectionResponse"];
 export type DeleteConnectionResponse = Schemas["handler.DeleteConnectionResponse"];
+export type ReconnectRequest = Schemas["handler.ReconnectRequest"];
+export type ReconnectResponse = Schemas["handler.ReconnectResponse"];
+/** Canonical engine identifier derived from the connection profile schema. */
+export type DatabaseEngine = NonNullable<ConnectionResponse["driver"]>;
 
 export type QueryRequest = Schemas["handler.QueryRequest"];
 export type QueryResult = Schemas["model.QueryResult"];
@@ -94,3 +102,14 @@ export type StructureColumn = Schemas["model.StructureColumn"];
 export type StructureIndex = Schemas["model.StructureIndex"];
 export type StructureConstraint = Schemas["model.StructureConstraint"];
 export type StructureForeignKey = Schemas["model.StructureForeignKey"];
+
+/* Table import (PRF-02/T15) */
+export type TableImportSession = Schemas["model.TableImportSession"];
+export type TableImportFormat = "csv" | "sql";
+export type ImportCell = Schemas["model.ImportCell"];
+export type ImportMapping = Schemas["model.ImportMapping"];
+export type ImportMappingResolved = Schemas["model.ImportMappingResolved"];
+export type TableImportValidation = Schemas["model.TableImportValidation"];
+export type ImportValidationError = Schemas["model.ImportValidationError"];
+export type TableImportExecutionResult = Schemas["model.TableImportExecutionResult"];
+export type ImportValidationRequest = Schemas["handler.ImportValidationRequest"];

@@ -108,6 +108,7 @@ Rules:
 | `QUERY_TIMEOUT` | 504 | Timeout | Context deadline exceeded |
 | `QUERY_CANCELED` | 499 | Canceled | Query context canceled before completion |
 | `CONNECTION_ERROR` | 502 | Connection | Dial/ping failure to target DB |
+| `CONNECTION_TIMEOUT` | 504 | Timeout | PRF-02/T16: a database reconnect exceeded its deadline |
 | `INTROSPECTION_ERROR` | 502 | Introspection | Target-side schema read failed (unreachable or restricted) |
 | `INTROSPECTION_TIMEOUT` | 504 | Timeout | Schema introspection exceeded its deadline |
 | `NOT_IMPLEMENTED` | 501 | Capability | Operation not implemented for this driver yet |
@@ -126,6 +127,9 @@ Rules:
 | `CONSTRAINT_VIOLATION` | 409 | Constraint | PRF-02: NOT NULL/UNIQUE/FK/CHECK rejection |
 | `EXPORT_FORMAT_UNSUPPORTED` | 400 | Validation | PRF-02 table export: format not supported by the driver, or no exportable columns |
 | `EXPORT_LIMIT_EXCEEDED` | 400 | Safety | PRF-02 table export: result would exceed the export row/byte safety limit |
+| `IMPORT_FORMAT_UNSUPPORTED` | 400 | Validation | PRF-02 table import: format not supported (XLSX deferred), or SQL script not a plain INSERT-only batch |
+| `IMPORT_VALIDATION_ERROR` | 400 | Validation | PRF-02 table import: parse/convert/mapping failure, or the file changed after upload |
+| `IMPORT_TOO_LARGE` | 413 | Validation | PRF-02 table import: upload exceeds the import size cap |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -401,6 +405,7 @@ here without an explicit requirement.
 | `POST` | `/api/v1/connections` | Persist a new connection profile |
 | `POST` | `/api/v1/connections/test` | Verify connection parameters before saving |
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |
+| `POST` | `/api/v1/connections/{id}/reconnect` | Database-scoped reconnect: replace one `(connection, database)` pool with a fresh, health-checked one (PRF-02/T16) |
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
@@ -428,6 +433,23 @@ here without an explicit requirement.
   does not persist; ephemeral 5s ping.
 - `DELETE /api/v1/connections/{id}` — closes/evicts the pool, then deletes the
   profile (history cascades; saved-query references are set null).
+- `POST /api/v1/connections/{id}/reconnect` — **PRF-02/T16**. Body:
+  `{ database? }` (application/json; optional). Replaces the pool for the
+  explicit target with a freshly opened, health-checked one. **Database-scoped:**
+  on a server-level PostgreSQL profile only the `(connection, database)` pool is
+  replaced; every other database pool on the same profile is left untouched, so
+  reconnecting one database never disturbs another. `database` is required for a
+  server-level PostgreSQL profile (`DATABASE_REQUIRED` otherwise); MySQL/SQLite
+  ignore it unless it differs from the profile database (`VALIDATION_ERROR`).
+  The saved profile and its **stored credentials are reused** — nothing is
+  deleted and no credential re-entry is required. **No SQL is executed and no
+  mutation is ever replayed**; a failed reconnect *fails closed* (the existing
+  pool is kept). Success is returned only after the replacement connects and
+  passes its health check. Response `data`: `{ status: "ok", database }`.
+  Errors: `404 NOT_FOUND` (unknown profile), `400 DATABASE_REQUIRED` /
+  `VALIDATION_ERROR`, `400 DATABASE_NOT_FOUND` / `DATABASE_CONNECT_DENIED`,
+  `502 CONNECTION_ERROR`, `504 CONNECTION_TIMEOUT`, `499 QUERY_CANCELED`. The
+  saved connection configuration is never modified.
 - `GET /api/v1/connections/{id}/schemas` — implemented in M1-T07. Returns a
   database-neutral tree in `data` (array of databases → schemas → tables with
   columns, primary key, foreign keys, indexes). Activates/reuses the managed
@@ -546,6 +568,44 @@ here without an explicit requirement.
   `404 TABLE_NOT_FOUND`, `400 VALIDATION_ERROR`/`INVALID_FILTER`/
   `COLUMN_NOT_FOUND`, `400 DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502
   CONNECTION_ERROR`, `504 QUERY_TIMEOUT`.
+- `POST /api/v1/connections/{id}/table-import` — **PRF-02/T15** upload. Body:
+  `multipart/form-data` with `file` plus the explicit target binding
+  (`database` for server-level PostgreSQL / MySQL / SQLite, `schema` for
+  PostgreSQL, `table`, `format: "csv" | "sql"`, `csv_header` bool for CSV). The
+  target is **explicit and never inferred from explorer/global state**; it is
+  fingerprinted (resolved database + schema/table + file SHA-256 + `format` +
+  `csv_header`) and spooled server-side into a session; no target introspection
+  happens at upload. Response `data` is a `TableImportSession`:
+  `{ import_id, database?, schema?, table, format, filename?, size_bytes?,
+  header_row, columns[], row_count, preview[][ImportCell], created_at }` where
+  `ImportCell = { value?, is_null }` (explicit NULL is `is_null:true`). The
+  preview is capped (default 50 rows). Uploads are size-capped →
+  `413 IMPORT_TOO_LARGE`; XLSX/unknown formats and non-INSERT-only SQL →
+  `400 IMPORT_FORMAT_UNSUPPORTED`; parse/convert failure →
+  `400 IMPORT_VALIDATION_ERROR`. Sessions expire (default 30 min).
+- `POST /api/v1/connections/{id}/table-import/{import_id}/validate` —
+  **PRF-02/T15**. Body: `{ database?, schema?, table, mapping?[] }` — the target
+  must **echo** the upload binding (`{source,target}` pairs override auto-mapping
+  by name; omission auto-maps source columns to insertable target columns by
+  name). Re-introspects the target and converts every row against the resolved
+  mapping **without writing anything**; the server re-hashes the spooled file
+  and rejects a changed file with `400 IMPORT_VALIDATION_ERROR`. Response `data`
+  is a `TableImportValidation`: `{ valid, database?, schema?, table,
+  object_type, row_count, columns[], mapping[ImportMappingResolved],
+  errors[ImportValidationError{row,column?,message}] }`. Unknown/expired session
+  → `404 NOT_FOUND`; read-only object → `400 ROW_NOT_MUTABLE`; target not found →
+  `404 TABLE_NOT_FOUND`.
+- `POST /api/v1/connections/{id}/table-import/{import_id}/execute` —
+  **PRF-02/T15**. Same body as validate. Streams the spooled upload into **one
+  all-or-nothing transaction** of parameterized `INSERT`s: any failure anywhere
+  rolls the entire import back (no partial import). Response `data`:
+  `{ inserted }`. Errors: `409 CONSTRAINT_VIOLATION`
+  (NOT NULL/UNIQUE/FK/CHECK; the whole transaction is rolled back),
+  `400 INVALID_COLUMN_VALUE`, `404 NOT_FOUND`/`TABLE_NOT_FOUND`, `413
+  IMPORT_TOO_LARGE` (untrusted file size), `400 IMPORT_VALIDATION_ERROR` (changed
+  file), `400 ROW_NOT_MUTABLE`, `400 DATABASE_NOT_FOUND`/
+  `DATABASE_CONNECT_DENIED`, `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`. Import
+  runs under its own timeout (default 300s).
 - `POST /api/v1/query/execute` — implemented in M1-T08. Errors: `400 SQL_SYNTAX_ERROR`
   (with `position`) / `SQL_ERROR`, `404 NOT_FOUND` (unknown connection),
   `502 CONNECTION_ERROR`, `504 QUERY_TIMEOUT`, `499 QUERY_CANCELED`; PRF-01 adds

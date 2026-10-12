@@ -132,7 +132,7 @@ test.describe("table context menu (PostgreSQL)", () => {
     );
     await seed(DB_BETA, "BETA");
 
-    const serverId = await createProfile(request, {
+    await createProfile(request, {
       name: "E2E TM Server",
       driver: "postgres",
       host: PG_HOST,
@@ -151,12 +151,12 @@ test.describe("table context menu (PostgreSQL)", () => {
     for (const item of ["View Data", "New Query", "Structure", "Refresh"]) {
       await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
     }
-    // PRF-02: Export is live (T14); Import is still a disabled placeholder (T15).
+    // PRF-02: Export (T14) and Import (T15) are both live; base tables enable both.
     await expect(page.getByTestId("table-menu-export")).not.toHaveAttribute(
       "aria-disabled",
       "true",
     );
-    await expect(page.getByTestId("table-menu-import")).toHaveAttribute(
+    await expect(page.getByTestId("table-menu-import")).not.toHaveAttribute(
       "aria-disabled",
       "true",
     );

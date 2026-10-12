@@ -166,6 +166,63 @@ func (m *Manager) Get(id, database string) (*sql.DB, bool) {
 	return db, ok
 }
 
+// Reconnect replaces the pool for (id, cfg.Database) with a freshly opened and
+// health-checked one (PRF-02/T16).
+//
+// It is database-scoped: only the targeted pool is replaced. Other pools of the
+// same connection (other databases on a server-level PostgreSQL profile) are
+// left untouched, so reconnecting one database never disturbs another.
+//
+// Fail-closed: the replacement is established and health-checked before it is
+// published. If it cannot be established, the existing pool is left in place and
+// the error is returned, so a failed reconnect never redirects requests to a
+// different database and never leaves the target unusable when the old pool was
+// still healthy.
+//
+// Serialization: concurrent Open/Reconnect calls for the same key share a single
+// in-flight attempt (the same mechanism Open uses), so repeated reconnect
+// requests cannot stack duplicate pools. There is no SQL or mutation replay —
+// reconnect only (re)establishes the connection resource.
+func (m *Manager) Reconnect(ctx context.Context, id string, cfg Config) error {
+	key := poolKey(id, cfg)
+
+	m.mu.Lock()
+	if call, ok := m.opening[key]; ok {
+		m.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	call := &openCall{done: make(chan struct{})}
+	m.opening[key] = call
+	m.mu.Unlock()
+
+	db, err := m.connect(ctx, cfg)
+
+	m.mu.Lock()
+	var old *sql.DB
+	if err == nil {
+		old = m.pools[key]
+		m.pools[key] = db
+		m.lastUsed[key] = time.Now()
+	}
+	call.err = err
+	delete(m.opening, key)
+	close(call.done)
+	m.mu.Unlock()
+
+	// Retire the replaced pool outside the lock. database/sql.Close waits for
+	// in-flight queries to release their connections, so an active query drains
+	// rather than being force-killed; new requests use the replacement.
+	if old != nil {
+		_ = old.Close()
+	}
+	return err
+}
+
 // Test opens, health-checks and closes a temporary pool. It never registers the
 // pool, so it is safe for validating parameters before saving a profile.
 //

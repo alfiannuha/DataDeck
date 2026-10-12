@@ -39,6 +39,8 @@ func (SQLite) Capabilities() model.Capabilities {
 		IdentifierQuote: `"`,
 		TableExport:     true,
 		ExportFormats:   []string{"csv", "xlsx", "sql"},
+		TableImport:     true,
+		ImportFormats:   []string{"csv", "sql"},
 	}
 }
 

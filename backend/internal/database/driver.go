@@ -68,6 +68,11 @@ var (
 	// ErrNoExportableColumns marks a table whose relation offers nothing to
 	// export (all columns generated/identity, or no columns at all).
 	ErrNoExportableColumns = errors.New("database: table has no exportable columns")
+	// Table import errors (PRF-02/T15).
+	// ErrImportMappingInvalid marks a source→target column mapping that cannot be
+	// applied (source index out of range, unknown/non-insertable target column,
+	// duplicate source binding, or a mapping that imports no column at all).
+	ErrImportMappingInvalid = errors.New("database: import mapping is invalid")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

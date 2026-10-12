@@ -10,14 +10,16 @@ import { useOnline } from "@/hooks/use-online";
 import { useSchema } from "@/hooks/use-schema";
 import { ApiClientError } from "@/lib/api-client";
 import { buildCopyDdlQuery, buildCountRows, buildSelectTop100, extractDdl, identifierQuoteFor, qualifyTable, supportsCopyDdl } from "@/lib/sql/identifiers";
-import { executeQuery } from "@/lib/api/endpoints";
+import { executeQuery, reconnectConnection } from "@/lib/api/endpoints";
 import { copyText } from "@/lib/clipboard";
 import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useExportStore } from "@/store/useExportStore";
+import { useImportStore } from "@/store/useImportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
+import { DatabaseMenu, type DatabaseMenuHandler } from "./database-menu";
 import { DatabaseChildren, SchemaTree, TreeRow, type TableMenuHandler } from "./schema-tree";
 
 /** A table action that also carries the database it belongs to (PRF-01). */
@@ -46,6 +48,7 @@ export function SchemaExplorer({
   const openQueryForTable = useWorkspaceStore(
     (state) => state.openQueryForTable,
   );
+  const openQuery = useWorkspaceStore((state) => state.openQuery);
   const setActiveDatabase = useConnectionStore(
     (state) => state.setActiveDatabase,
   );
@@ -160,10 +163,81 @@ export function SchemaExplorer({
     void query.refetch();
   }
 
+  // Tracks in-flight database reconnects by "<connectionId>/<database>" so a
+  // repeated click cannot start a second reconnect for the same target (no
+  // reconnect storm). Server-side reconnect is itself serialized per target.
+  const reconnecting = useRef<Set<string>>(new Set());
+
+  // Database context menu (PRF-02/T16). Every action receives the database
+  // captured when the menu opened; never the Explorer selection or active tab.
+  const handleDatabaseMenu: DatabaseMenuHandler = (action, database) => {
+    if (!connectionId) return;
+    switch (action) {
+      case "new-query":
+        // A fresh, empty Query tab bound to this database; never executed and
+        // never merged into an existing (possibly dirty) tab.
+        openQuery(connectionId, bindDatabase(database));
+        return;
+      case "refresh": {
+        // Metadata refresh only: reload this database's schema/object discovery.
+        // It never reconnects, never reloads tab data, and never rebinds a tab.
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.schema(connectionId, database),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.databases(connectionId),
+        });
+        return;
+      }
+      case "reconnect":
+        void reconnectDatabase(database);
+        return;
+      case "copy-name":
+        void copyText(database).then((copied) =>
+          showNotice(
+            copied ? "success" : "error",
+            copied ? "Database name copied" : "Copy failed",
+          ),
+        );
+        return;
+      case "import-sql":
+      case "export-sql":
+        // Owned by T17; the descriptors keep these disabled, so they never
+        // dispatch. Defensive no-op if reached.
+        return;
+    }
+  };
+
+  async function reconnectDatabase(database: string) {
+    if (!connectionId) return;
+    const key = `${connectionId}/${database}`;
+    if (reconnecting.current.has(key)) return;
+    reconnecting.current.add(key);
+    showNotice("success", `Reconnecting ${database}…`);
+    try {
+      // Success is reported only after the backend has opened and health-checked
+      // the replacement pool. No query is executed and no tab is rebound.
+      await reconnectConnection(connectionId, bindDatabase(database));
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.schema(connectionId, database),
+      });
+      showNotice("success", `Reconnected ${database}`);
+    } catch (error) {
+      showNotice(
+        "error",
+        error instanceof ApiClientError
+          ? `${error.message} (${error.code})`
+          : "Reconnect failed",
+      );
+    } finally {
+      reconnecting.current.delete(key);
+    }
+  }
+
   // Table context menu (PRF-02/T12). Every action receives the exact target
   // captured when the menu opened (connectionId/database/schema/table); the
   // target is never resolved from the Explorer selection or the active tab.
-  // Import stays a disabled placeholder until T15 and never dispatches.
+  // Import (T15) opens the import dialog for that captured target.
   const handleTableMenu: TableMenuHandler = (
     action,
     schema,
@@ -235,7 +309,15 @@ export function SchemaExplorer({
         });
         return;
       case "import":
-        // Disabled until its engine lands (T15); never silently no-op.
+        // Explicit target captured at menu-open time (α/β): never the active
+        // tab or Explorer selection.
+        useImportStore.getState().open({
+          connectionId,
+          database: bindDatabase(database),
+          schema: schema || null,
+          table,
+          objectType,
+        });
         return;
     }
   };
@@ -291,6 +373,7 @@ export function SchemaExplorer({
             onCopyDdl={handleCopyDdl}
             onOpenTableData={handleOpenTableData}
             onTableMenu={handleTableMenu}
+            onDatabaseMenu={handleDatabaseMenu}
           />
         ) : query.isLoading ? (
           <p className="px-1 text-xs text-muted-foreground">Loading schema…</p>
@@ -316,6 +399,7 @@ export function SchemaExplorer({
               handleOpenTableData(schema, table, database)
             }
             onTableMenu={handleTableMenu}
+            onDatabaseMenu={handleDatabaseMenu}
             onCopyDdl={
               handleCopyDdl
                 ? (schema, table) => handleCopyDdl(schema, table, "")
@@ -347,6 +431,7 @@ function DatabaseExplorer({
   onCopyDdl,
   onOpenTableData,
   onTableMenu,
+  onDatabaseMenu,
 }: {
   connectionId: string;
   onSelectDatabase: (connectionId: string, database: string | null) => void;
@@ -355,6 +440,7 @@ function DatabaseExplorer({
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
   onTableMenu?: TableMenuHandler;
+  onDatabaseMenu?: DatabaseMenuHandler;
 }) {
   const databases = useDatabases(connectionId, true);
   const activeDatabase = useConnectionStore(
@@ -401,6 +487,7 @@ function DatabaseExplorer({
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
           onTableMenu={onTableMenu}
+          onDatabaseMenu={onDatabaseMenu}
         />
       ))}
       {remaining > 0 && (
@@ -436,6 +523,7 @@ function LazyDatabaseNode({
   onCopyDdl,
   onOpenTableData,
   onTableMenu,
+  onDatabaseMenu,
 }: {
   connectionId: string;
   database: string;
@@ -447,8 +535,10 @@ function LazyDatabaseNode({
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
   onTableMenu?: TableMenuHandler;
+  onDatabaseMenu?: DatabaseMenuHandler;
 }) {
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const schema = useSchema(connectionId, database, { enabled: open });
   const tree = schema.data?.[0];
 
@@ -462,6 +552,11 @@ function LazyDatabaseNode({
     });
   }
 
+  function openMenu(event: { preventDefault: () => void }) {
+    event.preventDefault();
+    setMenuOpen(true);
+  }
+
   return (
     <li>
       <TreeRow
@@ -472,6 +567,29 @@ function LazyDatabaseNode({
         open={open}
         selected={selected}
         onToggle={toggle}
+        onContextMenu={onDatabaseMenu ? openMenu : undefined}
+        onKeyDown={
+          onDatabaseMenu
+            ? (event) => {
+                if (
+                  event.key === "ContextMenu" ||
+                  (event.key === "F10" && event.shiftKey)
+                ) {
+                  openMenu(event);
+                }
+              }
+            : undefined
+        }
+        actions={
+          onDatabaseMenu ? (
+            <DatabaseMenu
+              database={database}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              onAction={(action) => onDatabaseMenu(action, database)}
+            />
+          ) : undefined
+        }
       />
       {open &&
         (schema.isLoading ? (

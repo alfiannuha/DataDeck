@@ -18,7 +18,7 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
     ]);
   });
 
-  it("keeps browse/query/copy/export actions enabled and Import disabled pre-T15", () => {
+  it("keeps browse/query/copy/export/import enabled for a writable table", () => {
     const actions = getTableActions({ objectType: "BASE TABLE" });
     for (const id of [
       "view-data",
@@ -26,17 +26,18 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       "structure",
       "refresh",
       "export",
+      "import",
       "copy-name",
       "copy-qualified",
     ]) {
       expect(actions.find((action) => action.id === id)?.disabled).toBe(false);
     }
-    const importAction = actions.find((action) => action.id === "import");
-    expect(importAction?.disabled).toBe(true);
-    expect(importAction?.reason).toContain("later");
+    expect(
+      actions.find((action) => action.id === "import")?.reason,
+    ).toBeUndefined();
   });
 
-  it("explains Import as read-only for views instead of the later-phase reason", () => {
+  it("explains Import as read-only for views instead of enabling it", () => {
     for (const objectType of ["VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"]) {
       const importAction = getTableActions({ objectType }).find(
         (action) => action.id === "import",

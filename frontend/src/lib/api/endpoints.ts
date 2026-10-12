@@ -1,6 +1,7 @@
 import {
   apiFetch,
   apiFetchDownload,
+  apiFetchForm,
   apiFetchMeta,
   type DownloadResult,
   type Paginated,
@@ -20,11 +21,19 @@ import type {
   QueryResult,
   SavedQueryRequest,
   SavedQueryResponse,
+  ReconnectRequest,
+  ReconnectResponse,
   RowMutationResult,
   TableDataPage,
   TableExportRequest,
+  TableImportExecutionResult,
+  TableImportFormat,
+  TableImportSession,
+  TableImportValidation,
   TableStructure,
   TestConnectionResponse,
+  ImportValidationRequest,
+  ImportMapping,
 } from "@/types/api";
 
 /**
@@ -66,6 +75,22 @@ export function deleteConnection(
   return apiFetch<DeleteConnectionResponse>(
     `/connections/${encodeURIComponent(connectionId)}`,
     { method: "DELETE" },
+  );
+}
+
+/**
+ * Reconnect one database of a connection profile (PRF-02/T16). Database-scoped:
+ * the backend replaces only the (connection, database) pool. The saved profile
+ * and its credentials are reused; nothing is deleted and no SQL is executed.
+ */
+export function reconnectConnection(
+  connectionId: string,
+  database?: string | null,
+): Promise<ReconnectResponse> {
+  const body: ReconnectRequest = { database: database ?? undefined };
+  return apiFetch<ReconnectResponse>(
+    `/connections/${encodeURIComponent(connectionId)}/reconnect`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }
 
@@ -285,6 +310,90 @@ export function exportTableData(
   return apiFetchDownload(
     `/connections/${encodeURIComponent(connectionId)}/table-data/export`,
     { method: "POST", body: JSON.stringify(body), signal },
+  );
+}
+
+export interface ImportTargetBody {
+  /** Explicit target that must echo the upload binding (validate/execute). */
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  /** Optional explicit source → target mapping; omission auto-maps by name. */
+  mapping?: ImportMapping[];
+}
+
+/**
+ * Upload a CSV or SQL INSERT script for PRF-02/T15 import. The multipart body
+ * carries the file plus its target binding; the response is a frozen session
+ * (import_id, preview, columns) used by validate and execute.
+ */
+export function uploadTableImport(
+  connectionId: string,
+  params: {
+    database?: string | null;
+    schema?: string | null;
+    table: string;
+    format: TableImportFormat;
+    csvHeader: boolean;
+    file: File;
+  },
+  signal?: AbortSignal,
+): Promise<TableImportSession> {
+  const form = new FormData();
+  form.append("file", params.file, params.file.name);
+  form.append("database", params.database ?? "");
+  if (params.schema) form.append("schema", params.schema);
+  form.append("table", params.table);
+  form.append("format", params.format);
+  form.append("csv_header", String(params.csvHeader));
+  return apiFetchForm<TableImportSession>(
+    `/connections/${encodeURIComponent(connectionId)}/table-import`,
+    form,
+    signal,
+  );
+}
+
+/**
+ * Re-introspects the target and converts rows against the resolved mapping
+ * without writing anything (PRF-02/T15). The returned mapping/errors drive the
+ * import review step. The target must exactly echo the upload binding.
+ */
+export function validateTableImport(
+  connectionId: string,
+  importId: string,
+  body: ImportTargetBody,
+): Promise<TableImportValidation> {
+  const request: ImportValidationRequest = {
+    database: body.database ?? undefined,
+    schema: body.schema ?? undefined,
+    table: body.table,
+    mapping: body.mapping,
+  };
+  return apiFetch<TableImportValidation>(
+    `/connections/${encodeURIComponent(connectionId)}/table-import/${encodeURIComponent(importId)}/validate`,
+    { method: "POST", body: JSON.stringify(request) },
+  );
+}
+
+/**
+ * Streams the spooled upload into one all-or-nothing transaction of
+ * parameterized INSERTs (PRF-02/T15). A failure anywhere rolls the whole import
+ * back. The target must echo the upload binding.
+ */
+export function executeTableImport(
+  connectionId: string,
+  importId: string,
+  body: ImportTargetBody,
+): Promise<TableImportExecutionResult> {
+  const request: ImportValidationRequest = {
+    database: body.database ?? undefined,
+    schema: body.schema ?? undefined,
+    table: body.table,
+    mapping: body.mapping,
+  };
+  return apiFetch<TableImportExecutionResult>(
+    `/connections/${encodeURIComponent(connectionId)}/table-import/${encodeURIComponent(importId)}/execute`,
+    { method: "POST", body: JSON.stringify(request) },
   );
 }
 

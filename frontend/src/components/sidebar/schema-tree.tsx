@@ -21,6 +21,8 @@ import type {
   IntrospectedTable,
 } from "@/types/api";
 
+import { DatabaseMenu, type DatabaseMenuHandler } from "./database-menu";
+
 export type TableActionHandler = (schema: string, table: string) => void;
 
 /**
@@ -60,6 +62,7 @@ export function SchemaTree({
   onCopyDdl,
   onOpenTableData,
   onTableMenu,
+  onDatabaseMenu,
 }: {
   databases: DatabaseSchemaTree[];
   connectionId: string;
@@ -70,6 +73,8 @@ export function SchemaTree({
   onOpenTableData?: (schema: string, table: string, database: string) => void;
   /** Table context menu dispatch; receives the owning database context. */
   onTableMenu?: TableMenuHandler;
+  /** Database context menu dispatch; receives the owning database (T16). */
+  onDatabaseMenu?: DatabaseMenuHandler;
 }) {
   return (
     <ul aria-label="Schema tree" className="flex flex-col gap-0.5 py-1">
@@ -83,6 +88,7 @@ export function SchemaTree({
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
           onTableMenu={onTableMenu}
+          onDatabaseMenu={onDatabaseMenu}
         />
       ))}
     </ul>
@@ -101,6 +107,7 @@ const DatabaseNode = memo(function DatabaseNode({
   onCopyDdl,
   onOpenTableData,
   onTableMenu,
+  onDatabaseMenu,
 }: {
   database: DatabaseSchemaTree;
   depth: number;
@@ -109,15 +116,24 @@ const DatabaseNode = memo(function DatabaseNode({
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: (schema: string, table: string, database: string) => void;
   onTableMenu?: TableMenuHandler;
+  onDatabaseMenu?: DatabaseMenuHandler;
 }) {
   const [open, setOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const schemas = database.schemas ?? [];
   const tables = database.tables ?? [];
   const childCount = schemas.length + tables.length;
+  const databaseName = database.name ?? "";
   const secondary =
     schemas.length > 0
       ? `${schemas.length} schema${schemas.length === 1 ? "" : "s"}`
       : `${tables.length} table${tables.length === 1 ? "" : "s"}`;
+
+  function openMenu(event: { preventDefault: () => void }) {
+    event.preventDefault();
+    setMenuOpen(true);
+  }
+
   return (
     <li>
       <TreeRow
@@ -127,6 +143,29 @@ const DatabaseNode = memo(function DatabaseNode({
         expandable={childCount > 0}
         open={open}
         onToggle={() => setOpen((value) => !value)}
+        onContextMenu={onDatabaseMenu ? openMenu : undefined}
+        onKeyDown={
+          onDatabaseMenu
+            ? (event) => {
+                if (
+                  event.key === "ContextMenu" ||
+                  (event.key === "F10" && event.shiftKey)
+                ) {
+                  openMenu(event);
+                }
+              }
+            : undefined
+        }
+        actions={
+          onDatabaseMenu ? (
+            <DatabaseMenu
+              database={databaseName}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              onAction={(action) => onDatabaseMenu(action, databaseName)}
+            />
+          ) : undefined
+        }
       />
       {open && childCount > 0 && (
         <DatabaseChildren

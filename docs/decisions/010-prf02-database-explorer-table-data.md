@@ -355,7 +355,7 @@ Right-click a table shows its actions, gated by capabilities:
 | View Structure | Opens a `TableStructureTab` |
 | Refresh | Re-fetches the current table’s schema/page |
 | Export → CSV / XLSX / SQL | Calls the table export endpoint (streamed) |
-| Import → CSV / XLSX / SQL | Opens import dialog (multipart upload) |
+| Import → CSV / SQL (XLSX deferred) | Opens import dialog (multipart upload) |
 | Copy Table Name | Clipboard: bare name |
 | Copy Qualified Name | Clipboard: `schema.table` (or `database.table` where applicable) |
 
@@ -364,8 +364,10 @@ Right-click a table shows its actions, gated by capabilities:
 instead of adding a separate `@radix-ui/react-context-menu` dependency. The
 single DropdownMenu is already a justified dependency and covers the required
 interactions: right-click on the table row, a visible `⋯` trigger, and the
-keyboard `Shift+F10` / Context-Menu key. Export and Import render as
-`aria-disabled` items with inline explanations and never dispatch until T14/T15.
+keyboard `Shift+F10` / Context-Menu key. Export (T14) and Import (T15, CSV +
+INSERT-only SQL; XLSX deferred) are both live; Import renders as an
+`aria-disabled` item with an inline explanation and never dispatches for
+read-only objects (views, foreign tables, matviews).
 Menu capabilities are computed from captured metadata at render time; opening
 the menu performs no network fetch.
 
@@ -395,6 +397,57 @@ MySQL/SQLite where meaningful), gated by capabilities:
 
 Actions unsupported by an engine are hidden/disabled, not silently failed; the
 backend also returns `NOT_IMPLEMENTED` as defense in depth.
+
+**T16 (resolved)** — the shipped database context menu offers **New Query**,
+**Refresh Database**, **Reconnect**, and **Copy Database Name**. **Import SQL**
+and **Export SQL** are rendered disabled with an inline explanation — they are
+owned by T17 and are never enabled no-ops; T15's restricted single-table import
+is deliberately *not* reused for database-level scripts. **Delete Database** is
+omitted entirely (owned by T18), not shown as an inert button. The menu is
+engine-agnostic: reconnect is supported by all three engines, so no engine-name
+checks appear in the menu; the action descriptor lives in
+`frontend/src/lib/database-actions.ts` and the node component in
+`frontend/src/components/sidebar/database-menu.tsx`, shared by the server-level
+per-database nodes and the single-database tree. Every action receives the
+**database captured when the menu opened**; it is never resolved from the
+Explorer selection, the active tab, the global selected connection, or a
+bootstrap/default database. If the target is no longer valid the request fails
+closed (never a fallback to another database).
+
+### 11a. Database Reconnect Semantics (PRF-02/T16)
+
+**Decision: reconnect is database-scoped.** `POST /connections/{id}/reconnect`
+with body `{ database? }` replaces exactly one `(connectionId, database)` pool.
+
+- **PostgreSQL (server-level):** PRF-01 pools are lazy per
+  `(connectionId, database)`. Reconnect opens a *replacement* pool for the
+  targeted database, health-checks it, and only then publishes it under the
+  manager lock; the previous pool for that key is retired. Other databases'
+  pools — and their in-flight queries — are untouched (`beta` is never closed
+  when reconnecting `alpha`). It never eager-reconnects every database.
+- **MySQL:** one database per profile, so the key degenerates to the profile's
+  single pool; reconnect re-establishes it. A mismatched request database is
+  rejected (`VALIDATION_ERROR`), never redirected.
+- **SQLite:** reconnect closes and reopens the same file handle; the database
+  file is never deleted, replaced, or re-created.
+- **Fail-closed:** the replacement is established and health-checked *before*
+  publication. If it fails, the existing pool is kept and the error returned.
+- **Serialization:** concurrent `Open`/`Reconnect` for the same key share one
+  in-flight attempt (the manager's existing `opening` mechanism), so repeated
+  clicks cannot stack duplicate pools.
+- **Lifecycle:** the replaced pool is closed outside the lock. `database/sql`
+  `Close` drains in-flight queries (connections close when returned) rather than
+  force-killing them; new requests use the replacement. **No SQL and no mutation
+  is ever replayed**; an ambiguous commit outcome after a network failure is
+  reported honestly and never retried automatically.
+- **Binding safety:** reconnect never opens/closes/rebinds a tab, never changes a
+  `QueryTab`/`TableDataTab`/`TableStructureTab` binding, and never executes a
+  query. On success the client invalidates only that database's schema cache.
+- **Credentials:** the stored profile and encrypted password are reused; no
+  re-entry, no decryption error leakage, no DSN/password in any error.
+- **Out of scope:** Disconnect (not part of the current lifecycle), Delete
+  Database (T18), database import/export (T17).
+
 
 ### 12. Table Structure Design
 
@@ -459,8 +512,17 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
     guard was not reused from `frontend/src/lib/export/values.ts` — that
     client-side helper remains for query-result export. CSV streams inline with
     a `Content-Disposition` attachment filename (`<sanitized>_<YYYYMMDD>.csv`)
-    and a 300s export timeout (`exportTimeoutSeconds`). Import remains
-    unimplemented (T15).
+    and a 300s export timeout (`exportTimeoutSeconds`).
+  - **T15 (resolved):** table **import** ships for CSV and INSERT-only SQL
+    (XLSX deferred, §15). Upload is `multipart/form-data` into a short-lived
+    server-side session bound to the exact target (resolved database +
+    schema/table + file SHA-256 + `format` + `csv_header`); validate converts
+    against the resolved mapping without writing; execute streams the spooled
+    rows into **one all-or-nothing transaction** of parameterized `INSERT`s (no
+    partial import; constraint failure rolls the whole import back). The CSV
+    reader is RFC 4180, treats unquoted empty fields as `NULL`, and treats a
+    quoted empty string as an empty string. Uploads are size-capped and the
+    preview is row-capped (`importMaxPreviewRows`, default 50).
 
 ### 14. SQL Export / Import
 
@@ -476,9 +538,17 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
   transaction where the engine allows it. This is inherently privileged and
   untrusted; it is gated behind a capability, requires an explicit target
   `database` in the body, runs under the statement timeout, and reports the
-  first failing statement/position. Multi-statement boundaries are parsed
-  conservatively; statement splitting that mishandles dialect specifics is a
-  known risk.
+    first failing statement/position. Multi-statement boundaries are parsed
+    conservatively; statement splitting that mishandles dialect specifics is a
+    known risk.
+    - **T15 (resolved):** table SQL import is deliberately **narrower** than the
+      general database SQL import above: it accepts only a plain batch of
+      `INSERT` statements targeting insertable columns of the bound table.
+      DDL/DML of any other kind, multiple target tables, and prepared/parameter
+      forms are rejected with `400 IMPORT_FORMAT_UNSUPPORTED`; the script is
+      parsed to an AST and validated before execution, then replayed inside the
+      same all-or-nothing transaction as CSV import. Database-level SQL import
+      remains a separate, future endpoint.
 - Database-level import/export is designed **separately** from table-level
   (different endpoints, different limits/confirmations).
   - **T14 (resolved):** table SQL export emits one `INSERT` per row into a
@@ -513,6 +583,11 @@ the backend also returns `NOT_IMPLEMENTED` as defense in depth.
   values written via `SetCellStr` (inline string cells) so formula-like
   leading characters (`= + @ -`) remain literal and are never interpreted by
   Excel, matching the CSV formula guard without a separate escape.
+- **T15 (resolved):** XLSX **import** remains deferred — T15 ships CSV and
+  INSERT-only SQL only (§13, §14). The reader/ZIP-bomb caps above stay
+  unimplemented until an XLSX import task is approved; the import endpoint
+  advertises `csv` and `sql` and rejects `format=xlsx` with
+  `400 IMPORT_FORMAT_UNSUPPORTED`.
 
 ### 16. Database Import / Export
 
@@ -523,9 +598,16 @@ against an explicit target database with the same transaction and timeout
 guarantees. Native command-line tools are **not** assumed. Database-level
 operations are capability-gated per engine.
 
+**T16 boundary:** the database context menu exposes **Import SQL** and **Export
+SQL** as disabled, explained slots; the engine is owned by **T17**. T15's
+restricted single-table SQL import is not reused for database-level scripts.
+
 ### 17. Destructive Database-Management Safety (DROP DATABASE)
 
 `DROP DATABASE` is HIGH RISK and must never be reachable by accident.
+
+**T16 boundary:** Delete Database is owned by **T18**. The T16 database menu
+omits the slot entirely (no inert button, no DROP DATABASE endpoint).
 
 Frontend:
 
@@ -585,7 +667,7 @@ ImportFormats    []string
 | sorting | yes | yes | yes |
 | structure | yes | yes | yes |
 | table export | yes (CSV/SQL/XLSX*) | yes (CSV/SQL/XLSX*) | yes (CSV/SQL/XLSX*) |
-| table import | yes (CSV/SQL/XLSX*) | yes (CSV/SQL/XLSX*) | yes (CSV/SQL/XLSX*) |
+| table import | yes (CSV/SQL) | yes (CSV/SQL) | yes (CSV/SQL) |
 | database export | yes | yes | n/a (single file) |
 | database import | yes | yes | n/a (single file) |
 | reconnect | yes | yes | yes |
@@ -609,8 +691,9 @@ object-level behavior:
 | materialized view | read-only | n/a | n/a |
 | foreign table | insert/update/delete only if the foreign table exposes a safe identity and the FDW permits it; otherwise read-only | n/a | n/a |
 
-\* XLSX export shipped with T14 (see §15); XLSX **import** remains future work,
-so `table import` cells above still list XLSX with the asterisk. SQLite
+\* XLSX export shipped with T14 (see §15). XLSX **import** remains future work
+(T15 ships CSV + INSERT-only SQL only, §13/§14), so `table import` above lists
+`CSV/SQL` without XLSX. SQLite
 “database” actions are limited to the file/store; there is no logical database
 to create/drop.
 
@@ -726,6 +809,21 @@ before use):
 `ROW_CONFLICT`, `ROW_NOT_FOUND`, and `MUTATION_AFFECTED_MULTIPLE_ROWS` map to
 distinct user-facing guidance; `MUTATION_AFFECTED_MULTIPLE_ROWS` is a server-side
 safety abort and is never reported as success.
+
+**T15 (resolved):** the shipped import codes are
+`IMPORT_FORMAT_UNSUPPORTED` (400; XLSX/unknown format, or SQL not a plain
+INSERT-only batch), `IMPORT_VALIDATION_ERROR` (400; parse/convert/mapping failure
+or a file changed after upload), and `IMPORT_TOO_LARGE` (413; upload over the
+size cap). Unknown/expired import session → `NOT_FOUND` (404); read-only object
+→ `ROW_NOT_MUTABLE` (400); constraint rejection → `CONSTRAINT_VIOLATION` (409,
+whole import rolled back). See `docs/api-contract.md` §3 for the authoritative
+list.
+
+**T16 (resolved):** reconnect reuses the existing connection taxonomy:
+`CONNECTION_ERROR` (502), `CONNECTION_TIMEOUT` (504, new), `DATABASE_NOT_FOUND`
+(400), `DATABASE_CONNECT_DENIED` (400), `DATABASE_REQUIRED` (400),
+`NOT_FOUND` (404), `QUERY_CANCELED` (499). Errors are sanitized (no DSN/host/
+credentials).
 
 Existing `DATABASE_*`, `CONNECTION_ERROR`, `QUERY_TIMEOUT`, `NOT_IMPLEMENTED`,
 `INTROSPECTION_*`, `VALIDATION_ERROR`, `INTERNAL_ERROR` remain authoritative.

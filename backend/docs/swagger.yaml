@@ -153,6 +153,20 @@ components:
           - ERROR
           type: string
       type: object
+    handler.ImportValidationRequest:
+      properties:
+        database:
+          type: string
+        mapping:
+          items:
+            $ref: '#/components/schemas/model.ImportMapping'
+          type: array
+          uniqueItems: false
+        schema:
+          type: string
+        table:
+          type: string
+      type: object
     handler.InsertRowRequest:
       properties:
         database:
@@ -186,6 +200,21 @@ components:
       required:
       - connection_id
       - sql
+      type: object
+    handler.ReconnectRequest:
+      properties:
+        database:
+          example: alpha
+          type: string
+      type: object
+    handler.ReconnectResponse:
+      properties:
+        database:
+          example: alpha
+          type: string
+        status:
+          example: ok
+          type: string
       type: object
     handler.RowMutationRequest:
       properties:
@@ -322,6 +351,44 @@ components:
           type: string
         referenced_table:
           type: string
+      type: object
+    model.ImportCell:
+      properties:
+        is_null:
+          description: |-
+            IsNull reports an explicit NULL (empty unquoted CSV field, or the NULL
+            literal in an SQL script).
+          type: boolean
+        value:
+          type: string
+      type: object
+    model.ImportMapping:
+      properties:
+        source:
+          example: 0
+          type: integer
+        target:
+          example: name
+          type: string
+      type: object
+    model.ImportMappingResolved:
+      properties:
+        source:
+          type: integer
+        target:
+          type: string
+      type: object
+    model.ImportValidationError:
+      properties:
+        column:
+          example: age
+          type: string
+        message:
+          example: value is not numeric
+          type: string
+        row:
+          example: 17
+          type: integer
       type: object
     model.Index:
       properties:
@@ -669,6 +736,86 @@ components:
           type: array
           uniqueItems: false
       type: object
+    model.TableImportExecutionResult:
+      properties:
+        database:
+          type: string
+        elapsed_ms:
+          type: integer
+        inserted:
+          type: integer
+        rows:
+          type: integer
+        schema:
+          type: string
+        table:
+          type: string
+      type: object
+    model.TableImportSession:
+      properties:
+        columns:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        created_at:
+          type: string
+        database:
+          type: string
+        filename:
+          type: string
+        format:
+          type: string
+        header_row:
+          type: boolean
+        import_id:
+          type: string
+        preview:
+          items:
+            items:
+              $ref: '#/components/schemas/model.ImportCell'
+            type: array
+          type: array
+          uniqueItems: false
+        row_count:
+          type: integer
+        schema:
+          type: string
+        size_bytes:
+          type: integer
+        table:
+          type: string
+      type: object
+    model.TableImportValidation:
+      properties:
+        columns:
+          items:
+            $ref: '#/components/schemas/model.TableColumnInfo'
+          type: array
+          uniqueItems: false
+        database:
+          type: string
+        errors:
+          items:
+            $ref: '#/components/schemas/model.ImportValidationError'
+          type: array
+          uniqueItems: false
+        mapping:
+          items:
+            $ref: '#/components/schemas/model.ImportMappingResolved'
+          type: array
+          uniqueItems: false
+        object_type:
+          type: string
+        row_count:
+          type: integer
+        schema:
+          type: string
+        table:
+          type: string
+        valid:
+          type: boolean
+      type: object
     model.TablePagination:
       properties:
         has_more:
@@ -948,6 +1095,73 @@ paths:
       summary: List selectable databases
       tags:
       - schema
+  /connections/{id}/reconnect:
+    post:
+      description: 'Replaces the pool for the explicit database target with a freshly
+        opened, health-checked one (PRF-02/T16). Database-scoped: other databases
+        on the same server-level profile are untouched. The saved profile and its
+        credentials are reused; nothing is deleted and no SQL is executed. Fails closed
+        (the existing pool is kept on failure) and never replays a mutation.'
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.ReconnectRequest'
+              description: Explicit database target (required for server-level PostgreSQL)
+              summary: request
+        description: Explicit database target (required for server-level PostgreSQL)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Gateway Timeout
+      summary: Reconnect one database of a connection
+      tags:
+      - connections
   /connections/{id}/schemas:
     get:
       description: Returns a database-neutral schema tree (schemas, tables, columns,
@@ -1430,6 +1644,270 @@ paths:
                 $ref: '#/components/schemas/response.ErrorEnvelope'
           description: Gateway Timeout
       summary: Insert one row
+      tags:
+      - table-data
+  /connections/{id}/table-import:
+    post:
+      description: Accepts a CSV (RFC 4180) or restricted SQL INSERT-only script for
+        PRF-02/T15 import against the explicit connection + database + schema + table.
+        The file is spooled, hashed, parsed into cells, and bound to the resolved
+        target; returns a preview and an immutable import_id used by the validate/execute
+        stages. The SQL format only parses single-table INSERT statements — never
+        raw SQL/expressions.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                csv_header:
+                  description: Treat the first record as a header (csv only)
+                  enum:
+                  - "true"
+                  - "false"
+                  type: string
+                database:
+                  description: Target database (optional for postgres profiles with
+                    a default)
+                  type: string
+                file:
+                  description: CSV or SQL script file
+                  format: binary
+                  type: string
+                format:
+                  description: Import format
+                  enum:
+                  - csv
+                  - sql
+                  type: string
+                schema:
+                  description: Target schema (required for postgres)
+                  type: string
+                table:
+                  description: Target table
+                  type: string
+              required:
+              - file
+              - database
+              - table
+              - format
+              type: object
+        description: CSV or SQL script file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Request Entity Too Large
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Internal Server Error
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Gateway Timeout
+      summary: Upload a file for table import
+      tags:
+      - table-data
+  /connections/{id}/table-import/{import_id}/execute:
+    post:
+      description: Streams the spooled upload into one all-or-nothing transaction
+        of parameterized INSERTs. The target and mapping are re-resolved fresh from
+        introspection; any single failure (constraint, NOT NULL, timeout) rolls the
+        whole import back — never a partial commit. The request target must exactly
+        echo the upload binding.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Import session id
+        in: path
+        name: import_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.ImportValidationRequest'
+              description: Echo the upload binding plus the resolved mapping
+              summary: body
+        description: Echo the upload binding plus the resolved mapping
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Conflict
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Gateway Timeout
+      summary: Execute an uploaded import
+      tags:
+      - table-data
+  /connections/{id}/table-import/{import_id}/validate:
+    post:
+      description: Re-introspects the target and converts every row against the resolved
+        mapping without writing anything, returning localized validation errors (first
+        50), the effective mapping and the column plan. The request target must exactly
+        echo the upload binding; the spooled file is re-hashed to guarantee immutability.
+        No data is written.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Import session id
+        in: path
+        name: import_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.ImportValidationRequest'
+              description: Echo the upload binding plus the resolved mapping
+              summary: body
+        description: Echo the upload binding plus the resolved mapping
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Gateway Timeout
+      summary: Validate an uploaded import
       tags:
       - table-data
   /connections/{id}/table-structure:

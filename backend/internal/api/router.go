@@ -70,6 +70,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/connections", connections.Create)
 		r.Post("/connections/test", connections.Test)
 		r.Delete("/connections/{id}", connections.Delete)
+		r.Post("/connections/{id}/reconnect", connections.Reconnect)
 		r.Get("/connections/{id}/schemas", connections.Schemas)
 		r.Get("/connections/{id}/databases", connections.Databases)
 		r.Get("/connections/{id}/table-data", connections.TableData)
@@ -78,6 +79,9 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/connections/{id}/table-data/rows", connections.DeleteRow)
 		r.Get("/connections/{id}/table-structure", connections.TableStructure)
 		r.Post("/connections/{id}/table-data/export", connections.TableExport)
+		r.Post("/connections/{id}/table-import", connections.TableImportUpload)
+		r.Post("/connections/{id}/table-import/{import_id}/validate", connections.TableImportValidate)
+		r.Post("/connections/{id}/table-import/{import_id}/execute", connections.TableImportExecute)
 
 		r.Post("/query/execute", queries.Execute)
 		r.Get("/query/history", queries.History)

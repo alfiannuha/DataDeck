@@ -28,4 +28,9 @@ type Capabilities struct {
 	// from introspection metadata, not from this flag.
 	TableExport   bool     `json:"table_export"`
 	ExportFormats []string `json:"export_formats"`
+	// TableImport reports whether the driver validates and imports table data
+	// from uploaded files and which formats it supports (PRF-02/T15): only
+	// value-level INSERTs for a mutable base table, always parameterized.
+	TableImport   bool     `json:"table_import"`
+	ImportFormats []string `json:"import_formats"`
 }

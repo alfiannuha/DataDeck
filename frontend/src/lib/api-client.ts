@@ -141,6 +141,68 @@ export async function apiFetchMeta<T>(
   };
 }
 
+/**
+ * Multipart/form-data POST whose body is a FormData instance (file uploads).
+ * The JSON Content-Type must not be set — the browser adds the multipart
+ * boundary itself. Error normalization matches apiFetch: JSON envelope only.
+ */
+async function requestEnvelopeForm<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<ApiEnvelope<T>> {
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(path), {
+      method: "POST",
+      body: init?.body,
+      signal: init?.signal,
+      headers: init?.headers,
+    });
+  } catch (cause) {
+    if (isAbortError(cause)) {
+      throw cause;
+    }
+    throw new ApiClientError(
+      cause instanceof Error ? cause.message : "Network request failed",
+      "CONNECTION_ERROR",
+      0,
+    );
+  }
+
+  const envelope = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null;
+
+  if (!envelope || typeof envelope.success !== "boolean") {
+    throw new ApiClientError(
+      "Malformed API response",
+      "INTERNAL_ERROR",
+      response.status,
+    );
+  }
+
+  if (!envelope.success || envelope.error) {
+    throw new ApiClientError(
+      envelope.error?.message ?? "Request failed",
+      envelope.error?.code ?? "INTERNAL_ERROR",
+      response.status,
+      envelope.error?.position,
+    );
+  }
+
+  return envelope;
+}
+
+/** Like apiFetch but for multipart/form-data bodies (file uploads). */
+export async function apiFetchForm<T>(
+  path: string,
+  form: FormData,
+  signal?: AbortSignal,
+): Promise<T> {
+  const envelope = await requestEnvelopeForm<T>(path, { body: form, signal });
+  return envelope.data;
+}
+
 /** A binary attachment returned by a download endpoint. */
 export interface DownloadResult {
   blob: Blob;

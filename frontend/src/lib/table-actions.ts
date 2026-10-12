@@ -33,11 +33,9 @@ export function isReadOnlyObject(objectType: string | undefined): boolean {
 }
 
 /**
- * Import lands in a later PRF-02 task (T15). Until then the item exists so users
- * can see the surface, but it is an inert placeholder — never faked or silently
- * no-op'd. Export (T14) is live.
+ * Import lands in PRF-02/T15: enabled for writable objects only, disabled with
+ * an explanation for views/foreign tables. Export (T14) is live.
  */
-const LATER_PHASE_REASON = "This feature arrives in a later update.";
 
 /**
  * Menu items in display order. `import` is gated on the object being writable:
@@ -57,8 +55,8 @@ export function getTableActions(target: {
     {
       id: "import",
       label: "Import",
-      disabled: true,
-      reason: readOnly ? "This object is read-only." : LATER_PHASE_REASON,
+      disabled: readOnly,
+      reason: readOnly ? "This object is read-only." : undefined,
     },
     { id: "copy-name", label: "Copy Table Name", disabled: false },
     { id: "copy-qualified", label: "Copy Qualified Name", disabled: false },

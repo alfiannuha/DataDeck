@@ -15,6 +15,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,9 @@ const (
 	defaultPostgresPort   = 5432
 	defaultMySQLPort      = 3306
 	testConnectionTimeout = 10 * time.Second
+	// reconnectTimeout bounds one database-scoped reconnect (PRF-02/T16). It is
+	// longer than a profile test because it replaces a live pool under load.
+	reconnectTimeout = 15 * time.Second
 )
 
 // defaultPortFor returns the conventional port for a supported driver.
@@ -52,6 +56,11 @@ type ConnectionHandler struct {
 	manager     *database.Manager
 	cipher      *security.Cipher
 	logger      *slog.Logger
+
+	// importSessions holds the in-memory table-import upload bindings
+	// (connection-scoped, TTL-expiring); see table_import.go.
+	importMu       sync.Mutex
+	importSessions map[string]*importSession
 }
 
 // NewConnectionHandler constructs a handler for connection profile endpoints.
@@ -61,7 +70,13 @@ func NewConnectionHandler(
 	cipher *security.Cipher,
 	logger *slog.Logger,
 ) *ConnectionHandler {
-	return &ConnectionHandler{connections: connections, manager: manager, cipher: cipher, logger: logger}
+	return &ConnectionHandler{
+		connections:    connections,
+		manager:        manager,
+		cipher:         cipher,
+		logger:         logger,
+		importSessions: map[string]*importSession{},
+	}
 }
 
 // ConnectionRequest is the body for creating a connection profile. The password
@@ -133,6 +148,20 @@ type TestConnectionResponse struct {
 // DeleteConnectionResponse is returned by the delete endpoint.
 type DeleteConnectionResponse struct {
 	ID string `json:"id"`
+}
+
+// ReconnectRequest is the body for POST /connections/{id}/reconnect (PRF-02/T16).
+// `database` is the explicit target; it is required for a server-level
+// PostgreSQL profile and must match the profile database for MySQL/SQLite.
+type ReconnectRequest struct {
+	Database string `json:"database" example:"alpha"`
+}
+
+// ReconnectResponse is returned by the reconnect endpoint after the replacement
+// pool has been established and health-checked.
+type ReconnectResponse struct {
+	Status   string `json:"status" example:"ok"`
+	Database string `json:"database" example:"alpha"`
 }
 
 // List godoc
@@ -277,6 +306,94 @@ func (h *ConnectionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, DeleteConnectionResponse{ID: id})
+}
+
+// Reconnect godoc
+// @Summary      Reconnect one database of a connection
+// @Description  Replaces the pool for the explicit database target with a freshly opened, health-checked one (PRF-02/T16). Database-scoped: other databases on the same server-level profile are untouched. The saved profile and its credentials are reused; nothing is deleted and no SQL is executed. Fails closed (the existing pool is kept on failure) and never replays a mutation.
+// @Tags         connections
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                    true  "Connection id"
+// @Param        request  body      handler.ReconnectRequest  false  "Explicit database target (required for server-level PostgreSQL)"
+// @Success      200      {object}  response.Envelope{data=handler.ReconnectResponse}
+// @Failure      400      {object}  response.ErrorEnvelope
+// @Failure      404      {object}  response.ErrorEnvelope
+// @Failure      502      {object}  response.ErrorEnvelope
+// @Failure      504      {object}  response.ErrorEnvelope
+// @Router       /connections/{id}/reconnect [post]
+func (h *ConnectionHandler) Reconnect(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "connection id is required")
+		return
+	}
+
+	var req ReconnectRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	profile, err := h.connections.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			response.WriteError(w, http.StatusNotFound, "NOT_FOUND", "connection profile not found")
+			return
+		}
+		h.internalError(w, r, "get_connection", err)
+		return
+	}
+
+	password := ""
+	if profile.EncryptedPassword != nil {
+		plaintext, err := h.cipher.Decrypt(*profile.EncryptedPassword)
+		if err != nil {
+			h.internalError(w, r, "decrypt_password", err)
+			return
+		}
+		password = string(plaintext)
+	}
+
+	effectiveDatabase, err := resolveTargetDatabase(profile, req.Database)
+	if err != nil {
+		writeResolveDatabaseError(w, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), reconnectTimeout)
+	defer cancel()
+
+	cfg := toDatabaseConfig(profile, password)
+	cfg.Database = effectiveDatabase
+	if err := h.manager.Reconnect(ctx, id, cfg); err != nil {
+		h.logger.Warn("reconnect_failed",
+			"request_id", chimiddleware.GetReqID(r.Context()),
+			"driver", string(profile.Driver),
+			"error", err.Error(),
+		)
+		h.reconnectError(w, r, err)
+		return
+	}
+	response.Success(w, ReconnectResponse{Status: "ok", Database: effectiveDatabase})
+}
+
+// reconnectError maps a reconnect failure to the contract taxonomy. Errors are
+// sanitized: no DSN, host, or credentials are ever included.
+func (h *ConnectionHandler) reconnectError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		response.WriteError(w, http.StatusGatewayTimeout, "CONNECTION_TIMEOUT", "the reconnect timed out")
+	case errors.Is(err, context.Canceled):
+		response.WriteError(w, 499, "QUERY_CANCELED", "the reconnect was canceled")
+	case errors.Is(err, database.ErrDatabaseNotFound):
+		response.WriteError(w, http.StatusBadRequest, "DATABASE_NOT_FOUND", "the requested database does not exist")
+	case errors.Is(err, database.ErrDatabaseConnectDenied):
+		response.WriteError(w, http.StatusBadRequest, "DATABASE_CONNECT_DENIED", "the connection has no CONNECT permission on that database")
+	case errors.Is(err, database.ErrUnsupportedDriver):
+		response.ValidationError(w, "the connection driver is not supported yet")
+	default:
+		response.WriteError(w, http.StatusBadGateway, "CONNECTION_ERROR", "failed to reconnect to the database")
+	}
 }
 
 func (h *ConnectionHandler) repositoryError(w http.ResponseWriter, r *http.Request, action string, err error) {
