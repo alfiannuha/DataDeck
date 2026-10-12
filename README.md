@@ -1,172 +1,103 @@
 # DataDeck
 
-DataDeck is a lightweight, local-first Web/PWA database GUI. It pairs a small Go
+**Version 0.1.0**
+
+DataDeck is a lightweight, **local-first** database GUI. It pairs a small Go
 daemon (connection pooling, schema introspection, query execution, credential
-encryption, local app state) with a Next.js/React interface designed for fast,
-virtualized data browsing.
+encryption, local app state) with a Next.js/React interface built for fast,
+virtualized data browsing. It ships as a **single self-contained binary** with the
+frontend embedded — no Node.js runtime is required to run it.
 
-> **Status:** Feature-complete through M4 (product complete) and in M5
-> production hardening. Connections, schema explorer, SQL editor, virtualized
-> grid, history, saved queries, CSV/JSON export, and the PWA/offline shell are
-> implemented. Packaging/distribution work is not part of the current milestone.
+DataDeck binds to **localhost by default** and has **no general-purpose
+authentication**; it is intended to run on your own machine, not on a public
+network.
 
-## Architecture Summary
+## Core capabilities
 
-- **Frontend** — Next.js (App Router), React, TypeScript, Tailwind CSS. Owns UI,
-  editor, virtualized grid, and transient view state. Talks to the backend over
-  HTTP/REST at `/api/v1` using a standard response envelope.
-- **Backend** — Go daemon (Chi router target) that owns connection pooling,
-  schema introspection, query execution, AES-256-GCM credential encryption, and
-  the embedded SQLite app store.
-- **Local Storage** — Embedded SQLite (`modernc.org/sqlite`) for connection
-  profiles, query history, and saved queries.
-- **Target Databases** — PostgreSQL (`jackc/pgx/v5`), MySQL
-  (`go-sql-driver/mysql`), and SQLite (`modernc.org/sqlite`) via
-  `database/sql`.
+- Connection profile management with AES-256-GCM encrypted credentials.
+- Target databases: **PostgreSQL**, **MySQL**, **SQLite**.
+- PostgreSQL **multi-database discovery** (one server-level profile, many databases).
+- Schema Explorer with lazy, per-database metadata loading.
+- SQL editor (CodeMirror 6) with explicit query tabs, history, and saved queries.
+- Virtualized, server-side paginated **Table Data** browsing with filtering and sorting.
+- Safe single-row **CRUD** (insert / update / delete / duplicate) with optimistic concurrency.
+- Read-only **Table Structure** inspection (columns, keys, indexes, constraints, foreign keys).
+- **Table import/export** (CSV, XLSX, restricted SQL) and **database export/restore** (SQL, base tables).
+- Database **reconnect** and a two-phase, policy-gated **Delete Database**.
+- PWA/static frontend served from the embedded binary.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design, and
-[`PRD.md`](PRD.md) for the product source of truth.
+## Supported databases
 
-## Repository Structure
+| Engine | Connect | Browse/CRUD | Import/Export | Reconnect | Restore | Delete database |
+|---|---|---|---|---|---|---|
+| PostgreSQL | Yes | Yes | Yes | Yes | Yes | Yes |
+| MySQL | Yes | Yes | Yes | Yes | **No** (disabled) | Yes |
+| SQLite | Yes | Yes | Yes | Yes | Yes | **No** (disabled) |
 
-```text
-datadeck/
-├── .github/workflows/   # CI workflows (placeholders)
-├── backend/             # Go daemon
-│   ├── cmd/server/      # Entry point
-│   ├── internal/        # api, config, database, model, repository, security
-│   ├── docs/            # Generated Swagger docs (placeholder)
-│   ├── go.mod
-│   └── Makefile
-├── frontend/            # Next.js App Router app
-│   └── src/app/         # Minimal App Router shell
-├── docker/              # Docker assets (placeholder)
-├── docs/                # Architecture, API, security, testing, ADRs
-├── scripts/             # Developer scripts (placeholder)
-├── Makefile
-├── PRD.md
-└── README.md
-```
+See [docs/reference/database-capabilities.md](docs/reference/database-capabilities.md).
 
-## Prerequisites
+## Supported platforms
 
-- Go **1.25+** (module minimum; PRD §8.1 says 1.23+). The repo pins a patched build toolchain (`toolchain go1.26.6`) for standard-library security fixes.
-- Node.js **20 LTS+** with `npm` (PRD §8.1)
-- Accessible PostgreSQL or MySQL server for future integration testing
+Prebuilt single binaries are produced for: macOS (arm64, amd64), Linux (amd64,
+arm64), and Windows (amd64). See
+[docs/reference/supported-platforms.md](docs/reference/supported-platforms.md).
 
-## Development Workflow
+## Installation
 
-Canonical workflow: **clone → setup → dev → test → build**. `make build`
-produces a single self-contained executable (Go API + embedded PWA frontend) —
-no Node.js runtime is required to run it.
+Standalone binaries are named `datadeck_<version>_<os>_<arch>[.exe]`. Release
+artifacts are **not yet published** (publishing is a later release step); build
+from source for now: [docs/development/building.md](docs/development/building.md).
+
+## Quick start
 
 ```bash
-git clone <repository-url>
-cd datadeck
-make setup     # install frontend deps + download Go modules
-make dev       # start the development environment
-make test      # run available tests
-make build     # produce the single self-contained binary (embedded frontend)
+# 1. Generate an encryption key (32 raw bytes / 64 hex chars) and keep it safe.
+export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+
+# 2. Run the daemon (defaults: http://127.0.0.1:8080, ./data/datadeck.db).
+./datadeck
+
+# 3. Open http://127.0.0.1:8080 in your browser, create a connection, and browse.
 ```
 
-Run `make help` to list every command.
+Full walkthrough: [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md).
 
-| Command | Description |
-|---|---|
-| `make setup` | Install frontend deps and download Go modules |
-| `make dev` | Start the development environment |
-| `make backend` | Run the Go backend |
-| `make frontend` | Run the Next.js dev server |
-| `make test` | Run backend and frontend tests |
-| `make lint` | Run backend `go vet` and frontend ESLint |
-| `make typecheck` | Compile backend and run frontend `tsc --noEmit` |
-| `make build` | Build the single self-contained binary (embedded frontend) at `backend/bin/datadeck` |
-| `make clean` | Remove build artifacts |
-| `make check` | Run `lint` + `typecheck` |
+## Security model
 
-> **Development note:** `make dev` starts the frontend dev server; run
-> `make backend` in a second terminal for the Go daemon
-> (`http://127.0.0.1:8080`). A combined parallel dev runner is future work.
+Local-first; loopback binding by default (`ALLOW_REMOTE=1` required to bind
+wider, which is unsupported for public use); stored credentials encrypted with a
+required `ENCRYPTION_KEY`; no authentication layer. See
+[docs/security/security-guide.md](docs/security/security-guide.md).
 
-Individual tools remain available directly, e.g. `cd backend && go test ./...`
-or `cd frontend && npm run typecheck`.
+## Known limitations
 
-## Configuration & Safe Defaults
-
-Copy [`.env.example`](.env.example) to `.env` and edit locally. Placeholders
-only — never commit real secrets.
-
-| Variable | Default | Notes |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Loopback only. A non-loopback value is **refused** unless `ALLOW_REMOTE=1`. |
-| `ALLOW_REMOTE` | *(unset)* | Explicit opt-in for wider binding; falsy/typo values fail safe. |
-| `PORT` | `8080` | 1–65535. |
-| `STORAGE_PATH` | `./data/datadeck.db` | Embedded SQLite app store; directory created `0700`, file narrowed to `0600`. |
-| `ENCRYPTION_KEY` | *(required)* | 32 raw bytes or 64 hex chars. Absent/invalid **aborts startup** (no fallback). |
-| `ENVIRONMENT` | `development` | `development` \| `test` \| `production`. |
-| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. Logs never contain secrets. |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Explicit allowlist; no wildcard. |
-| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:8080` | Frontend API base. Set `""` for future same-origin/single-binary. |
-
-Enforced limits (safe defaults, tested):
-
-| Limit | Value |
-|---|---|
-| Query timeout (default / maximum) | 30 s / 300 s |
-| Request body | 1 MiB (`application/json` only) |
-| Result payload cap | 50 MB, then `truncated: true` |
-| Pagination | `page ≤ 1,000,000`, `page_size ≤ 200` (default 50) |
-| Target DB pool | `MaxOpenConns 5`, `MaxIdleConns 2` (SQLite: 1) |
-| Credential key | AES-256-GCM, fresh nonce per record |
-
-## Operations
-
-**Install (single binary).** `make build` produces
-`backend/bin/datadeck`; release archives
-(`datadeck_<version>_<os>_<arch>.tar.gz`/`.zip`, containing the binary plus a
-`VERSION` file) are attached to tagged releases. Run `datadeck --version` to
-confirm build metadata.
-
-**Configuration & encryption key.** Provide `ENCRYPTION_KEY` (32 raw bytes or 64
-hex characters) in the environment; startup **refuses to run without a valid
-key** and there is no insecure fallback. Keep the key outside backups and out of
-version control. See [`.env.example`](.env.example).
-
-**Data location.** The embedded store defaults to `./data/datadeck.db`; point
-`STORAGE_PATH` at a user-private directory (e.g. `~/.datadeck/datadeck.db`). The
-directory is created `0700` and the store files are narrowed to `0600`.
-
-**Backup / restore.** Stop DataDeck, then copy `datadeck.db` together with
-`datadeck.db-wal` and `datadeck.db-shm` as a consistent set. Restore by
-replacing those files while stopped. Never store the encryption key beside the
-backup.
-
-**Upgrade / rollback.** Replace the binary and start it against the same
-`STORAGE_PATH`; migrations are applied automatically and are **forward-only**.
-Rollback by restoring a pre-upgrade backup with the previous binary (downgrade
-is not guaranteed once a migration has been applied).
-
-**Docker.** See [`docs/release/docker.md`](docs/release/docker.md). The image
-runs the same single binary as a non-root user, persists `/data`, and requires
-`ENCRYPTION_KEY` at runtime (never baked in).
-
-**Known limitations.** Linux and Windows binaries are cross-compiled but not
-runtime-verified in this repository; the API has no authentication and binds
-loopback by default (but the container image deliberately binds wider inside the
-container — control exposure at the host/network layer); the web build carries
-two build-time-only npm advisories pending a Next.js major upgrade (see
-[`docs/release/licenses.md`](docs/release/licenses.md)); deep pagination uses
-`OFFSET`.
+No SSH tunneling, no authentication, no public hosting, no schema designer, no
+MySQL restore, no SQLite database deletion, table import is INSERT-only, and
+database export covers base tables only. See
+[docs/reference/limitations.md](docs/reference/limitations.md).
 
 ## Documentation
 
-- [PRD.md](PRD.md) — product requirements and technical blueprint
-- [docs/architecture.md](docs/architecture.md) — system architecture and boundaries
-- [docs/api-contract.md](docs/api-contract.md) — API envelope and endpoints
-- [docs/security.md](docs/security.md) — mandatory security rules
-- [docs/testing-strategy.md](docs/testing-strategy.md) — testing layers and gates
-- [docs/decisions/](docs/decisions/) — architecture decision records
+- Getting started: [installation](docs/getting-started/installation.md) · [quick start](docs/getting-started/quick-start.md) · [configuration](docs/getting-started/configuration.md)
+- User guide: [connections](docs/user-guide/connections.md) · [database explorer](docs/user-guide/database-explorer.md) · [query editor](docs/user-guide/query-editor.md) · [table data](docs/user-guide/table-data.md) · [row CRUD](docs/user-guide/row-crud.md) · [table structure](docs/user-guide/table-structure.md) · [table import/export](docs/user-guide/table-import-export.md) · [database management](docs/user-guide/database-management.md)
+- Reference: [capabilities](docs/reference/database-capabilities.md) · [platforms](docs/reference/supported-platforms.md) · [limitations](docs/reference/limitations.md) · [troubleshooting](docs/reference/troubleshooting.md)
+- Security: [security guide](docs/security/security-guide.md)
+- Development: [local development](docs/development/local-development.md) · [testing](docs/development/testing.md) · [building](docs/development/building.md)
+- Architecture & API: [architecture](docs/architecture.md) · [API contract](docs/api-contract.md) · [OpenAPI](backend/docs/swagger.json)
+- Release: [v0.1.0 release notes](docs/releases/v0.1.0/release-notes.md) · [CHANGELOG](CHANGELOG.md)
+
+## Development
+
+```bash
+make setup    # install frontend deps + download Go modules
+make test     # backend + frontend tests
+make lint     # go vet + eslint
+make build    # single binary with the embedded frontend
+```
+
+See [docs/development/local-development.md](docs/development/local-development.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+`PRD.md` is the product source of truth.
