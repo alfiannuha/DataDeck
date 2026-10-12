@@ -66,6 +66,12 @@ type ConnectionHandler struct {
 	// (PRF-02/T17, TTL-expiring); see database_import.go.
 	scriptMu       sync.Mutex
 	scriptSessions map[string]*scriptSession
+
+	// deleteTokens holds the in-memory delete-database confirmation tokens
+	// (PRF-02/T18, TTL-expiring, single-use) and the per-target in-flight guard.
+	deleteMu       sync.Mutex
+	deleteTokens   map[string]*deleteToken
+	deleteInFlight map[string]bool
 }
 
 // NewConnectionHandler constructs a handler for connection profile endpoints.
@@ -82,6 +88,8 @@ func NewConnectionHandler(
 		logger:         logger,
 		importSessions: map[string]*importSession{},
 		scriptSessions: map[string]*scriptSession{},
+		deleteTokens:   map[string]*deleteToken{},
+		deleteInFlight: map[string]bool{},
 	}
 }
 

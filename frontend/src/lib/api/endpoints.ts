@@ -13,6 +13,8 @@ import type {
   ConnectionTestRequest,
   DatabaseImportPreview,
   DatabaseRestoreResult,
+  DatabaseDeletePreflight,
+  DatabaseDeleteResult,
   DatabaseSchemaTree,
   DeleteConnectionResponse,
   TableExportFormat,
@@ -378,6 +380,48 @@ export function executeDatabaseImport(
   return apiFetch<DatabaseRestoreResult>(
     `/connections/${encodeURIComponent(connectionId)}/database-import/${encodeURIComponent(token)}/execute`,
     { method: "POST" },
+  );
+}
+
+/**
+ * Preflight a database deletion (PRF-02/T18). Validates the target and returns
+ * a short-lived, single-use confirmation token bound to the exact database.
+ * Never runs DROP.
+ */
+export function deleteDatabasePreflight(
+  connectionId: string,
+  database: string,
+): Promise<DatabaseDeletePreflight> {
+  return apiFetch<DatabaseDeletePreflight>(
+    `/connections/${encodeURIComponent(connectionId)}/databases/${encodeURIComponent(database)}/delete-preflight`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * Execute a database deletion (PRF-02/T18). The typed name and acknowledgment
+ * are intent signals only; the backend re-validates the token, target and
+ * database state, and reports success only after verifying the database is gone.
+ */
+export function deleteDatabase(
+  connectionId: string,
+  database: string,
+  confirmation: {
+    confirmationToken: string;
+    typedDatabaseName: string;
+    acknowledged: boolean;
+  },
+): Promise<DatabaseDeleteResult> {
+  return apiFetch<DatabaseDeleteResult>(
+    `/connections/${encodeURIComponent(connectionId)}/databases/${encodeURIComponent(database)}/delete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        confirmation_token: confirmation.confirmationToken,
+        typed_database_name: confirmation.typedDatabaseName,
+        acknowledged: confirmation.acknowledged,
+      }),
+    },
   );
 }
 

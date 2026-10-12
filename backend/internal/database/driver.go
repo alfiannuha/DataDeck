@@ -73,6 +73,15 @@ var (
 	// applied (source index out of range, unknown/non-insertable target column,
 	// duplicate source binding, or a mapping that imports no column at all).
 	ErrImportMappingInvalid = errors.New("database: import mapping is invalid")
+	// Destructive database management (PRF-02/T18).
+	// ErrProtectedDatabase marks a DROP DATABASE attempt against a protected
+	// system/internal database.
+	ErrProtectedDatabase = errors.New("database: protected database")
+	// ErrDatabaseInUse marks a DROP DATABASE attempt while the target still has
+	// active connections/operations.
+	ErrDatabaseInUse = errors.New("database: database is in use")
+	// ErrDatabaseDropFailed marks a DROP DATABASE that the engine rejected.
+	ErrDatabaseDropFailed = errors.New("database: drop failed")
 )
 
 // applyPoolOptions applies the shared pool sizing/lifetime settings.

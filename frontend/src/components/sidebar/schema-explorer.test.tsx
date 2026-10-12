@@ -6,6 +6,7 @@ import { executeQuery, getSchemas, listConnections, listDatabases, reconnectConn
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useDatabaseScriptStore } from "@/store/useDatabaseScriptStore";
+import { useDeleteDatabaseStore } from "@/store/useDeleteDatabaseStore";
 import { useExportStore } from "@/store/useExportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import type { DatabaseSchemaTree } from "@/types/api";
@@ -1129,6 +1130,7 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
     useWorkspaceStore.setState({ tabs: [], activeTabId: null });
     useExportStore.setState({ target: null });
     useDatabaseScriptStore.setState({ request: null });
+    useDeleteDatabaseStore.setState({ target: null });
     vi.mocked(reconnectConnection).mockReset();
     vi.mocked(reconnectConnection).mockResolvedValue({
       status: "ok",
@@ -1155,8 +1157,10 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
         "aria-disabled",
       );
     }
-    // T18 boundary: Delete Database is absent, not an inert button.
-    expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
+    // T18: Delete Database is present in the destructive section for PostgreSQL.
+    const deleteItem = screen.getByRole("menuitem", { name: "Delete Database" });
+    expect(deleteItem).not.toHaveAttribute("aria-disabled");
+    expect(deleteItem.className).toContain("text-destructive");
     // Table actions never leak into the database menu.
     expect(screen.queryByRole("menuitem", { name: "View Data" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Structure" })).toBeNull();
@@ -1339,6 +1343,25 @@ describe("SchemaExplorer database context menu (PRF-02/T16)", () => {
     expect(useDatabaseScriptStore.getState().request).toMatchObject({
       kind: "import",
       target: { connectionId: "c1", database: "alpha" },
+    });
+  });
+
+  it("opens the delete-database dialog bound to the captured database", async () => {
+    setupServer();
+    useConnectionStore.setState({
+      activeConnectionId: "c1",
+      activeDatabaseByConnection: { c1: "beta" },
+    });
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByRole("button", { name: /^alpha/ });
+
+    await openDatabaseMenu("alpha");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete Database" }));
+
+    expect(useDeleteDatabaseStore.getState().target).toMatchObject({
+      connectionId: "c1",
+      database: "alpha",
+      engine: "postgres",
     });
   });
 

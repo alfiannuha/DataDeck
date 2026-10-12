@@ -69,6 +69,7 @@ export function DatabaseMenu({
             <DropdownMenuItem
               disabled={action.disabled}
               data-testid={`database-menu-${action.id}`}
+              className={action.destructive ? "text-destructive" : undefined}
               onSelect={() => onAction(action.id)}
             >
               {action.label}

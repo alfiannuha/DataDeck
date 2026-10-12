@@ -85,6 +85,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/connections/{id}/database-export", connections.DatabaseExport)
 		r.Post("/connections/{id}/database-import", connections.DatabaseImportUpload)
 		r.Post("/connections/{id}/database-import/{token}/execute", connections.DatabaseImportExecute)
+		r.Post("/connections/{id}/databases/{database}/delete-preflight", connections.DatabaseDeletePreflight)
+		r.Post("/connections/{id}/databases/{database}/delete", connections.DatabaseDelete)
 
 		r.Post("/query/execute", queries.Execute)
 		r.Get("/query/history", queries.History)

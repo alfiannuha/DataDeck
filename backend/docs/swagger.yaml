@@ -124,6 +124,36 @@ components:
       required:
       - driver
       type: object
+    handler.DatabaseDeletePreflight:
+      properties:
+        connection_id:
+          type: string
+        database:
+          type: string
+        engine:
+          type: string
+        expires_at:
+          type: string
+        token:
+          type: string
+      type: object
+    handler.DatabaseDeleteRequest:
+      properties:
+        acknowledged:
+          type: boolean
+        confirmation_token:
+          type: string
+        typed_database_name:
+          type: string
+      type: object
+    handler.DatabaseDeleteResult:
+      properties:
+        database:
+          type: string
+        status:
+          example: deleted
+          type: string
+      type: object
     handler.DatabaseExportRequest:
       properties:
         database:
@@ -1339,6 +1369,149 @@ paths:
       summary: List selectable databases
       tags:
       - schema
+  /connections/{id}/databases/{database}/delete:
+    post:
+      description: Executes DROP DATABASE for the exact preflighted target after re-validating
+        the token, target binding, protection policy and active operations. Never
+        force-terminates sessions, never uses CASCADE/FORCE, never retries automatically,
+        and reports success only after independently verifying the database is gone.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Target database
+        in: path
+        name: database
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.DatabaseDeleteRequest'
+              description: Confirmation
+              summary: request
+        description: Confirmation
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Conflict
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Implemented
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Gateway
+      summary: Delete a database
+      tags:
+      - database
+  /connections/{id}/databases/{database}/delete-preflight:
+    post:
+      description: Validates a delete-database request and returns a short-lived,
+        single-use confirmation token bound to the exact target. Never runs DROP.
+        Only PostgreSQL and MySQL are supported; protected system databases and targets
+        with active operations are rejected.
+      parameters:
+      - description: Connection id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Target database
+        in: path
+        name: database
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Conflict
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Not Implemented
+      summary: Preflight a database deletion
+      tags:
+      - database
   /connections/{id}/reconnect:
     post:
       description: 'Replaces the pool for the explicit database target with a freshly

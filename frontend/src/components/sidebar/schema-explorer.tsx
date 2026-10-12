@@ -16,6 +16,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useDatabaseScriptStore } from "@/store/useDatabaseScriptStore";
+import { useDeleteDatabaseStore } from "@/store/useDeleteDatabaseStore";
 import { useExportStore } from "@/store/useExportStore";
 import { useImportStore } from "@/store/useImportStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -212,6 +213,15 @@ export function SchemaExplorer({
         return;
       case "import-sql":
         useDatabaseScriptStore.getState().open("import", {
+          connectionId,
+          database,
+          engine: driver ?? "",
+        });
+        return;
+      case "delete-database":
+        // Destructive; opens a dedicated confirmation dialog. The target is the
+        // captured database, never the Explorer selection or active tab.
+        useDeleteDatabaseStore.getState().open({
           connectionId,
           database,
           engine: driver ?? "",

@@ -136,6 +136,15 @@ Rules:
 | `RESTORE_CONFLICT` | 409 | Safety | PRF-02/T17 restore: the target database is not empty |
 | `RESTORE_UNSUPPORTED` | 501 | Capability | PRF-02/T17 restore: engine cannot guarantee atomic restore (MySQL) |
 | `RESTORE_ERROR` | 400 | Execution | PRF-02/T17 restore: a validated statement failed (sanitized driver message) |
+| `DATABASE_DELETE_UNSUPPORTED` | 501 | Capability | PRF-02/T18: engine has no safe DROP DATABASE (SQLite) |
+| `DATABASE_DELETE_PROTECTED` | 400 | Safety | PRF-02/T18: target is a protected system/internal database |
+| `DATABASE_DELETE_PRECHECK_FAILED` | 502 | Safety | PRF-02/T18: no maintenance connection or the target cannot be reached |
+| `DATABASE_IN_USE` | 409 | Safety | PRF-02/T18: the target has active operations |
+| `DATABASE_DELETE_CONFIRMATION_INVALID` | 400 | Safety | PRF-02/T18: token/typed name/acknowledgment invalid |
+| `DATABASE_DELETE_TOKEN_EXPIRED` | 400 | Safety | PRF-02/T18: confirmation token expired |
+| `DATABASE_DELETE_CONFLICT` | 409 | Safety | PRF-02/T18: concurrent delete, or the database still exists after DROP |
+| `DATABASE_DELETE_FAILED` | 400 | Execution | PRF-02/T18: DROP DATABASE was rejected (sanitized driver message) |
+| `DATABASE_DELETE_OUTCOME_UNKNOWN` | 502 | Safety | PRF-02/T18: deletion could not be verified; verify state before retrying |
 | `PAYLOAD_TOO_LARGE` | 413 | Validation | Request body exceeds configured limit (**Recommended**) |
 | `INTERNAL_ERROR` | 500 | Internal | Sanitized catch-all |
 
@@ -415,6 +424,8 @@ here without an explicit requirement.
 | `POST` | `/api/v1/connections/{id}/database-export` | Streamed dialect SQL dump of one database's base tables (PRF-02/T17) |
 | `POST` | `/api/v1/connections/{id}/database-import` | Upload + preflight a database restore artifact (PRF-02/T17) |
 | `POST` | `/api/v1/connections/{id}/database-import/{token}/execute` | Execute a preflighted database restore (PRF-02/T17) |
+| `POST` | `/api/v1/connections/{id}/databases/{database}/delete-preflight` | Preflight a database deletion; returns a single-use confirmation token (PRF-02/T18) |
+| `POST` | `/api/v1/connections/{id}/databases/{database}/delete` | Execute a database deletion after confirmation (PRF-02/T18) |
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
@@ -497,6 +508,32 @@ here without an explicit requirement.
   `{ status: "ok", database, statements }`. Errors: `400 RESTORE_ERROR`
   (sanitized), `404 NOT_FOUND` (unknown/expired token), `501 RESTORE_UNSUPPORTED`,
   `504 QUERY_TIMEOUT`.
+- `POST /api/v1/connections/{id}/databases/{database}/delete-preflight` —
+  **PRF-02/T18**. Validates the explicit target and returns a short-lived
+  (5 min), single-use, cryptographically random token bound to the exact
+  `connection + database + engine`. **Never runs DROP.** Supported engines:
+  PostgreSQL, MySQL. **SQLite is rejected with `501 DATABASE_DELETE_UNSUPPORTED`**
+  (a database is a local file; safe file deletion needs a separate design).
+  Protected system databases are rejected: PostgreSQL `postgres`/`template0`/
+  `template1`; MySQL `mysql`/`information_schema`/`performance_schema`/`sys`
+  (`400 DATABASE_DELETE_PROTECTED`). The target is never the Explorer selection
+  or the active tab.
+- `POST /api/v1/connections/{id}/databases/{database}/delete` — **PRF-02/T18**.
+  Body: `{ confirmation_token, typed_database_name, acknowledged }`. The typed
+  name (case-sensitive exact match) and boolean are **intent signals only**; the
+  backend re-validates the token binding, protection policy, database existence
+  and active operations before running `DROP DATABASE <quoted>` (never
+  `WITH (FORCE)`, never `CASCADE`). PostgreSQL runs DROP on a **maintenance
+  connection** (never the target database). The target's managed pool is retired
+  first; other databases' pools are untouched. Active operations block deletion
+  (`409 DATABASE_IN_USE`) and are never force-terminated. **No automatic retry**
+  after an ambiguous failure. Success is returned only after independently
+  verifying the database is gone; if verification fails the outcome is reported
+  as `502 DATABASE_DELETE_OUTCOME_UNKNOWN`. Response `data`:
+  `{ status: "deleted", database }`. Errors: `400 DATABASE_DELETE_*`,
+  `409 DATABASE_IN_USE`/`DATABASE_DELETE_CONFLICT`, `502 DATABASE_DELETE_PRECHECK_FAILED`/
+  `DATABASE_DELETE_OUTCOME_UNKNOWN`, `504 QUERY_TIMEOUT`. Never deletes the
+  connection profile, saved queries, or history.
 - `GET /api/v1/connections/{id}/schemas` — implemented in M1-T07. Returns a
   database-neutral tree in `data` (array of databases → schemas → tables with
   columns, primary key, foreign keys, indexes). Activates/reuses the managed

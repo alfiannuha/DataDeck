@@ -11,6 +11,7 @@ describe("getDatabaseActions (PRF-02/T16/T17 database context menu)", () => {
       "export-sql",
       "import-sql",
       "copy-name",
+      "delete-database",
     ]);
   });
 
@@ -38,9 +39,21 @@ describe("getDatabaseActions (PRF-02/T16/T17 database context menu)", () => {
     expect(action?.reason).toMatch(/MySQL/);
   });
 
-  it("never exposes Delete Database (T18)", () => {
-    expect(
-      getDatabaseActions().some((action) => action.id.includes("delete")),
-    ).toBe(false);
+  it("never exposes Delete Database for SQLite", () => {
+    const action = getDatabaseActions({ engine: "sqlite" }).find(
+      (candidate) => candidate.id === "delete-database",
+    );
+    expect(action?.disabled).toBe(true);
+    expect(action?.destructive).toBe(true);
+  });
+
+  it("enables Delete Database for PostgreSQL and MySQL", () => {
+    for (const engine of ["postgres", "mysql"]) {
+      const action = getDatabaseActions({ engine }).find(
+        (candidate) => candidate.id === "delete-database",
+      );
+      expect(action?.disabled).toBe(false);
+      expect(action?.destructive).toBe(true);
+    }
   });
 });

@@ -659,6 +659,70 @@ risk).
 **T16 boundary:** Delete Database is owned by **T18**. The T16 database menu
 omits the slot entirely (no inert button, no DROP DATABASE endpoint).
 
+**T18 (resolved).** Delete Database ships through the database context menu's
+destructive section for **PostgreSQL and MySQL only**; **SQLite is disabled**
+(a database is a local file — `os.Remove(userPath)` is never used; safe file
+deletion needs a separate approved design). Fail closed everywhere else.
+
+| Feature | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| Delete Database | yes | yes | **disabled** (`DATABASE_DELETE_UNSUPPORTED`) |
+
+- **Two-phase workflow.** Phase A (preflight) validates the connection, engine
+  capability, protected-database policy, active operations and existence, then
+  returns a short-lived (5 min), single-use, cryptographically random token bound
+  to `connection + database + engine`. Phase B (execute) re-validates the token
+  binding (a token for `alpha` cannot delete `beta`), the target, protection
+  policy, existence and active operations before running DROP. Never DROP during
+  preflight.
+- **Captured target.** The target is the database captured by the context menu —
+  never the Explorer selection, the active `QueryTab`, or an arbitrary input.
+  The typed name and acknowledgment are intent signals only; the backend owns
+  target authority.
+- **Protected policy.** PostgreSQL `postgres`/`template0`/`template1`; MySQL
+  `mysql`/`information_schema`/`performance_schema`/`sys`. An explicit
+  forbidden-name list, not a bypassable pattern.
+- **PostgreSQL execution context.** PostgreSQL forbids dropping the database of
+  the current connection, so a **maintenance connection** is used (the profile's
+  default database, else `postgres`); the target's managed pool is retired first.
+  If no maintenance connection is available, fail closed. No arbitrary
+  user-selected maintenance database.
+- **Identifier safety.** `DROP DATABASE <dialect-quoted>`; the existing audited
+  `quoteIdentifier` is used — never string concatenation, never a bound parameter
+  for an identifier, never raw frontend SQL.
+- **Active sessions.** DataDeck-managed operations on the target block deletion
+  (`DATABASE_IN_USE`); sessions are **never** force-terminated. No
+  `pg_terminate_backend`, no `DROP DATABASE WITH (FORCE)`, no global disconnect.
+  If the engine still reports active external sessions, DROP fails with a clear
+  error and the database is untouched.
+- **Pool lifecycle.** Only the target `(connectionId, database)` pool is retired;
+  other databases' pools and the connection profile/credentials are preserved.
+  If DROP fails after retirement, the state is reported accurately (the pool
+  reconnects lazily if the database still exists).
+- **MySQL.** DROP DATABASE is **not** claimed transactional; it participates in
+  MySQL's implicit-commit behavior. No automatic CASCADE fallback.
+- **No automatic retry.** A network failure after DROP submission may be
+  ambiguous; the backend independently verifies and, when it cannot, returns
+  `DATABASE_DELETE_OUTCOME_UNKNOWN` rather than retrying blindly.
+- **Verification.** Success is reported only after independent discovery/`SHOW
+  DATABASES` confirms absence; a SQL error alone is never treated as success.
+- **Concurrency.** Deletions are serialized per target (a second concurrent
+  delete is `DATABASE_DELETE_CONFLICT`); the target-scoped lifecycle prevents new
+  pool creation racing the delete.
+- **Preservation.** The connection profile, credentials, saved queries, history,
+  editor contents and tabs are never deleted or silently rebound. After a
+  verified delete the client invalidates only the connection's discovery/schema/
+  table caches; the database disappears from the Explorer while unsaved editor
+  content is preserved.
+- **Audit.** A structured log line records connection id, engine, database,
+  operation, outcome, error code and duration — never passwords, DSNs, keys,
+  SQL payloads or confirmation tokens.
+- **Not implemented:** CREATE DATABASE, automatic backup, restore,
+  DROP/TRUNCATE/ALTER TABLE, force session termination, cascade fallbacks,
+  profile deletion, history/saved-query deletion, arbitrary SQLite file
+  deletion, public admin API, new authentication.
+
+
 Frontend:
 
 - Destructive styling (danger variant) and a dedicated confirmation dialog.

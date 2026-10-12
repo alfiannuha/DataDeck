@@ -18,7 +18,8 @@ export type DatabaseActionId =
   | "reconnect"
   | "import-sql"
   | "export-sql"
-  | "copy-name";
+  | "copy-name"
+  | "delete-database";
 
 export interface DatabaseActionDescriptor {
   id: DatabaseActionId;
@@ -28,6 +29,8 @@ export interface DatabaseActionDescriptor {
   reason?: string;
   /** Render a group separator above this item. */
   separatorBefore?: boolean;
+  /** Destructive styling and placement in the final section. */
+  destructive?: boolean;
 }
 
 /**
@@ -41,6 +44,8 @@ export function getDatabaseActions(
   target: { engine?: string } = {},
 ): DatabaseActionDescriptor[] {
   const restoreSupported = target.engine !== "mysql";
+  const deleteSupported =
+    target.engine === "postgres" || target.engine === "mysql";
   return [
     { id: "new-query", label: "New Query", disabled: false },
     { id: "refresh", label: "Refresh Database", disabled: false },
@@ -64,6 +69,16 @@ export function getDatabaseActions(
       label: "Copy Database Name",
       disabled: false,
       separatorBefore: true,
+    },
+    {
+      id: "delete-database",
+      label: "Delete Database",
+      disabled: !deleteSupported,
+      reason: deleteSupported
+        ? undefined
+        : "Delete is not supported for this engine.",
+      separatorBefore: true,
+      destructive: true,
     },
   ];
 }
