@@ -58,6 +58,9 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer(s.logger))
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.CORS(s.cfg.CORSAllowedOrigins))
+	// CSRF runs after CORS: it rejects cross-origin state-changing requests
+	// (CORS is not sufficient for multipart "simple" requests). See middleware/csrf.go.
+	r.Use(middleware.CSRF(s.cfg.CORSAllowedOrigins))
 
 	connections := handler.NewConnectionHandler(s.connections, s.manager, s.credentials, s.logger)
 	queries := handler.NewQueryHandler(s.connections, s.history, s.manager, s.credentials, s.logger)
