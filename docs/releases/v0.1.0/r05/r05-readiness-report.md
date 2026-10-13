@@ -1,14 +1,14 @@
 # DataDeck v0.1.0 — R05 Final Regression & Release Acceptance
 
 ## A. Executive Summary
-- **Current HEAD:** `02d3ed5` (R05) on `release/v0.1.0-rc` (PR #1). Release source baseline `351444f`; R04 `e81ca8e`.
-- **Decision:** **R05 READY** — full local regression green, CI green on the release revision, zero unresolved BLOCKER/HIGH, one test-harness flake fixed.
+- **Current HEAD:** `f23e620` on `main` (release branch `release/v0.1.0-rc` created for CI; see `ci-verification.md` for the branch/PR deviation). Release source baseline `351444f`; R04 `e81ca8e`.
+- **Decision:** **R05 READY** — full local regression green, CI green on the release revision (`f23e620`), zero unresolved BLOCKER/HIGH, one test-harness flake fixed.
 
 ## B. Prerequisites
 R01 (`d0e6461`), R02 (`f29e0b3`), R03 (`ec444da`), R04 (`e81ca8e`), PRF02-T20 — all READY.
 
 ## C. Git & Freeze
-Branch `release/v0.1.0-rc`; HEAD `02d3ed5`; tracked tree clean; no tags. Changes since `351444f` = version metadata + docs + approved security hardening + the R05 test fix. **No scope change, no dependency change, no product feature.** R01-FIND-007 (`multi_connection_architectural_specification.md`) kept outside the release (untracked, never committed, not referenced by build/CI).
+Branch `main` (release branch `release/v0.1.0-rc` also pushed); HEAD `f23e620`; tracked tree clean; no tags. Changes since `351444f` = version metadata + docs + approved security hardening + the R05 test fix. **No scope change, no dependency change, no product feature.** R01-FIND-007 (`multi_connection_architectural_specification.md`) kept outside the release (untracked, never committed, not referenced by build/CI).
 
 ## D. Test Coverage
 `test-matrix.md` — 36 scenarios: 30 PASS, 0 FAIL, 2 NOT RUN (rebinding browser exploit, failure injection + perf), 1 N/A-ish (native non-macOS), 1 pending→resolved (CI). Critical gates all PASS.
@@ -35,7 +35,7 @@ Binary ~32 MB; startup ~312–430 ms; idle RSS ~4.5 MB; 100k-row 257 ms; 1000-ta
 Static export, embedded single binary, `--version`, health version, loopback listener, key fail-closed, graceful shutdown, 5 cross-compiles PASS. Docker build NOT RUN (no daemon). `packaging-regression.md`.
 
 ## L. CI
-**Green** on `02d3ed5`: CI run `38325379999` (success), E2E run `38325379969` (success), `gh pr checks` 4/4. `ci-verification.md`. R01-FIND-006 resolved.
+**Green** on `f23e620`: CI run `38325725001` (success), E2E run `38325725035` (success). `ci-verification.md`. R01-FIND-006 resolved.
 
 ## M. Findings
 No BLOCKER/HIGH. MEDIUM: R04-FIND-001 (DNS rebinding residual), R04-FIND-002 (npm build-time advisories), PRF02-FIND-001/002. LOW: R04-FIND-003/004, R05-FIND-002/003/004/005. Fixed: R05-FIX-001 (e2e flake). `findings-register.md`.
