@@ -19,7 +19,11 @@ const PG_HOST = process.env.E2E_PG_HOST;
 const PG_PORT = Number(process.env.E2E_PG_PORT ?? "5432");
 const PG_USER = process.env.E2E_PG_USER ?? "postgres";
 const PG_PASSWORD = process.env.E2E_PG_PASSWORD ?? "";
-const DB_PREFIX = "datadeck_e2e_ds";
+// Run-unique names: the test drops/recreates databases under an open pool, so it
+// must not collide with state left by a prior spec or a previous run on a
+// long-lived server (see R04-FIND-005).
+const RUN = Math.random().toString(36).slice(2, 8);
+const DB_PREFIX = `datadeck_e2e_ds_${RUN}`;
 const DB_ALPHA = `${DB_PREFIX}_alpha`;
 const DB_BETA = `${DB_PREFIX}_beta`;
 
