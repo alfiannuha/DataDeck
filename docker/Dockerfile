@@ -15,7 +15,7 @@ RUN DATADECK_STATIC_EXPORT=true NEXT_PUBLIC_API_URL= npm run build:static
 # Stage 2 — compile the CGO-free single binary with the frontend embedded.
 # ---------------------------------------------------------------------------
 FROM golang:1.26.11-alpine AS backend
-ARG VERSION=0.3.0
+ARG VERSION=0.4.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG CHANNEL=release
@@ -40,7 +40,7 @@ FROM alpine:3.20
 
 # Re-declare build args for OCI labels (values are only available in the stage
 # that declares them). Never a fake commit/timestamp: defaults are "unknown".
-ARG VERSION=0.3.0
+ARG VERSION=0.4.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="DataDeck" \

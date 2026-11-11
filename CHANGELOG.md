@@ -3,7 +3,7 @@
 All notable changes to DataDeck are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.4.0 (in progress)
+## [0.4.0] — 2026-11-11
 
 ### Added
 - Connection color: a per-connection `#RRGGBB` hint with a create/edit color picker,
