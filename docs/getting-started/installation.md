@@ -35,7 +35,7 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"   # keep this safe
 
 If macOS Gatekeeper blocks an unsigned binary, use **System Settings → Privacy &
 Security → "Open Anyway"** (do not disable OS protections globally). Open
-`http://127.0.0.1:8080`.
+`http://127.0.0.1:8090`.
 
 ## Linux
 
@@ -46,7 +46,7 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```
 
 There is **no systemd unit or distro package** in v0.1.0; run the binary directly.
-Open `http://127.0.0.1:8080`.
+Open `http://127.0.0.1:8090`.
 
 ## Windows
 
@@ -58,11 +58,11 @@ $env:ENCRYPTION_KEY = "<your 64-hex key>"
 There is **no MSI/installer** in v0.1.0. Run it from a terminal (a console window
 shows logs). Windows Defender/SmartScreen may warn about an unsigned binary;
 choose "More info → Run anyway" if you trust the source. Open
-`http://127.0.0.1:8080`.
+`http://127.0.0.1:8090`.
 
 ## First launch
 
-1. The daemon starts and listens on `127.0.0.1:8080` (configurable — see
+1. The daemon starts and listens on `127.0.0.1:8090` (configurable — see
    [configuration](configuration.md)).
 2. Open the URL in your browser.
 3. You land in an **empty workspace**; no query tab is created automatically.

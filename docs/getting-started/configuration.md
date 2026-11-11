@@ -24,7 +24,7 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 | Variable | Default | Description |
 |---|---|---|
 | `HOST` | `127.0.0.1` | Bind address. Loopback by default. |
-| `PORT` | `8080` | HTTP port. |
+| `PORT` | `8090` | HTTP port. |
 | `ALLOW_REMOTE` | _(unset)_ | Must be `1` to bind a non-loopback `HOST`. Startup **refuses** a non-loopback host without it (no authentication exists). Binding beyond loopback is **not supported for public use**. |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated browser origins allowed by CORS (explicit allowlist). |
 
@@ -45,7 +45,7 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 
 | Variable | Description |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | Development: point at the daemon (`http://localhost:8080`). The embedded single-binary build uses same-origin (`""`). |
+| `NEXT_PUBLIC_API_URL` | Development: point at the daemon (`http://localhost:8090`). The embedded single-binary build uses same-origin (`""`). |
 | `NEXT_PUBLIC_DATADECK_VERSION` / `_CHANNEL` / `_COMMIT` | Optional build metadata for the embedded frontend; defaults to `0.1.0` / `development` / `unknown`. |
 
 ## Example (development)
@@ -53,7 +53,7 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```bash
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 export HOST=127.0.0.1
-export PORT=8080
+export PORT=8090
 export STORAGE_PATH=./data/datadeck.db
 export ENVIRONMENT=development
 export LOG_LEVEL=info

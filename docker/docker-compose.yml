@@ -19,7 +19,7 @@ services:
         VERSION: "0.1.0-dev"
     image: datadeck:0.1.0-dev
     ports:
-      - "8080:8080"
+      - "8090:8090"
     environment:
       # Must be provided by the operator; compose fails if unset.
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY (32 bytes or 64 hex chars)}"

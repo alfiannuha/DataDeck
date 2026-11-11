@@ -169,7 +169,7 @@ supported target with a reduced introspection feature set until confirmed.
 ## 7. Frontend → Backend Communication
 
 - **Protocol:** HTTP/REST, JSON payloads. Base path `/api/v1`.
-- **Base URL:** `NEXT_PUBLIC_API_URL` (dev default `http://localhost:8080`).
+- **Base URL:** `NEXT_PUBLIC_API_URL` (dev default `http://localhost:8090`).
 - **Transport type:** synchronous request/response. The PRD architecture diagram
   mentions Server-Sent Events (SSE), but no SSE endpoint is specified in §6.1.
   **Needs Validation.**
@@ -242,7 +242,7 @@ sequenceDiagram
     BE->>DB: open app store
     BE->>DB: run idempotent DDL (profiles, history, saved_queries)
     BE->>BE: register routes + middleware
-    BE-->>OP: listening on 127.0.0.1:8080
+    BE-->>OP: listening on 127.0.0.1:8090
     OP->>BE: GET /api/v1/health
     BE-->>OP: health envelope
 ```
@@ -435,7 +435,7 @@ flowchart LR
 
 - **Loopback default.** Bind `127.0.0.1`; explicit opt-in required for wider
   binding. **Needs Validation:** whether a wider-bind mode for Docker is
-  acceptable (Docker compose maps `8080:8080`, implying `0.0.0.0` inside the
+  acceptable (Docker compose maps `8090:8090`, implying `0.0.0.0` inside the
   container).
 - **Credential boundary.** Passwords encrypted at rest with AES-256-GCM; decrypt
   only in memory when needed. Never returned by the API, never logged.
@@ -454,8 +454,8 @@ Full mandatory rules live in `security.md`.
 
 | Mode | Frontend | Backend | Notes |
 |---|---|---|---|
-| Development (decoupled) | `next dev` on `:3000` | `go run` on `:8080` | Frontend uses `NEXT_PUBLIC_API_URL` |
-| Docker Compose | `Dockerfile.frontend` on `:3000` | `Dockerfile.backend` on `:8080` | Shared `datadeck_storage` volume; `STORAGE_PATH=/data/datadeck.db` |
+| Development (decoupled) | `next dev` on `:3000` | `go run` on `:8090` | Frontend uses `NEXT_PUBLIC_API_URL` |
+| Docker Compose | `Dockerfile.frontend` on `:3000` | `Dockerfile.backend` on `:8090` | Shared `datadeck_storage` volume; `STORAGE_PATH=/data/datadeck.db` |
 | Single binary | Static export embedded via `embed.FS` | Compiled `datadeck` binary | `CGO_ENABLED=0 go build -ldflags="-s -w"` |
 
 Constraints:

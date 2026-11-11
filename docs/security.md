@@ -85,7 +85,7 @@
 
 ## 7. CORS Policy
 
-- Because the frontend and backend are separate origins (`:3000` and `:8080`),
+- Because the frontend and backend are separate origins (`:3000` and `:8090`),
   CORS is required for the decoupled dev/Docker modes.
 - Allowed origins **MUST** be an explicit allowlist, not `*`, when credentials or
   sensitive data are involved.

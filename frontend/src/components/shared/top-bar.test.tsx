@@ -119,7 +119,7 @@ describe("TopBar PWA controls", () => {
   it("shows the canonical application version", () => {
     renderWithProviders(<TopBar />);
     const version = screen.getByTestId("app-version");
-    expect(version).toHaveTextContent("v0.1.0");
+    expect(version).toHaveTextContent("v0.2.0");
     expect(version).toHaveAttribute("title", expect.stringContaining("development"));
   });
 

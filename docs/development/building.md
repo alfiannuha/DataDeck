@@ -77,7 +77,7 @@ scripts/release-dry-run.sh      # local dry run: archives, checksums, SBOM (no p
 docker build -f docker/Dockerfile --build-arg VERSION=0.1.0 -t datadeck:0.1.0 .
 ```
 
-The image runs on Alpine, publishes port `8080`, and requires `ENCRYPTION_KEY` at
+The image runs on Alpine, publishes port `8090`, and requires `ENCRYPTION_KEY` at
 runtime (never baked in). Container publishing is out of scope for the binary
 release.
 

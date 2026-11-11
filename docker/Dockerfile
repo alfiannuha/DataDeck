@@ -15,7 +15,7 @@ RUN DATADECK_STATIC_EXPORT=true NEXT_PUBLIC_API_URL= npm run build:static
 # Stage 2 — compile the CGO-free single binary with the frontend embedded.
 # ---------------------------------------------------------------------------
 FROM golang:1.26.9-alpine AS backend
-ARG VERSION=0.1.0
+ARG VERSION=0.2.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG CHANNEL=release
@@ -40,7 +40,7 @@ FROM alpine:3.20
 
 # Re-declare build args for OCI labels (values are only available in the stage
 # that declares them). Never a fake commit/timestamp: defaults are "unknown".
-ARG VERSION=0.1.0
+ARG VERSION=0.2.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="DataDeck" \
@@ -61,7 +61,7 @@ COPY --from=backend /out/datadeck /usr/local/bin/datadeck
 # docs/release/docker.md). Native binary defaults remain 127.0.0.1 + no opt-in.
 ENV HOST=0.0.0.0 \
     ALLOW_REMOTE=1 \
-    PORT=8080 \
+    PORT=8090 \
     STORAGE_PATH=/data/datadeck.db \
     ENVIRONMENT=production \
     LOG_LEVEL=info
@@ -70,7 +70,7 @@ ENV HOST=0.0.0.0 \
 # the operator supplies a key at runtime. Never bake a real key into the image.
 
 USER datadeck
-EXPOSE 8080
+EXPOSE 8090
 VOLUME ["/data"]
 
 # Unauthenticated health endpoint; requires no credentials.

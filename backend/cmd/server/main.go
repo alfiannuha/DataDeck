@@ -3,7 +3,7 @@
 // @description     Local-first database GUI backend. All responses use the standard envelope (success, data, error, meta).
 // @BasePath        /api/v1
 // @schemes         http
-// @host            127.0.0.1:8080
+// @host            127.0.0.1:8090
 package main
 
 import (

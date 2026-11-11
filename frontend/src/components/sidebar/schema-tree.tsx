@@ -622,7 +622,7 @@ export function TreeRow({
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
       className={cn(
-        "group flex items-center gap-1 rounded py-0.5 pr-1 hover:bg-panel-raised",
+        "group flex items-start gap-1 rounded py-0.5 pr-1 hover:bg-panel-raised",
         selected && "bg-panel-raised",
       )}
     >
@@ -632,32 +632,41 @@ export function TreeRow({
           aria-expanded={open}
           onClick={onToggle}
           onDoubleClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+          className="flex min-w-0 flex-1 items-start gap-1 rounded text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
         >
           <ChevronRight
             size={12}
             aria-hidden="true"
             className={cn(
-              "shrink-0 text-muted-foreground transition-transform",
+              "mt-0.5 shrink-0 text-muted-foreground transition-transform",
               open && "rotate-90",
             )}
           />
           <span
-            className={cn("truncate font-medium", selected && "text-accent")}
+            title={label}
+            className={cn(
+              "min-w-0 flex-1 whitespace-normal break-words font-medium leading-snug",
+              selected && "text-accent",
+            )}
           >
             {label}
           </span>
           {secondary && (
-            <span className="shrink-0 text-[10px] text-subtle-foreground">
+            <span className="shrink-0 pt-0.5 text-[10px] text-subtle-foreground">
               {secondary}
             </span>
           )}
         </button>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-1 pl-[14px] text-xs text-foreground">
-          <span className="truncate font-medium">{label}</span>
+        <div className="flex min-w-0 flex-1 items-start gap-1 pl-[14px] text-xs text-foreground">
+          <span
+            title={label}
+            className="min-w-0 flex-1 whitespace-normal break-words font-medium leading-snug"
+          >
+            {label}
+          </span>
           {secondary && (
-            <span className="shrink-0 text-[10px] text-subtle-foreground">
+            <span className="shrink-0 pt-0.5 text-[10px] text-subtle-foreground">
               {secondary}
             </span>
           )}
