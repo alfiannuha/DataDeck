@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
+import { BUILD_INFO } from "@/lib/build-info";
 import { listConnections } from "@/lib/api/endpoints";
 import { usePwaStore } from "@/store/usePwaStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -119,7 +120,7 @@ describe("TopBar PWA controls", () => {
   it("shows the canonical application version", () => {
     renderWithProviders(<TopBar />);
     const version = screen.getByTestId("app-version");
-    expect(version).toHaveTextContent("v0.2.0");
+    expect(version).toHaveTextContent(`v${BUILD_INFO.version}`);
     expect(version).toHaveAttribute("title", expect.stringContaining("development"));
   });
 
