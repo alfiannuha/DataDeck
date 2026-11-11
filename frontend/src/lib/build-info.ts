@@ -22,7 +22,7 @@ function resolveChannel(raw: string | undefined): BuildChannel {
 export const BUILD_INFO: BuildInfo = {
   application: "DataDeck",
   // Keep in lockstep with the repository VERSION file (validated by scripts/check-version.sh).
-  version: process.env.NEXT_PUBLIC_DATADECK_VERSION ?? "0.2.0",
+  version: process.env.NEXT_PUBLIC_DATADECK_VERSION ?? "0.3.0",
   channel: resolveChannel(process.env.NEXT_PUBLIC_DATADECK_CHANNEL),
   commit: process.env.NEXT_PUBLIC_DATADECK_COMMIT ?? "unknown",
 };

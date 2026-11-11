@@ -18,7 +18,7 @@ const (
 var (
 	// Version is the canonical application version. The repository VERSION file
 	// is the source of truth; every component must report the same value.
-	Version = "0.2.0"
+	Version = "0.3.0"
 	// Commit is the source revision the binary was built from.
 	Commit = "unknown"
 	// BuildDate is the UTC build timestamp (RFC3339) or "unknown".
