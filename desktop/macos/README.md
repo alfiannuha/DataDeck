@@ -64,16 +64,30 @@ JSON). Neither ever contains the encryption key, credentials, or raw secrets.
 
 Dev validation without installing: `open release/DataDeck.app`.
 
-## Gatekeeper (unsigned local builds)
+## Gatekeeper (ad-hoc signed, not notarized)
 
-The bundle is **unsigned**; macOS may warn ("cannot be opened because the developer
-cannot be verified"). For local use: **System Settings → Privacy & Security → Open
-Anyway**, or right-click → Open. Do not disable macOS security globally. This build is
-**not** notarized and is not ready for public distribution.
+The bundle is **ad-hoc signed but not notarized** (no Apple Developer ID), so a
+downloaded copy is blocked by Gatekeeper. On macOS 15 (Sequoia) the message is
+*“Apple could not verify "DataDeck" is free of malware…”* and the old
+right-click → Open bypass no longer works. Use one of:
 
-### Signing / notarization (future public release)
+- **Terminal (recommended):**
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/DataDeck.app
+  ```
+  (or whatever path you installed it to). Removing the quarantine attribute
+  skips Gatekeeper assessment; the ad-hoc signature satisfies the kernel.
+- **System Settings → Privacy & Security →** scroll to the *“DataDeck” was
+  blocked* entry → **Open Anyway** → confirm.
 
-The script is structured so signing can be added without changes to the launcher:
+Do not disable macOS security globally. This build is **not** notarized and is
+not ready for unattended public distribution.
+
+### Signing / notarization (for a clean public release)
+
+Notarization requires a paid Apple Developer account (Developer ID Application
+certificate + notary credentials). The build script is structured so this can be
+added without launcher changes:
 
 ```bash
 codesign --force --deep --options runtime --timestamp \
@@ -110,7 +124,7 @@ previously ran DataDeck with a different `ENCRYPTION_KEY` and/or `STORAGE_PATH`
 ## Known limitations
 
 - Apple Silicon (`arm64`) only; no universal/Intel slice.
-- Unsigned/not-notarized (see above).
+- Ad-hoc signed but not notarized (see above).
 - No `.app` auto-update; replacing the bundle preserves `~/.datadeck/`.
 - If the launcher is force-quit, the backend receives no SIGTERM; it exits when its
   parent/stdout closes and the next launch re-acquires the lock. Storage is a single
