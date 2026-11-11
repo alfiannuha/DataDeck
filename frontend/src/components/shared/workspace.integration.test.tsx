@@ -14,6 +14,16 @@ import { useConnectionStore } from "@/store/useConnectionStore";
 import { useExecutionStore } from "@/store/useExecutionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
+/** Opens a table's row menu and clicks an item (PRF-04/Phase 5: no hover shortcuts). */
+async function selectTableMenuItem(table: string, item: string) {
+  fireEvent.keyDown(
+    await screen.findByRole("button", { name: `More actions for ${table}` }),
+    { key: "ArrowDown" },
+  );
+  await screen.findByRole("menu", { name: `More actions for ${table}` });
+  fireEvent.click(screen.getByRole("menuitem", { name: item }));
+}
+
 vi.mock("@/lib/api/endpoints", () => ({
   listConnections: vi.fn(),
   createConnection: vi.fn(),
@@ -111,7 +121,7 @@ describe("integrated workspace flow", () => {
 
     // Schema loads for the active connection.
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Select top 100 from users" }));
+    await selectTableMenuItem("users", "New Query");
 
     // SQL is inserted into the query tab (not executed).
     await waitFor(() =>
@@ -155,7 +165,7 @@ describe("integrated workspace flow", () => {
       { timeout: 5000 },
     ));
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Select top 100 from users" }));
+    await selectTableMenuItem("users", "New Query");
     fireEvent.click(screen.getByRole("button", { name: "Run query" }));
     expect(await screen.findByRole("gridcell")).toBeInTheDocument();
 
@@ -190,7 +200,7 @@ describe("integrated workspace flow", () => {
       { timeout: 5000 },
     ));
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Count rows in users" }));
+    await selectTableMenuItem("users", "Count Rows");
 
     await waitFor(() =>
       expect(screen.getByTestId("editor-value").textContent).toBe(
@@ -220,7 +230,7 @@ describe("integrated workspace flow", () => {
       { timeout: 5000 },
     ));
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Select top 100 from users" }));
+    await selectTableMenuItem("users", "New Query");
     fireEvent.click(screen.getByRole("button", { name: "Run query" }));
 
     await screen.findAllByRole("gridcell");
@@ -260,7 +270,7 @@ describe("integrated workspace flow", () => {
       { timeout: 5000 },
     ));
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Select top 100 from users" }));
+    await selectTableMenuItem("users", "New Query");
     await waitFor(() =>
       expect(screen.getByTestId("editor-value").textContent).toContain(
         'FROM "public"."users"',
@@ -299,7 +309,7 @@ describe("integrated workspace flow", () => {
       { timeout: 5000 },
     ));
     fireEvent.click(await screen.findByRole("button", { name: /^public/ }, { timeout: 5000 }));
-    fireEvent.click(screen.getByRole("button", { name: "Select top 100 from users" }));
+    await selectTableMenuItem("users", "New Query");
     await waitFor(() =>
       expect(screen.getByTestId("editor-value").textContent).toContain(
         'FROM "public"."users"',

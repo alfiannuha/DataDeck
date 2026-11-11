@@ -198,3 +198,84 @@ func seedSQLiteFixture(path string) (string, error) {
 	}
 	return path, nil
 }
+
+func applyStructureRequest(id, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections/"+id+"/table-structure", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+// PRF-04/Phase 2: transport/validation paths that must be rejected before any
+// target-database work is attempted.
+func TestApplyStructureValidation(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedProfile(t, db, &model.ConnectionProfile{
+		ID: "pg", Name: "PG", Driver: model.DriverPostgres,
+		Host: strPtr("127.0.0.1"), Port: intPtr(5432), DatabaseName: "app", Username: strPtr("u"),
+	})
+
+	cases := []struct {
+		name string
+		body string
+		want int
+		code string
+	}{
+		{"missing table", `{"operation":"rename_table","new_name":"x","schema":"public"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
+		{"missing operation", `{"table":"t","schema":"public"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
+		{"unknown operation", `{"operation":"drop_database","table":"t","schema":"public"}`, http.StatusNotImplemented, "NOT_IMPLEMENTED"},
+		{"postgres missing schema", `{"operation":"rename_table","table":"t","new_name":"x"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
+		{"malformed json", `{`, http.StatusBadRequest, "VALIDATION_ERROR"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ApplyStructure(rec, applyStructureRequest("pg", tc.body))
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (body=%s)", rec.Code, tc.want, rec.Body.String())
+			}
+			env := decodeEnvelope(t, rec)
+			if env.Error == nil || env.Error.Code != tc.code {
+				t.Errorf("error = %+v, want %s", env.Error, tc.code)
+			}
+		})
+	}
+}
+
+func TestApplyStructureUnknownProfile(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+	rec := httptest.NewRecorder()
+	h.ApplyStructure(rec, applyStructureRequest("missing",
+		`{"operation":"rename_table","table":"t","new_name":"x","schema":"public"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestApplyStructureSQLiteGatingAndValidation(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	seedProfile(t, db, &model.ConnectionProfile{
+		ID: "sq", Name: "SQ", Driver: model.DriverSQLite, DatabaseName: "/tmp/datadeck-test.db",
+	})
+
+	// SQLite cannot add/drop table constraints: gated with an explicit 501.
+	rec := httptest.NewRecorder()
+	h.ApplyStructure(rec, applyStructureRequest("sq",
+		`{"operation":"add_constraint","table":"t","constraint":{"type":"UNIQUE","columns":["a"]}}`))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("sqlite add_constraint status = %d, want 501 (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	// A raw fragment that could chain statements is rejected before any DB work.
+	rec = httptest.NewRecorder()
+	h.ApplyStructure(rec, applyStructureRequest("sq",
+		`{"operation":"add_column","table":"t","column":{"name":"c","type":"text; DROP TABLE t"}}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("sqlite unsafe type status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+	env := decodeEnvelope(t, rec)
+	if env.Error == nil || env.Error.Code != "VALIDATION_ERROR" {
+		t.Errorf("error = %+v, want VALIDATION_ERROR", env.Error)
+	}
+}

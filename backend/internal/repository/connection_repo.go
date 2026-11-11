@@ -24,7 +24,7 @@ func NewConnectionRepository(db *sql.DB) *ConnectionRepository {
 
 const connectionColumns = `id, name, driver, host, port, database_name, username,
 	encrypted_password, ssl_mode, ssh_enabled, ssh_host, ssh_port, ssh_username,
-	ssh_encrypted_password, ssh_key_path, created_at, updated_at`
+	ssh_encrypted_password, ssh_key_path, color, created_at, updated_at`
 
 // Create inserts a new connection profile, assigning timestamps when unset.
 func (r *ConnectionRepository) Create(ctx context.Context, profile *model.ConnectionProfile) error {
@@ -46,12 +46,12 @@ func (r *ConnectionRepository) Create(ctx context.Context, profile *model.Connec
 
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO connection_profiles (`+connectionColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		profile.ID, profile.Name, string(profile.Driver), nullString(profile.Host), nullInt(profile.Port),
 		profile.DatabaseName, nullString(profile.Username), nullString(profile.EncryptedPassword), sslMode,
 		boolToInt(profile.SSHEnabled), nullString(profile.SSHHost), nullInt(profile.SSHPort),
 		nullString(profile.SSHUsername), nullString(profile.SSHEncryptedPassword), nullString(profile.SSHKeyPath),
-		profile.CreatedAt, profile.UpdatedAt)
+		nullText(profile.Color), profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("connection %q: %w", profile.ID, ErrConflict)
@@ -114,13 +114,13 @@ func (r *ConnectionRepository) Update(ctx context.Context, profile *model.Connec
 		`UPDATE connection_profiles SET
 			name = ?, driver = ?, host = ?, port = ?, database_name = ?, username = ?,
 			encrypted_password = ?, ssl_mode = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?,
-			ssh_username = ?, ssh_encrypted_password = ?, ssh_key_path = ?, updated_at = ?
+			ssh_username = ?, ssh_encrypted_password = ?, ssh_key_path = ?, color = ?, updated_at = ?
 		 WHERE id = ?`,
 		profile.Name, string(profile.Driver), nullString(profile.Host), nullInt(profile.Port),
 		profile.DatabaseName, nullString(profile.Username), nullString(profile.EncryptedPassword), sslMode,
 		boolToInt(profile.SSHEnabled), nullString(profile.SSHHost), nullInt(profile.SSHPort),
 		nullString(profile.SSHUsername), nullString(profile.SSHEncryptedPassword), nullString(profile.SSHKeyPath),
-		profile.UpdatedAt, profile.ID)
+		nullText(profile.Color), profile.UpdatedAt, profile.ID)
 	if err != nil {
 		return fmt.Errorf("update connection %q: %w", profile.ID, err)
 	}
@@ -166,11 +166,12 @@ func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 		sshUser    sql.NullString
 		sshEncPw   sql.NullString
 		sshKey     sql.NullString
+		color      sql.NullString
 	)
 	if err := s.Scan(
 		&profile.ID, &profile.Name, &driver, &host, &port, &profile.DatabaseName,
 		&username, &encrypted, &sslMode, &sshEnabled, &sshHost, &sshPort,
-		&sshUser, &sshEncPw, &sshKey, &profile.CreatedAt, &profile.UpdatedAt,
+		&sshUser, &sshEncPw, &sshKey, &color, &profile.CreatedAt, &profile.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -190,5 +191,6 @@ func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 	profile.SSHUsername = stringPtr(sshUser)
 	profile.SSHEncryptedPassword = stringPtr(sshEncPw)
 	profile.SSHKeyPath = stringPtr(sshKey)
+	profile.Color = color.String
 	return &profile, nil
 }

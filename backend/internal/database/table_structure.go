@@ -45,5 +45,11 @@ func (m *Manager) TableStructure(ctx context.Context, id string, cfg Config, sch
 	structure.Database = cfg.Database
 	structure.Schema = boundSchema
 	structure.Table = table
+	caps := StructureCapabilitiesFor(cfg.Driver)
+	structure.Capabilities = &caps
+	if !isBaseTable(structure.ObjectType) {
+		// Views/materialized views/foreign tables are read-only for schema edits.
+		structure.Capabilities = &model.StructureCapabilities{}
+	}
 	return structure, nil
 }

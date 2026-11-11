@@ -1,8 +1,10 @@
 "use client";
 
 import { Loader2, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { StructureChangeDialog, type StructureDialogSpec } from "@/components/shared/structure-change-dialog";
 import { useTableStructure } from "@/hooks/use-table-structure";
 import { ApiClientError } from "@/lib/api-client";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -30,6 +32,7 @@ export function TableStructurePanel() {
     table: tab?.kind === "table-structure" ? tab.table : "",
   };
   const query = useTableStructure(target);
+  const [dialog, setDialog] = useState<StructureDialogSpec | null>(null);
 
   if (tab?.kind !== "table-structure") return null;
 
@@ -68,21 +71,63 @@ export function TableStructurePanel() {
             </span>
           ) : null}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid="table-structure-refresh"
-          aria-label="Refresh table structure"
-          onClick={refresh}
-          disabled={query.isFetching || !data}
-        >
-          {query.isFetching ? (
-            <Loader2 size={12} aria-hidden="true" className="animate-spin" />
-          ) : (
-            <RefreshCw size={12} aria-hidden="true" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {data?.structure_capabilities?.rename_table ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="structure-rename-table"
+              onClick={() => setDialog({ kind: "rename_table", table: tab.table })}
+            >
+              Rename
+            </Button>
+          ) : null}
+          {data?.structure_capabilities?.add_column ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="structure-add-column"
+              onClick={() => setDialog({ kind: "add_column" })}
+            >
+              Add column
+            </Button>
+          ) : null}
+          {data?.structure_capabilities?.create_index ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="structure-create-index"
+              onClick={() => setDialog({ kind: "create_index" })}
+            >
+              Create index
+            </Button>
+          ) : null}
+          {data?.structure_capabilities?.add_constraint ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="structure-add-constraint"
+              onClick={() => setDialog({ kind: "add_constraint" })}
+            >
+              Add constraint
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="table-structure-refresh"
+            aria-label="Refresh table structure"
+            onClick={refresh}
+            disabled={query.isFetching || !data}
+          >
+            {query.isFetching ? (
+              <Loader2 size={12} aria-hidden="true" className="animate-spin" />
+            ) : (
+              <RefreshCw size={12} aria-hidden="true" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto bg-result-surface p-3">
@@ -118,7 +163,7 @@ export function TableStructurePanel() {
             <StructureSection title="Columns" empty="No columns.">
               <StructureTable
                 testId="table-structure-columns"
-                headers={["Name", "Type", "Nullable", "Default", "Insert", "Update"]}
+                headers={["Name", "Type", "Nullable", "Default", "Insert", "Update", "Actions"]}
                 rows={data.columns ?? []}
                 renderRow={(column) => (
                   <>
@@ -137,6 +182,32 @@ export function TableStructurePanel() {
                     <Cell className="font-mono">{column.default ?? "—"}</Cell>
                     <Cell>{column.insertable ? "yes" : "no"}</Cell>
                     <Cell>{column.updatable ? "yes" : "no"}</Cell>
+                    <Cell>
+                      <div className="flex gap-1">
+                        {data.structure_capabilities?.alter_column ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            data-testid={`structure-alter-column-${column.name}`}
+                            onClick={() => setDialog({ kind: "alter_column", column })}
+                          >
+                            Alter
+                          </Button>
+                        ) : null}
+                        {data.structure_capabilities?.drop_column ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            data-testid={`structure-drop-column-${column.name}`}
+                            onClick={() =>
+                              setDialog({ kind: "drop_column", column: column.name ?? "" })
+                            }
+                          >
+                            Drop
+                          </Button>
+                        ) : null}
+                      </div>
+                    </Cell>
                   </>
                 )}
               />
@@ -154,7 +225,7 @@ export function TableStructurePanel() {
             <StructureSection title="Indexes" empty="No indexes.">
               <StructureTable
                 testId="table-structure-indexes"
-                headers={["Name", "Unique", "Primary", "Method", "Partial", "Columns"]}
+                headers={["Name", "Unique", "Primary", "Method", "Partial", "Columns", "Actions"]}
                 rows={data.indexes ?? []}
                 renderRow={(index) => (
                   <>
@@ -170,6 +241,18 @@ export function TableStructurePanel() {
                         </span>
                       ))}
                     </Cell>
+                    <Cell>
+                      {data.structure_capabilities?.drop_index && !index.primary ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          data-testid={`structure-drop-index-${index.name}`}
+                          onClick={() => setDialog({ kind: "drop_index", index: index.name ?? "" })}
+                        >
+                          Drop
+                        </Button>
+                      ) : null}
+                    </Cell>
                   </>
                 )}
               />
@@ -178,7 +261,7 @@ export function TableStructurePanel() {
             <StructureSection title="Constraints" empty="No constraints.">
               <StructureTable
                 testId="table-structure-constraints"
-                headers={["Name", "Type", "Columns", "Definition"]}
+                headers={["Name", "Type", "Columns", "Definition", "Actions"]}
                 rows={data.constraints ?? []}
                 renderRow={(constraint) => (
                   <>
@@ -186,6 +269,24 @@ export function TableStructurePanel() {
                     <Cell>{constraint.type}</Cell>
                     <Cell>{(constraint.columns ?? []).join(", ")}</Cell>
                     <Cell className="font-mono">{constraint.definition || "—"}</Cell>
+                    <Cell>
+                      {data.structure_capabilities?.drop_constraint ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          data-testid={`structure-drop-constraint-${constraint.name}`}
+                          onClick={() =>
+                            setDialog({
+                              kind: "drop_constraint",
+                              name: constraint.name ?? "",
+                              type: constraint.type ?? "",
+                            })
+                          }
+                        >
+                          Drop
+                        </Button>
+                      ) : null}
+                    </Cell>
                   </>
                 )}
               />
@@ -194,7 +295,7 @@ export function TableStructurePanel() {
             <StructureSection title="Foreign keys" empty="No foreign keys.">
               <StructureTable
                 testId="table-structure-foreign-keys"
-                headers={["Name", "Columns", "References", "On update", "On delete"]}
+                headers={["Name", "Columns", "References", "On update", "On delete", "Actions"]}
                 rows={data.foreign_keys ?? []}
                 renderRow={(fk) => (
                   <>
@@ -208,6 +309,24 @@ export function TableStructurePanel() {
                     </Cell>
                     <Cell>{fk.on_update || "—"}</Cell>
                     <Cell>{fk.on_delete || "—"}</Cell>
+                    <Cell>
+                      {data.structure_capabilities?.drop_constraint ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          data-testid={`structure-drop-fk-${fk.name}`}
+                          onClick={() =>
+                            setDialog({
+                              kind: "drop_constraint",
+                              name: fk.name ?? "",
+                              type: "FOREIGN KEY",
+                            })
+                          }
+                        >
+                          Drop
+                        </Button>
+                      ) : null}
+                    </Cell>
                   </>
                 )}
               />
@@ -215,6 +334,17 @@ export function TableStructurePanel() {
           </div>
         ) : null}
       </div>
+
+      <StructureChangeDialog
+        open={dialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+        target={target}
+        spec={dialog}
+        capabilities={data?.structure_capabilities}
+        onApplied={refresh}
+      />
     </section>
   );
 }

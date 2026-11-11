@@ -294,8 +294,8 @@ func TestMigration002IsAdditiveAndPreservesData(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 
-	if got := migrationCount(t, reopened); got != 2 {
-		t.Errorf("migration count = %d, want 2 after upgrade", got)
+	if got := migrationCount(t, reopened); got != 3 {
+		t.Errorf("migration count = %d, want 3 after upgrade", got)
 	}
 	var databaseName sql.NullString
 	if err := reopened.DB().QueryRowContext(ctx,

@@ -65,8 +65,27 @@
                 },
                 "type": "object"
             },
+            "handler.ConnectionBackupRequest": {
+                "properties": {
+                    "mode": {
+                        "enum": [
+                            "schema_data",
+                            "schema",
+                            "data"
+                        ],
+                        "example": "schema_data",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.ConnectionRequest": {
                 "properties": {
+                    "color": {
+                        "description": "Color is an optional #RRGGBB presentation hint; empty means \"use default\".",
+                        "example": "#3b82f6",
+                        "type": "string"
+                    },
                     "database_name": {
                         "example": "app",
                         "type": "string"
@@ -121,6 +140,10 @@
             },
             "handler.ConnectionResponse": {
                 "properties": {
+                    "color": {
+                        "example": "#3b82f6",
+                        "type": "string"
+                    },
                     "created_at": {
                         "type": "string"
                     },
@@ -213,6 +236,64 @@
                 },
                 "required": [
                     "driver"
+                ],
+                "type": "object"
+            },
+            "handler.ConnectionUpdateRequest": {
+                "properties": {
+                    "color": {
+                        "example": "#3b82f6",
+                        "type": "string"
+                    },
+                    "database_name": {
+                        "example": "app",
+                        "type": "string"
+                    },
+                    "driver": {
+                        "enum": [
+                            "postgres",
+                            "mysql",
+                            "sqlite"
+                        ],
+                        "example": "postgres",
+                        "type": "string"
+                    },
+                    "host": {
+                        "example": "127.0.0.1",
+                        "type": "string"
+                    },
+                    "name": {
+                        "example": "Local PG",
+                        "type": "string"
+                    },
+                    "password": {
+                        "example": "secret",
+                        "type": "string"
+                    },
+                    "port": {
+                        "example": 5432,
+                        "type": "integer"
+                    },
+                    "ssl_mode": {
+                        "enum": [
+                            "disable",
+                            "allow",
+                            "prefer",
+                            "require",
+                            "verify-ca",
+                            "verify-full"
+                        ],
+                        "example": "disable",
+                        "type": "string"
+                    },
+                    "username": {
+                        "example": "appuser",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "driver",
+                    "name"
                 ],
                 "type": "object"
             },
@@ -571,6 +652,254 @@
                 },
                 "type": "object"
             },
+            "handler.StructureChangeRequest": {
+                "properties": {
+                    "column": {
+                        "$ref": "#/components/schemas/handler.StructureColumnRequest"
+                    },
+                    "column_name": {
+                        "example": "status",
+                        "type": "string"
+                    },
+                    "constraint": {
+                        "$ref": "#/components/schemas/handler.StructureConstraintRequest"
+                    },
+                    "constraint_name": {
+                        "type": "string"
+                    },
+                    "constraint_type": {
+                        "type": "string"
+                    },
+                    "database": {
+                        "type": "string"
+                    },
+                    "default_action": {
+                        "enum": [
+                            "set",
+                            "drop"
+                        ],
+                        "type": "string"
+                    },
+                    "index": {
+                        "$ref": "#/components/schemas/handler.StructureIndexRequest"
+                    },
+                    "index_name": {
+                        "type": "string"
+                    },
+                    "new_column": {
+                        "$ref": "#/components/schemas/handler.StructureColumnRequest"
+                    },
+                    "new_name": {
+                        "example": "orders_v2",
+                        "type": "string"
+                    },
+                    "operation": {
+                        "enum": [
+                            "rename_table",
+                            "add_column",
+                            "drop_column",
+                            "alter_column",
+                            "create_index",
+                            "drop_index",
+                            "add_constraint",
+                            "drop_constraint"
+                        ],
+                        "example": "add_column",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "type": "string"
+                    },
+                    "table": {
+                        "example": "orders",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "operation",
+                    "table"
+                ],
+                "type": "object"
+            },
+            "handler.StructureChangeResult": {
+                "properties": {
+                    "operation": {
+                        "type": "string"
+                    },
+                    "statements": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.StructureColumnRequest": {
+                "properties": {
+                    "default": {
+                        "example": "active",
+                        "type": "string"
+                    },
+                    "is_expression": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "example": "status",
+                        "type": "string"
+                    },
+                    "nullable": {
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "example": "varchar(32)",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.StructureConstraintRequest": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "expression": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "example": "fk_orders_customer",
+                        "type": "string"
+                    },
+                    "reference": {
+                        "$ref": "#/components/schemas/handler.StructureReferenceRequest"
+                    },
+                    "type": {
+                        "enum": [
+                            "PRIMARY KEY",
+                            "UNIQUE",
+                            "CHECK",
+                            "FOREIGN KEY"
+                        ],
+                        "example": "FOREIGN KEY",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.StructureIndexColumnRequest": {
+                "properties": {
+                    "direction": {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string"
+                    },
+                    "name": {
+                        "example": "created_at",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.StructureIndexRequest": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.StructureIndexColumnRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "method": {
+                        "example": "btree",
+                        "type": "string"
+                    },
+                    "name": {
+                        "example": "idx_orders_created",
+                        "type": "string"
+                    },
+                    "unique": {
+                        "type": "boolean"
+                    },
+                    "where": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.StructureReferenceRequest": {
+                "properties": {
+                    "columns": {
+                        "example": [
+                            "id"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "on_delete": {
+                        "enum": [
+                            "NO ACTION",
+                            "RESTRICT",
+                            "CASCADE",
+                            "SET NULL",
+                            "SET DEFAULT"
+                        ],
+                        "type": "string"
+                    },
+                    "on_update": {
+                        "enum": [
+                            "NO ACTION",
+                            "RESTRICT",
+                            "CASCADE",
+                            "SET NULL",
+                            "SET DEFAULT"
+                        ],
+                        "type": "string"
+                    },
+                    "schema": {
+                        "type": "string"
+                    },
+                    "table": {
+                        "example": "customers",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.TableBackupRequest": {
+                "properties": {
+                    "database": {
+                        "example": "alpha",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "enum": [
+                            "schema_data",
+                            "schema",
+                            "data"
+                        ],
+                        "example": "schema_data",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "example": "public",
+                        "type": "string"
+                    },
+                    "table": {
+                        "example": "orders",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "table"
+                ],
+                "type": "object"
+            },
             "handler.TestConnectionResponse": {
                 "properties": {
                     "status": {
@@ -877,6 +1206,41 @@
                 },
                 "type": "object"
             },
+            "model.StructureCapabilities": {
+                "properties": {
+                    "add_column": {
+                        "type": "boolean"
+                    },
+                    "add_constraint": {
+                        "type": "boolean"
+                    },
+                    "alter_column": {
+                        "type": "boolean"
+                    },
+                    "create_index": {
+                        "type": "boolean"
+                    },
+                    "drop_column": {
+                        "type": "boolean"
+                    },
+                    "drop_constraint": {
+                        "type": "boolean"
+                    },
+                    "drop_index": {
+                        "type": "boolean"
+                    },
+                    "index_method": {
+                        "type": "boolean"
+                    },
+                    "partial_index": {
+                        "type": "boolean"
+                    },
+                    "rename_table": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "model.StructureColumn": {
                 "properties": {
                     "collation": {
@@ -1095,6 +1459,10 @@
                     },
                     "database": {
                         "type": "string"
+                    },
+                    "execution_time_ms": {
+                        "description": "ExecutionTimeMS is the target database's execution time for this page's\nSELECT (PRF-04/Phase 4). It measures the database query only — not\nintrospection, serialization, or frontend render time.",
+                        "type": "integer"
                     },
                     "object_type": {
                         "type": "string"
@@ -1405,6 +1773,10 @@
                     },
                     "schema": {
                         "type": "string"
+                    },
+                    "structure_capabilities": {
+                        "$ref": "#/components/schemas/model.StructureCapabilities",
+                        "description": "Capabilities reports which schema-editing operations the engine supports\nfor this relation (PRF-04/Phase 2). The UI hides or explains controls that\nthe engine cannot perform instead of offering non-functional actions."
                     },
                     "table": {
                         "type": "string"
@@ -1785,6 +2157,192 @@
                 "summary": "Delete a connection profile",
                 "tags": [
                     "connections"
+                ]
+            },
+            "put": {
+                "description": "Replaces the mutable fields of an existing profile (PRF-03/B). An empty password keeps the stored credential; a non-empty one is re-encrypted. Unrelated metadata (SSH fields, created_at) is preserved, and any live pool for the connection is dropped so the next use reconnects with the new settings. Credentials are never returned.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.ConnectionUpdateRequest",
+                                "summary": "request",
+                                "description": "Connection profile"
+                            }
+                        }
+                    },
+                    "description": "Connection profile",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Update a connection profile",
+                "tags": [
+                    "connections"
+                ]
+            }
+        },
+        "/connections/{id}/connection-backup": {
+            "post": {
+                "description": "Streams a zip archive containing one DataDeck SQL artifact per database visible to the connection (PostgreSQL: all accessible databases; MySQL/SQLite: the single profile database), plus a manifest.json describing the backup. No external tooling is invoked. Connection-scope restore is not yet supported; each contained script restores through the database-restore path.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.ConnectionBackupRequest",
+                                "summary": "body",
+                                "description": "Backup options"
+                            }
+                        }
+                    },
+                    "description": "Backup options",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Back up an entire connection as a zip of per-database SQL scripts",
+                "tags": [
+                    "backup"
                 ]
             }
         },
@@ -2598,6 +3156,91 @@
                 "summary": "Get database schema",
                 "tags": [
                     "schema"
+                ]
+            }
+        },
+        "/connections/{id}/table-backup": {
+            "post": {
+                "description": "Streams a self-contained DataDeck SQL artifact for exactly one table (structure + indexes + constraints/foreign keys + data, per mode). No external tooling is invoked. The artifact manifest records the DataDeck version, engine, database, scope=table and the table name; it restores through the database-restore path into an empty target.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.TableBackupRequest",
+                                "summary": "body",
+                                "description": "Backup options"
+                            }
+                        }
+                    },
+                    "description": "Backup options",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "file"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "502": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Back up a single table as a SQL script",
+                "tags": [
+                    "backup"
                 ]
             }
         },
@@ -3785,6 +4428,117 @@
                     }
                 },
                 "summary": "Get table structure",
+                "tags": [
+                    "table-structure"
+                ]
+            },
+            "post": {
+                "description": "Applies exactly one schema-editing operation (rename table, add/alter/drop column, create/drop index, add/drop constraint) to the explicit connection + database + schema + table (PRF-04/Phase 2). Identifiers are quoted with the engine's identifier quote; literal defaults are emitted as SQL literals; raw fragments (type/expression/where) are validated to keep each request a single statement. PostgreSQL/SQLite run all-or-nothing in a transaction; MySQL DDL cannot roll back, so multi-statement changes are rejected. Operations the engine cannot perform return 501 NOT_IMPLEMENTED.",
+                "parameters": [
+                    {
+                        "description": "Connection id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.StructureChangeRequest",
+                                "summary": "request",
+                                "description": "Schema change"
+                            }
+                        }
+                    },
+                    "description": "Schema change",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
+                    }
+                },
+                "summary": "Apply one schema change to a table",
                 "tags": [
                     "table-structure"
                 ]

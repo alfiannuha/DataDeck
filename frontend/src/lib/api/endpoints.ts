@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-client";
 import type {
   ConnectionCreateRequest,
+  ConnectionUpdateRequest,
   DatabaseInfo,
   ConnectionResponse,
   ConnectionTestRequest,
@@ -35,6 +36,8 @@ import type {
   TableImportSession,
   TableImportValidation,
   TableStructure,
+  StructureChangeRequest,
+  StructureChangeResult,
   TestConnectionResponse,
   ImportValidationRequest,
   ImportMapping,
@@ -62,6 +65,21 @@ export function createConnection(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Update an existing connection profile (PRF-03/B). An empty password in the
+ * body keeps the stored credential; a non-empty one replaces it. The backend
+ * drops any live pool so the next use reconnects with the new settings.
+ */
+export function updateConnection(
+  connectionId: string,
+  body: ConnectionUpdateRequest,
+): Promise<ConnectionResponse> {
+  return apiFetch<ConnectionResponse>(
+    `/connections/${encodeURIComponent(connectionId)}`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
 }
 
 export function testConnection(
@@ -269,6 +287,21 @@ export function getTableStructure(
   return apiFetch<TableStructure>(
     `/connections/${encodeURIComponent(connectionId)}/table-structure?${query.toString()}`,
     { signal },
+  );
+}
+
+/**
+ * Apply one schema change to a table (PRF-04/Phase 2). The backend quotes
+ * identifiers, validates raw fragments, and runs all-or-nothing where the engine
+ * supports transactional DDL. Unsupported operations return 501.
+ */
+export function applyStructure(
+  connectionId: string,
+  body: StructureChangeRequest,
+): Promise<StructureChangeResult> {
+  return apiFetch<StructureChangeResult>(
+    `/connections/${encodeURIComponent(connectionId)}/table-structure`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }
 

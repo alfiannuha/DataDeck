@@ -84,6 +84,46 @@ describe("ResultGrid", () => {
     expect(header.style.gridTemplateColumns).not.toBe(before);
   });
 
+  it("marks sortable headers with a sort icon and pointer cursor", () => {
+    const onSortColumn = vi.fn();
+    render(
+      <ResultGrid
+        result={result(["id", "email"], [["1", "a@b.c"]])}
+        sortColumn={null}
+        sortDirection={null}
+        onSortColumn={onSortColumn}
+      />,
+    );
+
+    const header = screen.getByRole("button", { name: "Sort by id" });
+    expect(header).toHaveClass("cursor-pointer");
+    expect(header.querySelector("svg.lucide-arrow-up-down")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Sort by email" })).toBeInTheDocument();
+
+    fireEvent.click(header);
+    expect(onSortColumn).toHaveBeenCalledWith("id");
+  });
+
+  it("shows the active sort direction icon instead of the neutral one", () => {
+    render(
+      <ResultGrid
+        result={result(["id"], [["1"]])}
+        sortColumn="id"
+        sortDirection="asc"
+        onSortColumn={() => {}}
+      />,
+    );
+
+    const header = screen.getByRole("button", { name: "Sort by id" });
+    expect(header.querySelector("svg.lucide-arrow-up")).not.toBeNull();
+    expect(header.querySelector("svg.lucide-arrow-up-down")).toBeNull();
+  });
+
+  it("exposes no sort affordance without onSortColumn", () => {
+    render(<ResultGrid result={result(["id"], [["1"]])} />);
+    expect(screen.queryByRole("button", { name: "Sort by id" })).not.toBeInTheDocument();
+  });
+
   it("renders a row menu trigger per row and wires context/right-click", () => {
     const onOpenChange = vi.fn();
     const onRowContextMenu = vi.fn();

@@ -132,9 +132,14 @@ type databaseScriptSource struct {
 	id      string
 	cfg     database.Config
 	driver  string
+	// only, when set, restricts the export to a single relation (table scope).
+	only *dbscript.TableRef
 }
 
 func (s *databaseScriptSource) Tables(ctx context.Context) ([]dbscript.TableRef, error) {
+	if s.only != nil {
+		return []dbscript.TableRef{*s.only}, nil
+	}
 	databases, err := s.handler.manager.Introspect(ctx, s.id, s.cfg)
 	if err != nil {
 		return nil, err

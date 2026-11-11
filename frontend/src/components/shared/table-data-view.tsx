@@ -1,6 +1,16 @@
 "use client";
 
-import { Download, Filter, Loader2, RefreshCw, Upload } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Download,
+  Filter,
+  Loader2,
+  RefreshCw,
+  Upload,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ResultGrid } from "@/components/grid/result-grid";
@@ -27,6 +37,18 @@ import {
   type TableSort,
 } from "@/store/useWorkspaceStore";
 import type { QueryResult, TableColumnInfo } from "@/types/api";
+
+/** Mirrors the backend page bound so invalid input is clamped here first. */
+const MAX_PAGE = 1_000_000;
+
+/** Formats a millisecond duration as HH:MM:SS.mmm (PRF-04/Phase 4). */
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms));
+  const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+  return `${pad(Math.floor(total / 3_600_000))}:${pad(
+    Math.floor((total % 3_600_000) / 60_000),
+  )}:${pad(Math.floor((total % 60_000) / 1000))}.${pad(total % 1000, 3)}`;
+}
 
 /** The immutable target a mutation dialog was opened with (never re-read live). */
 interface DialogTarget {
@@ -73,6 +95,7 @@ export function TableDataView() {
   const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const statusTimer = useRef<number | null>(null);
+  const [pageInput, setPageInput] = useState("1");
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -96,6 +119,13 @@ export function TableDataView() {
     },
     [],
   );
+
+  // Keep the page input in step with the tab's actual page (arrow buttons,
+  // page-size change, filter/sort reset all go through the store).
+  const currentPage = tab?.kind === "table-data" ? tab.page : 1;
+  useEffect(() => {
+    setPageInput(String(currentPage));
+  }, [currentPage]);
 
   if (tab?.kind !== "table-data") return null;
 
@@ -122,7 +152,18 @@ export function TableDataView() {
 
   function changePage(next: number) {
     if (!tab || tab.kind !== "table-data") return;
-    updateTableData(tab.id, { page: Math.max(1, next) });
+    updateTableData(tab.id, { page: Math.max(1, Math.min(next, MAX_PAGE)) });
+  }
+
+  // Direct page entry: ignore invalid input (revert), otherwise navigate. The
+  // backend rejects pages beyond MAX_PAGE, so clamp here first.
+  function submitPageInput() {
+    const parsed = Number.parseInt(pageInput, 10);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      setPageInput(String(tab?.kind === "table-data" ? tab.page : 1));
+      return;
+    }
+    changePage(parsed);
   }
 
   function changePageSize(next: number) {
@@ -572,31 +613,79 @@ export function TableDataView() {
       </div>
 
       <footer className="flex h-8 shrink-0 items-center justify-between border-b border-t border-border bg-panel px-3 text-[10px] text-muted-foreground">
-        <span data-testid="table-data-page">
-          Page {tab.page}
-          {data?.pagination?.has_more ? " · more rows available" : ""}
-          {data?.truncated ? " · partial (50 MB limit)" : ""}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span data-testid="table-data-duration">
+            {data
+              ? `Query complete ${formatDuration(data.execution_time_ms ?? 0)}`
+              : "Query incomplete"}
+          </span>
+          {data?.pagination?.has_more ? (
+            <span className="truncate">· more rows available</span>
+          ) : null}
+          {data?.truncated ? <span className="truncate">· partial (50 MB limit)</span> : null}
+        </div>
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
-            size="sm"
-            data-testid="table-data-prev"
-            aria-label="Previous page"
+            size="icon"
+            data-testid="table-data-first"
+            aria-label="First page"
+            title="First page"
             disabled={tab.page <= 1 || query.isFetching}
-            onClick={() => changePage(tab.page - 1)}
+            onClick={() => changePage(1)}
           >
-            Previous
+            <ChevronsLeft size={13} aria-hidden="true" />
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
+            data-testid="table-data-prev"
+            aria-label="Previous page"
+            title="Previous page"
+            disabled={tab.page <= 1 || query.isFetching}
+            onClick={() => changePage(tab.page - 1)}
+          >
+            <ChevronLeft size={13} aria-hidden="true" />
+          </Button>
+          <form
+            className="flex items-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitPageInput();
+            }}
+          >
+            <span aria-hidden="true">Page</span>
+            <input
+              aria-label="Page number"
+              data-testid="table-data-page-input"
+              inputMode="numeric"
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onBlur={submitPageInput}
+              className="w-12 rounded border border-border bg-background px-1 py-0.5 text-center text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+            />
+            {data?.pagination?.has_more ? "of more" : "of 1"}
+          </form>
+          <Button
+            variant="outline"
+            size="icon"
             data-testid="table-data-next"
             aria-label="Next page"
+            title="Next page"
             disabled={!data?.pagination?.has_more || query.isFetching}
             onClick={() => changePage(tab.page + 1)}
           >
-            Next
+            <ChevronRight size={13} aria-hidden="true" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            data-testid="table-data-last"
+            aria-label="Last page"
+            title="Last page — the total page count is unknown for large tables, so jump directly with the page box"
+            disabled
+          >
+            <ChevronsRight size={13} aria-hidden="true" />
           </Button>
         </div>
       </footer>

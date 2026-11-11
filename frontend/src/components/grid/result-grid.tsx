@@ -6,7 +6,7 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
@@ -169,7 +169,7 @@ export function ResultGrid({
                     type="button"
                     aria-label={`Sort by ${label}`}
                     onClick={() => onSortColumn?.(label)}
-                    className="flex min-w-0 items-center gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                    className="group flex min-w-0 cursor-pointer items-center gap-1 rounded text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                   >
                     <span className="truncate">{label}</span>
                     {active ? (
@@ -178,7 +178,13 @@ export function ResultGrid({
                       ) : (
                         <ArrowDown size={11} aria-hidden="true" />
                       )
-                    ) : null}
+                    ) : (
+                      <ArrowUpDown
+                        size={11}
+                        aria-hidden="true"
+                        className="shrink-0 opacity-40 transition-opacity group-hover:opacity-100"
+                      />
+                    )}
                   </button>
                 ) : (
                   <span className="truncate">{label}</span>

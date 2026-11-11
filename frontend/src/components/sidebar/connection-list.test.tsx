@@ -10,6 +10,7 @@ import { ConnectionList } from "./connection-list";
 vi.mock("@/lib/api/endpoints", () => ({
   listConnections: vi.fn(),
   createConnection: vi.fn(),
+  updateConnection: vi.fn(),
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
 }));
@@ -129,5 +130,31 @@ describe("ConnectionList", () => {
 
     expect(await screen.findByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("postgres · db.internal:5432/app")).toBeInTheDocument();
+  });
+
+  it("shows the stored connection color, defaulting when absent", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      { ...savedConnection, id: "c1", name: "Alpha", color: "#22c55e" },
+      { ...savedConnection, id: "c2", name: "Beta", color: "" },
+    ] as never);
+    renderWithProviders(<ConnectionList />);
+
+    await screen.findByText("Alpha");
+    const dots = screen.getAllByTestId("connection-color");
+    expect(dots[0]).toHaveStyle({ backgroundColor: "#22c55e" });
+    // PRF-03/A: a legacy record without a color falls back to the default.
+    expect(dots[1]).toHaveStyle({ backgroundColor: "#3b82f6" });
+  });
+
+  it("opens the edit modal prefilled for a connection", async () => {
+    vi.mocked(listConnections).mockResolvedValue([savedConnection as never]);
+    renderWithProviders(<ConnectionList />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Alpha" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Edit connection" }),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument();
   });
 });

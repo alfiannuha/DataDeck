@@ -46,6 +46,7 @@ function pageResult(overrides: Record<string, unknown> = {}) {
     rows: [["1", "Alfie"]],
     pagination: { page: 1, page_size: 100, has_more: false },
     truncated: false,
+    execution_time_ms: 445,
     ...overrides,
   };
 }
@@ -887,5 +888,54 @@ describe("TableDataView row copy", () => {
       "Copy failed",
     );
     expect(screen.getByRole("grid", { name: "Table data grid" })).toBeInTheDocument();
+  });
+
+  it("shows the database execution duration for the latest successful query", async () => {
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+    expect(screen.getByTestId("table-data-duration")).toHaveTextContent(
+      "Query complete 00:00:00.445",
+    );
+  });
+
+  it("navigates directly to a page entered in the page box", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ pagination: { page: 1, page_size: 100, has_more: true } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    const input = await screen.findByLabelText("Page number");
+
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      const tab = useWorkspaceStore.getState().tabs[0];
+      expect(tab.kind === "table-data" && tab.page).toBe(5);
+    });
+  });
+
+  it("reverts an invalid page entry without navigating", async () => {
+    renderWithProviders(<TableDataView />);
+    const input = await screen.findByLabelText("Page number");
+
+    fireEvent.change(input, { target: { value: "not-a-number" } });
+    fireEvent.blur(input);
+
+    expect(input).toHaveValue("1");
+    const tab = useWorkspaceStore.getState().tabs[0];
+    expect(tab.kind === "table-data" && tab.page).toBe(1);
+  });
+
+  it("disables First/Previous on the first page and Last (total unknown)", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ pagination: { page: 1, page_size: 100, has_more: true } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    expect(screen.getByRole("button", { name: "First page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Last page" })).toBeDisabled();
   });
 });

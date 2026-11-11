@@ -244,7 +244,72 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Update a connection profile
+         * @description Replaces the mutable fields of an existing profile (PRF-03/B). An empty password keeps the stored credential; a non-empty one is re-encrypted. Unrelated metadata (SSH fields, created_at) is preserved, and any live pool for the connection is dropped so the next use reconnects with the new settings. Credentials are never returned.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Connection profile */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ConnectionUpdateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
         post?: never;
         /**
          * Delete a connection profile
@@ -298,6 +363,98 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{id}/connection-backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Back up an entire connection as a zip of per-database SQL scripts
+         * @description Streams a zip archive containing one DataDeck SQL artifact per database visible to the connection (PostgreSQL: all accessible databases; MySQL/SQLite: the single profile database), plus a manifest.json describing the backup. No external tooling is invoked. Connection-scope restore is not yet supported; each contained script restores through the database-restore path.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Backup options */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ConnectionBackupRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": Record<string, never>;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Implemented */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1022,6 +1179,89 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{id}/table-backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Back up a single table as a SQL script
+         * @description Streams a self-contained DataDeck SQL artifact for exactly one table (structure + indexes + constraints/foreign keys + data, per mode). No external tooling is invoked. The artifact manifest records the DataDeck version, engine, database, scope=table and the table name; it restores through the database-restore path into an empty target.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Backup options */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.TableBackupRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": Record<string, never>;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1913,7 +2153,90 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /**
+         * Apply one schema change to a table
+         * @description Applies exactly one schema-editing operation (rename table, add/alter/drop column, create/drop index, add/drop constraint) to the explicit connection + database + schema + table (PRF-04/Phase 2). Identifiers are quoted with the engine's identifier quote; literal defaults are emitted as SQL literals; raw fragments (type/expression/where) are validated to keep each request a single statement. PostgreSQL/SQLite run all-or-nothing in a transaction; MySQL DDL cannot roll back, so multi-statement changes are rejected. Operations the engine cannot perform return 501 NOT_IMPLEMENTED.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Connection id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Schema change */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.StructureChangeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Not Implemented */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2417,7 +2740,19 @@ export interface components {
             wait_count?: number;
             wait_duration_ms?: number;
         };
+        "handler.ConnectionBackupRequest": {
+            /**
+             * @example schema_data
+             * @enum {string}
+             */
+            mode?: "schema_data" | "schema" | "data";
+        };
         "handler.ConnectionRequest": {
+            /**
+             * @description Color is an optional #RRGGBB presentation hint; empty means "use default".
+             * @example #3b82f6
+             */
+            color?: string;
             /** @example app */
             database_name?: string;
             /**
@@ -2442,6 +2777,8 @@ export interface components {
             username?: string;
         };
         "handler.ConnectionResponse": {
+            /** @example #3b82f6 */
+            color?: string;
             created_at?: string;
             /** @example app */
             database_name?: string;
@@ -2474,6 +2811,32 @@ export interface components {
             driver: "postgres" | "mysql" | "sqlite";
             /** @example 127.0.0.1 */
             host?: string;
+            /** @example secret */
+            password?: string;
+            /** @example 5432 */
+            port?: number;
+            /**
+             * @example disable
+             * @enum {string}
+             */
+            ssl_mode?: "disable" | "allow" | "prefer" | "require" | "verify-ca" | "verify-full";
+            /** @example appuser */
+            username?: string;
+        };
+        "handler.ConnectionUpdateRequest": {
+            /** @example #3b82f6 */
+            color?: string;
+            /** @example app */
+            database_name?: string;
+            /**
+             * @example postgres
+             * @enum {string}
+             */
+            driver: "postgres" | "mysql" | "sqlite";
+            /** @example 127.0.0.1 */
+            host?: string;
+            /** @example Local PG */
+            name: string;
             /** @example secret */
             password?: string;
             /** @example 5432 */
@@ -2629,6 +2992,99 @@ export interface components {
             title?: string;
             updated_at?: string;
         };
+        "handler.StructureChangeRequest": {
+            column?: components["schemas"]["handler.StructureColumnRequest"];
+            /** @example status */
+            column_name?: string;
+            constraint?: components["schemas"]["handler.StructureConstraintRequest"];
+            constraint_name?: string;
+            constraint_type?: string;
+            database?: string;
+            /** @enum {string} */
+            default_action?: "set" | "drop";
+            index?: components["schemas"]["handler.StructureIndexRequest"];
+            index_name?: string;
+            new_column?: components["schemas"]["handler.StructureColumnRequest"];
+            /** @example orders_v2 */
+            new_name?: string;
+            /**
+             * @example add_column
+             * @enum {string}
+             */
+            operation: "rename_table" | "add_column" | "drop_column" | "alter_column" | "create_index" | "drop_index" | "add_constraint" | "drop_constraint";
+            schema?: string;
+            /** @example orders */
+            table: string;
+        };
+        "handler.StructureChangeResult": {
+            operation?: string;
+            statements?: number;
+        };
+        "handler.StructureColumnRequest": {
+            /** @example active */
+            default?: string;
+            is_expression?: boolean;
+            /** @example status */
+            name?: string;
+            nullable?: boolean;
+            /** @example varchar(32) */
+            type?: string;
+        };
+        "handler.StructureConstraintRequest": {
+            columns?: string[];
+            expression?: string;
+            /** @example fk_orders_customer */
+            name?: string;
+            reference?: components["schemas"]["handler.StructureReferenceRequest"];
+            /**
+             * @example FOREIGN KEY
+             * @enum {string}
+             */
+            type?: "PRIMARY KEY" | "UNIQUE" | "CHECK" | "FOREIGN KEY";
+        };
+        "handler.StructureIndexColumnRequest": {
+            /** @enum {string} */
+            direction?: "asc" | "desc";
+            /** @example created_at */
+            name?: string;
+        };
+        "handler.StructureIndexRequest": {
+            columns?: components["schemas"]["handler.StructureIndexColumnRequest"][];
+            /** @example btree */
+            method?: string;
+            /** @example idx_orders_created */
+            name?: string;
+            unique?: boolean;
+            where?: string;
+        };
+        "handler.StructureReferenceRequest": {
+            /**
+             * @example [
+             *       "id"
+             *     ]
+             */
+            columns?: string[];
+            /** @enum {string} */
+            on_delete?: "NO ACTION" | "RESTRICT" | "CASCADE" | "SET NULL" | "SET DEFAULT";
+            /** @enum {string} */
+            on_update?: "NO ACTION" | "RESTRICT" | "CASCADE" | "SET NULL" | "SET DEFAULT";
+            schema?: string;
+            /** @example customers */
+            table?: string;
+        };
+        "handler.TableBackupRequest": {
+            /** @example alpha */
+            database?: string;
+            /**
+             * @example schema_data
+             * @enum {string}
+             */
+            mode?: "schema_data" | "schema" | "data";
+            /** @example public */
+            schema?: string;
+            /** @example orders */
+            table: string;
+        };
         "handler.TestConnectionResponse": {
             /** @example ok */
             status?: string;
@@ -2745,6 +3201,18 @@ export interface components {
             name?: string;
             tables?: components["schemas"]["model.Table"][];
         };
+        "model.StructureCapabilities": {
+            add_column?: boolean;
+            add_constraint?: boolean;
+            alter_column?: boolean;
+            create_index?: boolean;
+            drop_column?: boolean;
+            drop_constraint?: boolean;
+            drop_index?: boolean;
+            index_method?: boolean;
+            partial_index?: boolean;
+            rename_table?: boolean;
+        };
         "model.StructureColumn": {
             collation?: string;
             comment?: string;
@@ -2818,6 +3286,12 @@ export interface components {
         "model.TableDataPage": {
             columns?: components["schemas"]["model.TableColumnInfo"][];
             database?: string;
+            /**
+             * @description ExecutionTimeMS is the target database's execution time for this page's
+             *     SELECT (PRF-04/Phase 4). It measures the database query only — not
+             *     introspection, serialization, or frontend render time.
+             */
+            execution_time_ms?: number;
             object_type?: string;
             pagination?: components["schemas"]["model.TablePagination"];
             /**
@@ -2924,6 +3398,12 @@ export interface components {
             object_type?: string;
             primary_key?: components["schemas"]["model.PrimaryKey"];
             schema?: string;
+            /**
+             * @description Capabilities reports which schema-editing operations the engine supports
+             *     for this relation (PRF-04/Phase 2). The UI hides or explains controls that
+             *     the engine cannot perform instead of offering non-functional actions.
+             */
+            structure_capabilities?: components["schemas"]["model.StructureCapabilities"];
             table?: string;
         };
         "response.APIError": {

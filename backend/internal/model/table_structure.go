@@ -16,6 +16,24 @@ type TableStructure struct {
 	Constraints []StructureConstraint `json:"constraints,omitempty"`
 	Indexes     []StructureIndex      `json:"indexes,omitempty"`
 	ForeignKeys []StructureForeignKey `json:"foreign_keys,omitempty"`
+	// Capabilities reports which schema-editing operations the engine supports
+	// for this relation (PRF-04/Phase 2). The UI hides or explains controls that
+	// the engine cannot perform instead of offering non-functional actions.
+	Capabilities *StructureCapabilities `json:"structure_capabilities,omitempty"`
+}
+
+// StructureCapabilities is the per-engine schema-editing support matrix.
+type StructureCapabilities struct {
+	RenameTable    bool `json:"rename_table"`
+	AddColumn      bool `json:"add_column"`
+	DropColumn     bool `json:"drop_column"`
+	AlterColumn    bool `json:"alter_column"`
+	CreateIndex    bool `json:"create_index"`
+	DropIndex      bool `json:"drop_index"`
+	AddConstraint  bool `json:"add_constraint"`
+	DropConstraint bool `json:"drop_constraint"`
+	PartialIndex   bool `json:"partial_index"`
+	IndexMethod    bool `json:"index_method"`
 }
 
 // StructureColumn is the canonical column metadata for the structure endpoint.

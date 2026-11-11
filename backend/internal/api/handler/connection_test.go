@@ -447,3 +447,178 @@ func TestTestPostgresConnectionWithoutDatabase(t *testing.T) {
 		t.Errorf("error = %+v, want BOOTSTRAP_DATABASE_UNAVAILABLE", env.Error)
 	}
 }
+
+// PRF-03/A: the color is persisted on create and echoed (lowercased) in the
+// response; a profile created without a color stays empty for backward compat.
+func TestCreateConnectionPersistsColor(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+
+	rec := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+		`{"name":"Colored","driver":"postgres","host":"127.0.0.1","port":5432,`+
+			`"database_name":"app","username":"u","password":"p","color":"#3B82F6"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var profile ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &profile); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if profile.Color != "#3b82f6" {
+		t.Errorf("color = %q, want normalized #3b82f6", profile.Color)
+	}
+
+	stored, err := repository.NewConnectionRepository(db).Get(context.Background(), profile.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.Color != "#3b82f6" {
+		t.Errorf("stored color = %q, want #3b82f6", stored.Color)
+	}
+
+	plain := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+		`{"name":"Plain","driver":"postgres","host":"127.0.0.1","port":5432,"database_name":"app","username":"u"}`)
+	var plainProfile ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, plain).Data, &plainProfile); err != nil {
+		t.Fatalf("decode plain profile: %v", err)
+	}
+	if plainProfile.Color != "" {
+		t.Errorf("color without a value = %q, want empty", plainProfile.Color)
+	}
+}
+
+func TestCreateConnectionRejectsInvalidColor(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	for _, color := range []string{"blue", "#12345", "#GGGGGG", "3b82f6"} {
+		t.Run(color, func(t *testing.T) {
+			rec := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+				`{"name":"n","driver":"postgres","host":"h","port":5432,"database_name":"d","username":"u","color":"`+color+`"}`)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+			}
+			if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "VALIDATION_ERROR" {
+				t.Errorf("error = %+v, want VALIDATION_ERROR", env.Error)
+			}
+		})
+	}
+}
+
+func updateRequest(id, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/connections/"+id, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+// PRF-03/B: editing a profile keeps the stored password when none is supplied,
+// updates the other fields, and preserves created_at.
+func TestUpdateConnectionPreservesPasswordAndUpdatesFields(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	repo := repository.NewConnectionRepository(db)
+
+	createRec := doRequest(h.Create, http.MethodPost, "/api/v1/connections",
+		`{"name":"Before","driver":"postgres","host":"127.0.0.1","port":5432,`+
+			`"database_name":"app","username":"u","password":"original","color":"#3b82f6"}`)
+	var created ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, createRec).Data, &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	before, err := repo.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() before error = %v", err)
+	}
+
+	// Password omitted -> keep the ciphertext; rename + recolor.
+	rec := httptest.NewRecorder()
+	h.Update(rec, updateRequest(created.ID,
+		`{"name":"After","driver":"postgres","host":"127.0.0.1","port":5432,`+
+			`"database_name":"app","username":"u","color":"#ef4444"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var updated ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &updated); err != nil {
+		t.Fatalf("decode updated: %v", err)
+	}
+	if updated.Name != "After" || updated.Color != "#ef4444" {
+		t.Errorf("updated = %q/%q, want After/#ef4444", updated.Name, updated.Color)
+	}
+
+	after, err := repo.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() after error = %v", err)
+	}
+	if before.EncryptedPassword == nil || after.EncryptedPassword == nil ||
+		*before.EncryptedPassword != *after.EncryptedPassword {
+		t.Error("password ciphertext changed when no new password was supplied")
+	}
+	if !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Error("created_at was not preserved across update")
+	}
+}
+
+// A supplied password is re-encrypted (not stored verbatim) and replaces the old
+// ciphertext.
+func TestUpdateConnectionReplacesPasswordWhenProvided(t *testing.T) {
+	h, db, cipher := newTestHandler(t)
+	repo := repository.NewConnectionRepository(db)
+
+	createRec := doRequest(h.Create, http.MethodPost, "/api/v1/connections", validBody)
+	var created ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, createRec).Data, &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	before, err := repo.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() before error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.Update(rec, updateRequest(created.ID,
+		`{"name":"Local PG","driver":"postgres","host":"127.0.0.1","port":5432,`+
+			`"database_name":"app","username":"appuser","password":"rotated"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	after, err := repo.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() after error = %v", err)
+	}
+	if after.EncryptedPassword == nil || *after.EncryptedPassword == "rotated" {
+		t.Error("new password was not stored as ciphertext")
+	}
+	if before.EncryptedPassword != nil && *before.EncryptedPassword == *after.EncryptedPassword {
+		t.Error("password ciphertext did not change")
+	}
+	plaintext, err := cipher.Decrypt(*after.EncryptedPassword)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if string(plaintext) != "rotated" {
+		t.Errorf("decrypted password = %q, want rotated", plaintext)
+	}
+}
+
+func TestUpdateConnectionValidationAndNotFound(t *testing.T) {
+	h, _, _ := newTestHandler(t)
+
+	rec := httptest.NewRecorder()
+	h.Update(rec, updateRequest("missing", validBody))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	createRec := doRequest(h.Create, http.MethodPost, "/api/v1/connections", validBody)
+	var created ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, createRec).Data, &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	bad := updateRequest(created.ID,
+		`{"name":"n","driver":"postgres","host":"h","port":5432,"database_name":"d","username":"u","color":"nope"}`)
+	rec = httptest.NewRecorder()
+	h.Update(rec, bad)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid color status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}

@@ -10,6 +10,7 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       "view-data",
       "new-query",
       "structure",
+      "rename-table",
       "refresh",
       "export",
       "import",
@@ -24,6 +25,7 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       "view-data",
       "new-query",
       "structure",
+      "rename-table",
       "refresh",
       "export",
       "import",
@@ -57,6 +59,14 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
     for (const id of ["view-data", "new-query", "structure", "refresh"]) {
       expect(actions.find((action) => action.id === id)?.disabled).toBe(false);
     }
+  });
+
+  it("disables Rename Table for read-only objects with a reason", () => {
+    const rename = getTableActions({ objectType: "VIEW" }).find(
+      (action) => action.id === "rename-table",
+    );
+    expect(rename?.disabled).toBe(true);
+    expect(rename?.reason).toMatch(/cannot be renamed/i);
   });
 });
 

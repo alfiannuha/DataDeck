@@ -264,3 +264,29 @@ func TestExportDataOnlySkipsSchema(t *testing.T) {
 		t.Errorf("data-only export missing data:\n%s", out)
 	}
 }
+
+// PRF-04/Phase 3: scope/table/version metadata round-trips and stays additive
+// (an artifact without a scope reads back an empty scope = database).
+func TestManifestScopeAndVersionsRoundTrip(t *testing.T) {
+	manifest := Manifest{
+		Engine:          "postgres",
+		Database:        "alpha",
+		Mode:            ModeSchemaData,
+		GeneratedAt:     time.Now(),
+		Scope:           ScopeTable,
+		Table:           "orders",
+		DataDeckVersion: "0.4.0",
+		EngineVersion:   "16.2",
+	}
+	var b strings.Builder
+	if err := WriteHeader(&b, manifest); err != nil {
+		t.Fatalf("WriteHeader: %v", err)
+	}
+	got, err := ReadHeader(bufio.NewReader(strings.NewReader(b.String() + "\nSELECT 1;\n")))
+	if err != nil {
+		t.Fatalf("ReadHeader: %v", err)
+	}
+	if got.Scope != ScopeTable || got.Table != "orders" || got.DataDeckVersion != "0.4.0" || got.EngineVersion != "16.2" {
+		t.Fatalf("manifest metadata mismatch: %+v", got)
+	}
+}

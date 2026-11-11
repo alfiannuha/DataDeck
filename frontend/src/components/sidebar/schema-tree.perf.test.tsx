@@ -83,20 +83,21 @@ describe("SchemaExplorer large-schema rendering", () => {
       <SchemaTree
         databases={databaseWithTableLevel()}
         connectionId="c1"
-        onSelectTop100={() => {}}
+        onOpenTableData={() => {}}
+        onTableMenu={() => {}}
       />,
     );
     const more = screen.getByRole("button", { name: /Show 100 more/ });
     expect(more).toBeInTheDocument();
 
-    // Context actions remain available on rendered tables.
+    // The always-visible row menu replaces the old hover shortcuts.
     expect(
-      screen.getByRole("button", { name: "Select top 100 from table_0" }),
+      screen.getByRole("button", { name: "More actions for table_0" }),
     ).toBeInTheDocument();
 
     fireEvent.click(more);
     expect(
-      screen.getByRole("button", { name: "Select top 100 from table_199" }),
+      screen.getByRole("button", { name: "More actions for table_199" }),
     ).toBeInTheDocument();
   });
 });

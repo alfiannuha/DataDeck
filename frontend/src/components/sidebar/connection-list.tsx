@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, Plus, Trash2 } from "lucide-react";
+import { Database, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useConnections, useDeleteConnection } from "@/hooks/use-connections";
 import { ApiClientError } from "@/lib/api-client";
+import { connectionColor } from "@/lib/connection-colors";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import type { ConnectionResponse } from "@/types/api";
@@ -37,6 +38,7 @@ export function ConnectionList() {
   const deleteConnection = useDeleteConnection();
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ConnectionResponse | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ConnectionResponse | null>(
     null,
   );
@@ -119,6 +121,13 @@ export function ConnectionList() {
                     className="flex min-w-0 flex-1 flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-panel-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                   >
                     <span className="flex w-full items-center gap-1.5">
+                      <span
+                        data-testid="connection-color"
+                        aria-hidden="true"
+                        title={connection.name ?? undefined}
+                        className="h-2.5 w-2.5 shrink-0 rounded-full border border-border"
+                        style={{ backgroundColor: connectionColor(connection.color) }}
+                      />
                       <Database
                         size={13}
                         aria-hidden="true"
@@ -141,6 +150,14 @@ export function ConnectionList() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={`Edit ${connection.name ?? "connection"}`}
+                    onClick={() => setEditTarget(connection)}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     aria-label={`Delete ${connection.name ?? "connection"}`}
                     onClick={() => setPendingDelete(connection)}
                   >
@@ -157,6 +174,14 @@ export function ConnectionList() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         onSaved={(connection) => setActiveConnection(connection.id ?? null)}
+      />
+
+      <NewConnectionModal
+        open={editTarget !== null}
+        connection={editTarget ?? undefined}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null);
+        }}
       />
 
       <AlertDialog

@@ -49,8 +49,12 @@ type ConnectionProfile struct {
 	SSHUsername          *string
 	SSHEncryptedPassword *string
 	SSHKeyPath           *string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	// Color is a presentation hint (a #RRGGBB hex string) used to distinguish
+	// connections in the UI. The empty string means "no color assigned"; the API
+	// substitutes a default for display. It never carries credentials.
+	Color     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Redacted returns a copy of the profile with credential ciphertext removed.

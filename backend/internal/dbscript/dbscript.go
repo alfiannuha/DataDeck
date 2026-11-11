@@ -25,6 +25,14 @@ import (
 // version restore accepts.
 const FormatVersion = 1
 
+// Backup scopes (PRF-04/Phase 3). The scope is recorded in the manifest so an
+// artifact is self-describing; restore only accepts database-scope artifacts.
+const (
+	ScopeDatabase   = "database"
+	ScopeTable      = "table"
+	ScopeConnection = "connection"
+)
+
 // ErrNotDataDeckArtifact marks input that is not a DataDeck SQL export.
 var ErrNotDataDeckArtifact = errors.New("dbscript: not a DataDeck export artifact")
 
@@ -66,6 +74,15 @@ type Manifest struct {
 	Tables        int
 	Indexes       int
 	ForeignKeys   int
+	// Scope is database | table | connection (PRF-04/Phase 3). Empty is treated
+	// as database for artifacts written before scopes existed.
+	Scope string
+	// Table is the single relation for a table-scope artifact (empty otherwise).
+	Table string
+	// DataDeckVersion and EngineVersion describe the writer and the source
+	// engine for compatibility checks (informational).
+	DataDeckVersion string
+	EngineVersion   string
 	// Excluded lists supported-scope objects that were deliberately not
 	// exported (e.g. views), so the artifact never claims full coverage.
 	Excluded []string
@@ -90,6 +107,18 @@ func WriteHeader(w io.Writer, m Manifest) error {
 		"-- tables: " + strconv.Itoa(m.Tables),
 		"-- indexes: " + strconv.Itoa(m.Indexes),
 		"-- foreign_keys: " + strconv.Itoa(m.ForeignKeys),
+	}
+	if m.Scope != "" {
+		lines = append(lines, "-- scope: "+m.Scope)
+	}
+	if m.Table != "" {
+		lines = append(lines, "-- table: "+m.Table)
+	}
+	if m.DataDeckVersion != "" {
+		lines = append(lines, "-- datadeck_version: "+m.DataDeckVersion)
+	}
+	if m.EngineVersion != "" {
+		lines = append(lines, "-- engine_version: "+m.EngineVersion)
 	}
 	if excluded != "" {
 		lines = append(lines, "-- excluded: "+excluded)
@@ -152,6 +181,14 @@ func ReadHeader(r *bufio.Reader) (Manifest, error) {
 			m.Indexes, _ = strconv.Atoi(value)
 		case "foreign_keys":
 			m.ForeignKeys, _ = strconv.Atoi(value)
+		case "scope":
+			m.Scope = value
+		case "table":
+			m.Table = value
+		case "datadeck_version":
+			m.DataDeckVersion = value
+		case "engine_version":
+			m.EngineVersion = value
 		case "excluded":
 			if value != "" {
 				m.Excluded = strings.Split(value, ", ")

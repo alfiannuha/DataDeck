@@ -99,6 +99,10 @@ type TableDataPage struct {
 	Pagination TablePagination   `json:"pagination"`
 	// Truncated is true when the shared 50 MB result cap stopped the page short.
 	Truncated bool `json:"truncated"`
+	// ExecutionTimeMS is the target database's execution time for this page's
+	// SELECT (PRF-04/Phase 4). It measures the database query only — not
+	// introspection, serialization, or frontend render time.
+	ExecutionTimeMS int64 `json:"execution_time_ms"`
 	// RowCapabilities/RowIdentity describe mutation eligibility derived from
 	// canonical metadata (PRF-02/T07). Update/Delete require a primary key.
 	RowCapabilities RowCapabilities  `json:"row_capabilities"`

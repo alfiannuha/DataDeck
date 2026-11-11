@@ -109,6 +109,23 @@ type ConnectionRequest struct {
 	Username     string `json:"username" example:"appuser"`
 	Password     string `json:"password" example:"secret"`
 	SSLMode      string `json:"ssl_mode" enums:"disable,allow,prefer,require,verify-ca,verify-full" example:"disable"`
+	// Color is an optional #RRGGBB presentation hint; empty means "use default".
+	Color string `json:"color" example:"#3b82f6"`
+}
+
+// ConnectionUpdateRequest is the body for PUT /connections/{id} (PRF-03/B). It
+// mirrors ConnectionRequest but `password` is optional: an empty value means
+// "keep the stored password" so an edit never requires re-entering credentials.
+type ConnectionUpdateRequest struct {
+	Name         string `json:"name" binding:"required" example:"Local PG"`
+	Driver       string `json:"driver" binding:"required" enums:"postgres,mysql,sqlite" example:"postgres"`
+	Host         string `json:"host" example:"127.0.0.1"`
+	Port         int    `json:"port" example:"5432"`
+	DatabaseName string `json:"database_name" example:"app"`
+	Username     string `json:"username" example:"appuser"`
+	Password     string `json:"password" example:"secret"`
+	SSLMode      string `json:"ssl_mode" enums:"disable,allow,prefer,require,verify-ca,verify-full" example:"disable"`
+	Color        string `json:"color" example:"#3b82f6"`
 }
 
 // ConnectionTestRequest is the body for testing connection parameters. It has no
@@ -135,6 +152,7 @@ type ConnectionResponse struct {
 	DatabaseName string    `json:"database_name" example:"app"`
 	Username     *string   `json:"username" example:"appuser"`
 	SSLMode      string    `json:"ssl_mode" example:"disable"`
+	Color        string    `json:"color" example:"#3b82f6"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -149,6 +167,7 @@ func newConnectionResponse(profile model.ConnectionProfile) ConnectionResponse {
 		DatabaseName: profile.DatabaseName,
 		Username:     profile.Username,
 		SSLMode:      profile.SSLMode,
+		Color:        profile.Color,
 		CreatedAt:    profile.CreatedAt,
 		UpdatedAt:    profile.UpdatedAt,
 	}
@@ -215,7 +234,7 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	profile, err := normalizeRequest(req.Name, req.Driver, req.Host, req.Port, req.DatabaseName, req.Username, req.SSLMode, true)
+	profile, err := normalizeRequest(req.Name, req.Driver, req.Host, req.Port, req.DatabaseName, req.Username, req.SSLMode, req.Color, true)
 	if err != nil {
 		response.ValidationError(w, err.Error())
 		return
@@ -244,6 +263,82 @@ func (h *ConnectionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, newConnectionResponse(*profile))
 }
 
+// Update godoc
+// @Summary      Update a connection profile
+// @Description  Replaces the mutable fields of an existing profile (PRF-03/B). An empty password keeps the stored credential; a non-empty one is re-encrypted. Unrelated metadata (SSH fields, created_at) is preserved, and any live pool for the connection is dropped so the next use reconnects with the new settings. Credentials are never returned.
+// @Tags         connections
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                         true  "Connection id"
+// @Param        request  body      handler.ConnectionUpdateRequest  true  "Connection profile"
+// @Success      200      {object}  response.Envelope{data=handler.ConnectionResponse}
+// @Failure      400      {object}  response.ErrorEnvelope
+// @Failure      404      {object}  response.ErrorEnvelope
+// @Failure      500      {object}  response.ErrorEnvelope
+// @Router       /connections/{id} [put]
+func (h *ConnectionHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "connection id is required")
+		return
+	}
+
+	var req ConnectionUpdateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	existing, err := h.connections.Get(r.Context(), id)
+	if err != nil {
+		h.repositoryError(w, r, "get_connection", err)
+		return
+	}
+
+	profile, err := normalizeRequest(req.Name, req.Driver, req.Host, req.Port, req.DatabaseName, req.Username, req.SSLMode, req.Color, true)
+	if err != nil {
+		response.ValidationError(w, err.Error())
+		return
+	}
+	profile.ID = id
+	profile.CreatedAt = existing.CreatedAt
+
+	// Preserve the stored credential unless a new password is supplied, so an
+	// edit never requires (or accidentally clears) the password.
+	if req.Password != "" {
+		encrypted, err := h.cipher.Encrypt([]byte(req.Password))
+		if err != nil {
+			h.internalError(w, r, "encrypt_password", err)
+			return
+		}
+		profile.EncryptedPassword = &encrypted
+	} else {
+		profile.EncryptedPassword = existing.EncryptedPassword
+	}
+
+	// SSH settings are not edited here; carry them over so unrelated metadata is
+	// never dropped by an update.
+	profile.SSHEnabled = existing.SSHEnabled
+	profile.SSHHost = existing.SSHHost
+	profile.SSHPort = existing.SSHPort
+	profile.SSHUsername = existing.SSHUsername
+	profile.SSHEncryptedPassword = existing.SSHEncryptedPassword
+	profile.SSHKeyPath = existing.SSHKeyPath
+
+	if err := h.connections.Update(r.Context(), profile); err != nil {
+		h.repositoryError(w, r, "update_connection", err)
+		return
+	}
+
+	// The saved settings changed; drop any live pools so the next query reopens
+	// with the new configuration instead of serving the old connection. This is
+	// a safe invalidation: no in-flight query is retried and no data is touched.
+	if err := h.manager.CloseConnection(id); err != nil {
+		h.internalError(w, r, "close_connection", err)
+		return
+	}
+	response.Success(w, newConnectionResponse(*profile))
+}
+
 // Test godoc
 // @Summary      Test connection parameters
 // @Description  Validates parameters and attempts a temporary connection. Nothing is persisted.
@@ -260,7 +355,7 @@ func (h *ConnectionHandler) Test(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	profile, err := normalizeRequest("", req.Driver, req.Host, req.Port, req.DatabaseName, req.Username, req.SSLMode, false)
+	profile, err := normalizeRequest("", req.Driver, req.Host, req.Port, req.DatabaseName, req.Username, req.SSLMode, "", false)
 	if err != nil {
 		response.ValidationError(w, err.Error())
 		return
@@ -521,10 +616,15 @@ func writeResolveDatabaseError(w http.ResponseWriter, err error) {
 
 // normalizeRequest validates input and maps it into a profile. name is required
 // only for the create endpoint (requireName); /test does not persist a name.
-func normalizeRequest(name, driver, host string, port int, databaseName, username, sslMode string, requireName bool) (*model.ConnectionProfile, error) {
+func normalizeRequest(name, driver, host string, port int, databaseName, username, sslMode, color string, requireName bool) (*model.ConnectionProfile, error) {
 	name = strings.TrimSpace(name)
 	if requireName && name == "" {
 		return nil, errors.New("name is required")
+	}
+
+	normalizedColor, err := normalizeColor(color)
+	if err != nil {
+		return nil, err
 	}
 
 	driverValue := model.Driver(strings.TrimSpace(driver))
@@ -574,6 +674,7 @@ func normalizeRequest(name, driver, host string, port int, databaseName, usernam
 			DatabaseName: databaseName,
 			Username:     &username,
 			SSLMode:      sslMode,
+			Color:        normalizedColor,
 		}, nil
 
 	case model.DriverSQLite:
@@ -587,6 +688,7 @@ func normalizeRequest(name, driver, host string, port int, databaseName, usernam
 			Driver:       driverValue,
 			DatabaseName: databasePath,
 			SSLMode:      "disable",
+			Color:        normalizedColor,
 		}, nil
 
 	default:
@@ -601,6 +703,31 @@ func validSSLMode(mode string) bool {
 	default:
 		return false
 	}
+}
+
+// normalizeColor validates an optional #RRGGBB color hint. The empty string is
+// allowed (meaning "no color assigned"); anything else must be a 7-character hex
+// value. The value is lowercased for stable storage/comparison and is never
+// interpreted as anything but a presentation string.
+func normalizeColor(color string) (string, error) {
+	color = strings.TrimSpace(color)
+	if color == "" {
+		return "", nil
+	}
+	valid := len(color) == 7 && color[0] == '#'
+	if valid {
+		for i := 1; i < len(color); i++ {
+			c := color[i]
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				valid = false
+				break
+			}
+		}
+	}
+	if !valid {
+		return "", errors.New("color must be a #RRGGBB hex value")
+	}
+	return strings.ToLower(color), nil
 }
 
 func toDatabaseConfig(profile *model.ConnectionProfile, password string) database.Config {

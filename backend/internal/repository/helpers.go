@@ -25,6 +25,15 @@ func stringPtr(v sql.NullString) *string {
 	return &s
 }
 
+// nullText maps an empty string to SQL NULL so the difference between "unset"
+// and "empty" is preserved for optional plain-text columns (e.g. color).
+func nullText(v string) sql.NullString {
+	if v == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: v, Valid: true}
+}
+
 func nullInt(v *int) sql.NullInt64 {
 	if v == nil {
 		return sql.NullInt64{}

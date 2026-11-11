@@ -15,13 +15,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { useCreateConnection, useTestConnection } from "@/hooks/use-connections";
+import { useCreateConnection, useTestConnection, useUpdateConnection } from "@/hooks/use-connections";
 import { useOnline } from "@/hooks/use-online";
 import { ApiClientError } from "@/lib/api-client";
+import {
+  CONNECTION_COLORS,
+  DEFAULT_CONNECTION_COLOR,
+  connectionColor,
+} from "@/lib/connection-colors";
+import { cn } from "@/lib/utils";
 import type {
   ConnectionCreateRequest,
   ConnectionResponse,
   ConnectionTestRequest,
+  ConnectionUpdateRequest,
 } from "@/types/api";
 
 type Driver = NonNullable<ConnectionCreateRequest["driver"]>;
@@ -61,6 +68,7 @@ interface FormState {
   username: string;
   password: string;
   sslMode: string;
+  color: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -72,7 +80,25 @@ const EMPTY_FORM: FormState = {
   username: "",
   password: "",
   sslMode: "disable",
+  color: DEFAULT_CONNECTION_COLOR,
 };
+
+/** Prefill the form from an existing profile (edit mode). The password is never
+ * returned by the API, so it stays empty and is preserved by the backend. */
+function fromConnection(connection: ConnectionResponse): FormState {
+  const driver = (connection.driver ?? "postgres") as Driver;
+  return {
+    driver,
+    name: connection.name ?? "",
+    host: connection.host ?? "",
+    port: connection.port != null ? String(connection.port) : defaultPort(driver),
+    database: connection.database_name ?? "",
+    username: connection.username ?? "",
+    password: "",
+    sslMode: connection.ssl_mode ?? "disable",
+    color: connectionColor(connection.color),
+  };
+}
 
 type FieldName = "name" | "host" | "port" | "database" | "username" | "sslMode";
 type FieldErrors = Partial<Record<FieldName, string>>;
@@ -140,26 +166,31 @@ export function NewConnectionModal({
   open,
   onOpenChange,
   onSaved,
+  connection,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: (connection: ConnectionResponse) => void;
+  /** When set, the modal edits this profile (PRF-03/B) instead of creating one. */
+  connection?: ConnectionResponse;
 }) {
+  const isEdit = Boolean(connection?.id);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [test, setTest] = useState<TestState>({ status: "idle" });
 
   const createConnection = useCreateConnection();
+  const updateConnection = useUpdateConnection();
   const testConnection = useTestConnection();
   const online = useOnline();
 
   useEffect(() => {
-    if (!open) {
-      setForm(EMPTY_FORM);
+    if (open) {
+      setForm(connection ? fromConnection(connection) : EMPTY_FORM);
       setErrors({});
       setTest({ status: "idle" });
     }
-  }, [open]);
+  }, [open, connection]);
 
   function update(field: keyof FormState, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -197,13 +228,27 @@ export function NewConnectionModal({
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
-    const body: ConnectionCreateRequest = {
-      ...toRequest(form),
-      name: form.name.trim(),
-    };
     try {
-      const created = await createConnection.mutateAsync(body);
-      onSaved?.(created);
+      if (isEdit && connection?.id) {
+        const body: ConnectionUpdateRequest = {
+          ...toRequest(form),
+          name: form.name.trim(),
+          color: form.color,
+        };
+        const updated = await updateConnection.mutateAsync({
+          connectionId: connection.id,
+          body,
+        });
+        onSaved?.(updated);
+      } else {
+        const body: ConnectionCreateRequest = {
+          ...toRequest(form),
+          name: form.name.trim(),
+          color: form.color,
+        };
+        const created = await createConnection.mutateAsync(body);
+        onSaved?.(created);
+      }
       onOpenChange(false);
     } catch (error) {
       setTest({ status: "failure", message: describeError(error) });
@@ -216,9 +261,12 @@ export function NewConnectionModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-labelledby="new-connection-title">
         <DialogHeader>
-          <DialogTitle id="new-connection-title">New connection</DialogTitle>
+          <DialogTitle id="new-connection-title">
+            {isEdit ? "Edit connection" : "New connection"}
+          </DialogTitle>
           <DialogDescription>
             Credentials are encrypted on the backend and never returned.
+            {isEdit ? " Leave the password empty to keep the saved one." : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -257,6 +305,45 @@ export function NewConnectionModal({
               onChange={(e) => update("name", e.target.value)}
               aria-invalid={Boolean(errors.name)}
             />
+          </Field>
+
+          <Field label="Color" id="conn-color" className="col-span-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                data-testid="conn-color-preview"
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 rounded-full border border-border"
+                style={{ backgroundColor: form.color }}
+              />
+              <div role="radiogroup" aria-label="Connection color" className="flex flex-wrap items-center gap-1.5">
+                {CONNECTION_COLORS.map((option) => {
+                  const selected = form.color.toLowerCase() === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={option.name}
+                      title={option.name}
+                      onClick={() => update("color", option.value)}
+                      className={cn(
+                        "h-5 w-5 rounded-full border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]",
+                        selected && "ring-2 ring-[var(--color-focus-ring)]",
+                      )}
+                      style={{ backgroundColor: option.value }}
+                    />
+                  );
+                })}
+              </div>
+              <input
+                type="color"
+                aria-label="Custom color"
+                value={form.color}
+                onChange={(e) => update("color", e.target.value)}
+                className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5"
+              />
+            </div>
           </Field>
 
           {fileDriver ? (
@@ -395,13 +482,20 @@ export function NewConnectionModal({
               variant="outline"
               onClick={() => void handleTest()}
               disabled={
-                !online || testConnection.isPending || createConnection.isPending
+                !online || testConnection.isPending || createConnection.isPending || updateConnection.isPending
               }
             >
               Test connection
             </Button>
-            <Button type="submit" disabled={!online || createConnection.isPending}>
-              {createConnection.isPending ? "Saving…" : "Save"}
+            <Button
+              type="submit"
+              disabled={!online || createConnection.isPending || updateConnection.isPending}
+            >
+              {createConnection.isPending || updateConnection.isPending
+                ? "Saving…"
+                : isEdit
+                  ? "Save changes"
+                  : "Save"}
             </Button>
           </DialogFooter>
         </form>

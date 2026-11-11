@@ -2,7 +2,11 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "@/lib/api-client";
-import { createConnection, testConnection } from "@/lib/api/endpoints";
+import {
+  createConnection,
+  testConnection,
+  updateConnection,
+} from "@/lib/api/endpoints";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
 
@@ -11,6 +15,7 @@ import { NewConnectionModal } from "./new-connection-modal";
 vi.mock("@/lib/api/endpoints", () => ({
   listConnections: vi.fn(),
   createConnection: vi.fn(),
+  updateConnection: vi.fn(),
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
 }));
@@ -321,6 +326,82 @@ describe("NewConnectionModal", () => {
         expect.objectContaining({ database_name: "reporting" }),
       ),
     );
+  });
+
+  it("includes the selected color when creating a connection", async () => {
+    vi.mocked(createConnection).mockResolvedValue({ id: "c1", name: "N" } as never);
+    renderModal();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "N" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Green" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ color: "#22c55e" }),
+      ),
+    );
+  });
+
+  it("defaults the color when the user does not select one", async () => {
+    vi.mocked(createConnection).mockResolvedValue({ id: "c1", name: "N" } as never);
+    renderModal();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "N" } });
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "u" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ color: "#3b82f6" }),
+      ),
+    );
+  });
+
+  it("edits a profile: prefills fields and preserves the password", async () => {
+    vi.mocked(updateConnection).mockResolvedValue({ id: "c1", name: "Renamed" } as never);
+    const onOpenChange = vi.fn();
+    const onSaved = vi.fn();
+    renderWithProviders(
+      <NewConnectionModal
+        open
+        connection={{
+          id: "c1",
+          name: "Old",
+          driver: "postgres",
+          host: "db.internal",
+          port: 5432,
+          database_name: "app",
+          username: "u",
+          ssl_mode: "disable",
+          color: "#22c55e",
+        } as never}
+        onOpenChange={onOpenChange}
+        onSaved={onSaved}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("Old")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("db.internal")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(updateConnection).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          name: "Renamed",
+          password: "",
+          color: "#22c55e",
+        }),
+      ),
+    );
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: "c1" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("requires a database for MySQL and labels it without the optional hint", async () => {

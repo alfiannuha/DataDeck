@@ -63,6 +63,7 @@ export type HealthResponse = Schemas["api.HealthResponse"];
 
 export type ConnectionResponse = Schemas["handler.ConnectionResponse"];
 export type ConnectionCreateRequest = Schemas["handler.ConnectionRequest"];
+export type ConnectionUpdateRequest = Schemas["handler.ConnectionUpdateRequest"];
 export type ConnectionTestRequest = Schemas["handler.ConnectionTestRequest"];
 export type TestConnectionResponse = Schemas["handler.TestConnectionResponse"];
 export type DeleteConnectionResponse = Schemas["handler.DeleteConnectionResponse"];
@@ -102,6 +103,9 @@ export type IntrospectedPrimaryKey = Schemas["model.PrimaryKey"];
 export type IntrospectedForeignKey = Schemas["model.ForeignKey"];
 export type IntrospectedIndex = Schemas["model.Index"];
 export type TableStructure = Schemas["model.TableStructure"];
+export type StructureCapabilities = Schemas["model.StructureCapabilities"];
+export type StructureChangeRequest = Schemas["handler.StructureChangeRequest"];
+export type StructureChangeResult = Schemas["handler.StructureChangeResult"];
 export type StructureColumn = Schemas["model.StructureColumn"];
 export type StructureIndex = Schemas["model.StructureIndex"];
 export type StructureConstraint = Schemas["model.StructureConstraint"];

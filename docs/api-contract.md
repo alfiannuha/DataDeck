@@ -338,6 +338,7 @@ Response `data` for `GET /api/v1/connections`, `POST /api/v1/connections`, and
   "database_name": "app",
   "username": "appuser",
   "ssl_mode": "disable",
+  "color": "#3b82f6",
   "created_at": "2026-09-25T14:32:00Z",
   "updated_at": "2026-09-25T14:32:00Z"
 }
@@ -346,6 +347,14 @@ Response `data` for `GET /api/v1/connections`, `POST /api/v1/connections`, and
 - `GET /api/v1/connections` returns an array (empty `[]` when none exist).
 - `POST /api/v1/connections` returns the sanitized profile with `200 OK`
   (**Needs Validation:** the contract's `201 Created` remains a candidate).
+- `PUT /api/v1/connections/{id}` — **PRF-03/B**. Replaces the mutable fields of
+  an existing profile and returns the updated sanitized profile. An empty or
+  omitted `password` keeps the stored credential; a non-empty one is re-encrypted.
+  Unrelated metadata (SSH fields, `created_at`) is preserved, and any live pool
+  for the connection is dropped so the next use reconnects with the new settings.
+  Unknown ids return `404 NOT_FOUND`; invalid input returns `400 VALIDATION_ERROR`.
+- `color` (optional) is a `#RRGGBB` presentation hint; empty/"absent" is valid and
+  maps to the client default. It is never a credential.
 - `POST /api/v1/connections/test` returns `data: { "status": "ok" }` on success
   and `502 CONNECTION_ERROR` on failure; it never persists a profile.
 - `DELETE /api/v1/connections/{id}` closes any active pool, deletes the profile,
@@ -418,10 +427,13 @@ here without an explicit requirement.
 | `GET` | `/api/v1/health` | Daemon health status |
 | `GET` | `/api/v1/connections` | List profiles (passwords masked) |
 | `POST` | `/api/v1/connections` | Persist a new connection profile |
+| `PUT` | `/api/v1/connections/{id}` | Edit an existing profile; empty password keeps the stored credential (PRF-03/B) |
 | `POST` | `/api/v1/connections/test` | Verify connection parameters before saving |
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |
 | `POST` | `/api/v1/connections/{id}/reconnect` | Database-scoped reconnect: replace one `(connection, database)` pool with a fresh, health-checked one (PRF-02/T16) |
 | `POST` | `/api/v1/connections/{id}/database-export` | Streamed dialect SQL dump of one database's base tables (PRF-02/T17) |
+| `POST` | `/api/v1/connections/{id}/table-backup` | Table-scope backup: one table as a DataDeck SQL artifact (structure + indexes + constraints/FK + data) (PRF-04/Phase 3) |
+| `POST` | `/api/v1/connections/{id}/connection-backup` | Connection-scope backup: zip of per-database DataDeck SQL artifacts + `manifest.json` (PRF-04/Phase 3) |
 | `POST` | `/api/v1/connections/{id}/database-import` | Upload + preflight a database restore artifact (PRF-02/T17) |
 | `POST` | `/api/v1/connections/{id}/database-import/{token}/execute` | Execute a preflighted database restore (PRF-02/T17) |
 | `POST` | `/api/v1/connections/{id}/databases/{database}/delete-preflight` | Preflight a database deletion; returns a single-use confirmation token (PRF-02/T18) |
@@ -429,7 +441,8 @@ here without an explicit requirement.
 | `GET` | `/api/v1/connections/{id}/schemas` | Structural hierarchy (catalogs, tables, columns, relations); optional `database` query parameter (PRF-01) |
 | `GET` | `/api/v1/connections/{id}/databases` | List selectable databases on a server-level connection (PRF-01; PostgreSQL only) |
 | `GET` | `/api/v1/connections/{id}/table-data` | Bounded, paginated table/view rows (PRF-02; backend-generated SELECT) |
-| `GET` | `/api/v1/connections/{id}/table-structure` | Read-only structure of one table/view (PRF-02/T13; columns, primary key, indexes, constraints, foreign keys) |
+| `GET` | `/api/v1/connections/{id}/table-structure` | Read-only structure of one table/view (PRF-02/T13; columns, primary key, indexes, constraints, foreign keys + per-engine `structure_capabilities`) |
+| `POST` | `/api/v1/connections/{id}/table-structure` | Apply one schema change: rename table, add/alter/drop column, create/drop index, add/drop constraint/FK (PRF-04/Phase 2) |
 | `POST` | `/api/v1/connections/{id}/table-data/rows` | Single-row INSERT with VALUE/NULL/DEFAULT modes (PRF-02/T08) |
 | `PATCH` | `/api/v1/connections/{id}/table-data/rows` | Single-row UPDATE by primary key with optimistic concurrency (PRF-02/T07) |
 | `DELETE` | `/api/v1/connections/{id}/table-data/rows` | Single-row DELETE by primary key with optimistic concurrency (PRF-02/T07) |
@@ -489,6 +502,21 @@ here without an explicit requirement.
   `application/octet-stream` with `Content-Disposition: attachment` and
   `Cache-Control: no-store` (errors use the envelope). The target is the explicit
   connection + database; the Explorer/active tab is never used.
+- `POST /api/v1/connections/{id}/table-backup` — **PRF-04/Phase 3**. Body:
+  `{ database?, schema?, table, mode }`. Streams a DataDeck SQL artifact for
+  exactly one table (`schema` required for PostgreSQL). Same self-contained
+  rendering as the database dump, plus a manifest that records
+  `scope: table`, the table name, and `datadeck_version`. It restores through the
+  database-import path into an **empty** target database.
+- `POST /api/v1/connections/{id}/connection-backup` — **PRF-04/Phase 3**. Body:
+  `{ mode }`. Streams a **zip** containing one DataDeck SQL artifact per database
+  (PostgreSQL: every accessible database; MySQL/SQLite: the single profile
+  database) plus a top-level `manifest.json`
+  (`format_version`, `scope: connection`, engine, `databases[]`, mode,
+  `generated_at`, `datadeck_version`, `excluded[]`). Exports spool to a temp file
+  so a mid-run failure returns the JSON envelope, never a truncated archive.
+  **Connection-scope restore is not yet supported** — restore each contained
+  script through the database-import path.
 - `POST /api/v1/connections/{id}/database-import` — **PRF-02/T17** upload +
   preflight. Body: `multipart/form-data` with `file` (a DataDeck SQL export
   artifact) and `database`. Validates the manifest (format version, engine, and
@@ -572,7 +600,7 @@ here without an explicit requirement.
   Response `data`: `{ database, schema?, table, object_type, columns[]
   (name/database_type/nullable/ordinal_position/primary_key), rows (array of
   arrays, same BIGINT-as-string/NULL/bytea/JSON rules as query execution),
-  pagination{page,page_size,has_more}, truncated }`; `meta` mirrors
+  pagination{page,page_size,has_more}, truncated, execution_time_ms }` (PRF-04/Phase 4: the database's execution time for the page SELECT); `meta` mirrors
   `page/page_size/has_more`. There is no `total`/`COUNT(*)` by design (ADR-010
   §6); `has_more` comes from fetching one extra row. Errors: `400
   VALIDATION_ERROR` (missing/invalid args, missing database → `DATABASE_REQUIRED`),
@@ -630,6 +658,24 @@ here without an explicit requirement.
   `DATABASE_REQUIRED`), `404 NOT_FOUND` (unknown connection) /
   `TABLE_NOT_FOUND`, `400 DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502
   CONNECTION_ERROR`, `504 INTROSPECTION_TIMEOUT`.
+- `POST /api/v1/connections/{id}/table-structure` — **PRF-04/Phase 2**. Body:
+  `{ operation, database?, schema?, table, ... }` where `operation` is one of
+  `rename_table` | `add_column` | `drop_column` | `alter_column` |
+  `create_index` | `drop_index` | `add_constraint` | `drop_constraint`, plus the
+  fields for that operation (`new_name`, `column`, `column_name`, `new_column`,
+  `default_action`, `index`, `index_name`, `constraint`, `constraint_name`,
+  `constraint_type`). Identifiers are quoted with the engine's identifier quote;
+  literal defaults are emitted as SQL literals; raw fragments (type/expression/
+  WHERE) reject `;` and comments so each request stays a single statement.
+  PostgreSQL/SQLite apply all-or-nothing in one transaction; MySQL DDL cannot
+  roll back, so multi-statement changes are rejected. Response `data`:
+  `{ operation, statements }`. Errors: `400 VALIDATION_ERROR` (bad input),
+  `400 SQL_ERROR`/`SQL_SYNTAX_ERROR` (engine rejection), `404 NOT_FOUND`/
+  `TABLE_NOT_FOUND`, `501 NOT_IMPLEMENTED` (operation unsupported by the engine),
+  `502 CONNECTION_ERROR`, `504 INTROSPECTION_TIMEOUT`. The GET response also
+  advertises `structure_capabilities{rename_table, add_column, drop_column,
+  alter_column, create_index, drop_index, add_constraint, drop_constraint,
+  partial_index, index_method}`; the UI hides controls the engine cannot perform.
 - `POST /api/v1/connections/{id}/table-data/export` — **PRF-02/T14**. Body:
   `{ database, schema, table, format: "csv" | "xlsx" | "sql", include_headers?
   (default true; CSV only), transaction? (default true; SQL only),

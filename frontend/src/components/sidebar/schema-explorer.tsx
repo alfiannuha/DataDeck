@@ -23,6 +23,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 import { DatabaseMenu, type DatabaseMenuHandler } from "./database-menu";
 import { DatabaseChildren, SchemaTree, TreeRow, type TableMenuHandler } from "./schema-tree";
+import { StructureChangeDialog } from "@/components/shared/structure-change-dialog";
 
 /** A table action that also carries the database it belongs to (PRF-01). */
 type DatabaseTableAction = (schema: string, table: string, database: string) => void;
@@ -58,6 +59,12 @@ export function SchemaExplorer({
   const online = useOnline();
   const connection = connections?.find((candidate) => candidate.id === connectionId);
   const driver = connection?.driver ?? null;
+  // Rename-table dialog target (PRF-04/Phase 2). Captured at menu-open time.
+  const [renameTarget, setRenameTarget] = useState<{
+    schema: string;
+    table: string;
+    database: string;
+  } | null>(null);
   // A PostgreSQL profile with no default database is a server-level connection
   // (PRF-01): it uses database discovery. A PostgreSQL profile that carries a
   // database_name keeps the legacy single-database tree (backward compatible).
@@ -89,13 +96,6 @@ export function SchemaExplorer({
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 2500);
   }
-
-  const handleSelectTop100: DatabaseTableAction = (schema, table, database) =>
-    insertQuerySql(
-      buildSelectTop100(namespaceFor(schema, connection?.database_name ?? ""), table, 100, identifierQuote),
-      connectionId,
-      bindDatabase(database),
-    );
 
   const handleCountRows: DatabaseTableAction = (schema, table, database) =>
     insertQuerySql(
@@ -294,6 +294,9 @@ export function SchemaExplorer({
           table,
         );
         return;
+      case "rename-table":
+        setRenameTarget({ schema: schema || "", table, database });
+        return;
       case "refresh":
         refreshMetadata();
         return;
@@ -391,7 +394,6 @@ export function SchemaExplorer({
             connectionId={connectionId}
             engine={driver ?? undefined}
             onSelectDatabase={setActiveDatabase}
-            onSelectTop100={handleSelectTop100}
             onCountRows={handleCountRows}
             onCopyDdl={handleCopyDdl}
             onOpenTableData={handleOpenTableData}
@@ -417,7 +419,6 @@ export function SchemaExplorer({
             databases={query.data ?? []}
             connectionId={connectionId}
             engine={driver ?? undefined}
-            onSelectTop100={(schema, table) => handleSelectTop100(schema, table, "")}
             onCountRows={(schema, table) => handleCountRows(schema, table, "")}
             onOpenTableData={(schema, table, database) =>
               handleOpenTableData(schema, table, database)
@@ -439,6 +440,29 @@ export function SchemaExplorer({
           </p>
         )}
       </div>
+
+      {connectionId ? (
+        <StructureChangeDialog
+          open={renameTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setRenameTarget(null);
+          }}
+          target={{
+            connectionId,
+            database: renameTarget ? bindDatabase(renameTarget.database) : null,
+            schema: renameTarget?.schema || null,
+            table: renameTarget?.table ?? "",
+          }}
+          spec={
+            renameTarget ? { kind: "rename_table", table: renameTarget.table } : null
+          }
+          capabilities={{ rename_table: true }}
+          onApplied={() => {
+            setRenameTarget(null);
+            refreshMetadata();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -451,7 +475,6 @@ function DatabaseExplorer({
   connectionId,
   engine,
   onSelectDatabase,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -461,7 +484,6 @@ function DatabaseExplorer({
   connectionId: string;
   engine?: string;
   onSelectDatabase: (connectionId: string, database: string | null) => void;
-  onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
@@ -509,7 +531,6 @@ function DatabaseExplorer({
           selected={activeDatabase === database.name}
           onSelect={onSelectDatabase}
           onRefreshDatabases={() => void databases.refetch()}
-          onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
@@ -546,7 +567,6 @@ function LazyDatabaseNode({
   selected,
   onSelect,
   onRefreshDatabases,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -559,7 +579,6 @@ function LazyDatabaseNode({
   selected: boolean;
   onSelect: (connectionId: string, database: string | null) => void;
   onRefreshDatabases: () => void;
-  onSelectTop100?: DatabaseTableAction;
   onCountRows?: DatabaseTableAction;
   onCopyDdl?: DatabaseTableAction;
   onOpenTableData?: DatabaseTableAction;
@@ -660,11 +679,6 @@ function LazyDatabaseNode({
             schemas={tree?.schemas ?? []}
             tables={tree?.tables ?? []}
             depth={0}
-            onSelectTop100={
-              onSelectTop100
-                ? (schema, table) => onSelectTop100(schema, table, database)
-                : undefined
-            }
             onCountRows={
               onCountRows
                 ? (schema, table) => onCountRows(schema, table, database)

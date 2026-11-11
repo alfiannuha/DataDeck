@@ -137,6 +137,7 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 	page.Rows = rows
 	page.Truncated = result.Truncated
 	page.Pagination.HasMore = hasMore
+	page.ExecutionTimeMS = result.ExecutionTimeMS
 	return page, nil
 }
 

@@ -1,7 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTableStructure } from "@/lib/api/endpoints";
+import { applyStructure, getTableStructure } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -10,7 +10,21 @@ import { TableStructurePanel } from "./table-structure-panel";
 
 vi.mock("@/lib/api/endpoints", () => ({
   getTableStructure: vi.fn(),
+  applyStructure: vi.fn(),
 }));
+
+const FULL_CAPS = {
+  rename_table: true,
+  add_column: true,
+  drop_column: true,
+  alter_column: true,
+  create_index: true,
+  drop_index: true,
+  add_constraint: true,
+  drop_constraint: true,
+  partial_index: true,
+  index_method: true,
+};
 
 function structureResult(overrides: Record<string, unknown> = {}) {
   return {
@@ -32,6 +46,7 @@ function structureResult(overrides: Record<string, unknown> = {}) {
     foreign_keys: [
       { name: "fk_users_team", columns: ["team_id"], referenced_schema: "public", referenced_table: "teams", referenced_columns: ["id"], on_update: "CASCADE", on_delete: "RESTRICT" },
     ],
+    structure_capabilities: FULL_CAPS,
     ...overrides,
   };
 }
@@ -142,5 +157,56 @@ describe("TableStructurePanel", () => {
     expect(rows[0].textContent).toContain("no");
     expect(rows[1].textContent).toContain("note");
     expect(rows[1].textContent).toContain("yes");
+  });
+
+  it("gates management controls on the engine capabilities", async () => {
+    vi.mocked(getTableStructure).mockResolvedValue(
+      structureResult({ structure_capabilities: {} }) as never,
+    );
+    renderWithProviders(<TableStructurePanel />);
+
+    // Wait for the data to render, then assert no editing affordances exist.
+    await screen.findByTestId("table-structure-columns");
+    expect(screen.queryByTestId("structure-add-column")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("structure-rename-table")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("structure-create-index")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("structure-add-constraint")).not.toBeInTheDocument();
+  });
+
+  it("applies an add_column change through the dialog", async () => {
+    vi.mocked(applyStructure).mockResolvedValue({ operation: "add_column", statements: 1 } as never);
+    renderWithProviders(<TableStructurePanel />);
+
+    fireEvent.click(await screen.findByTestId("structure-add-column"));
+    fireEvent.change(screen.getByLabelText("Column name"), { target: { value: "status" } });
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "text" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() =>
+      expect(applyStructure).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          operation: "add_column",
+          table: "users",
+          schema: "public",
+          column: expect.objectContaining({ name: "status", type: "text" }),
+        }),
+      ),
+    );
+  });
+
+  it("drops a column after confirmation with the captured name", async () => {
+    vi.mocked(applyStructure).mockResolvedValue({ operation: "drop_column", statements: 1 } as never);
+    renderWithProviders(<TableStructurePanel />);
+
+    fireEvent.click(await screen.findByTestId("structure-drop-column-name"));
+    fireEvent.click(screen.getByRole("button", { name: "Apply change" }));
+
+    await waitFor(() =>
+      expect(applyStructure).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ operation: "drop_column", column_name: "name" }),
+      ),
+    );
   });
 });

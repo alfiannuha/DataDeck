@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronRight, Copy, FileCode, Hash, ListOrdered, MoreHorizontal } from "lucide-react";
+import { Check, ChevronRight, Copy, Database, Eye, Folder, Layers, MoreHorizontal, Table2 } from "lucide-react";
 import { Fragment, memo, useState, type ReactNode } from "react";
 
 import {
@@ -58,7 +58,6 @@ export function SchemaTree({
   databases,
   connectionId,
   engine,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -68,7 +67,6 @@ export function SchemaTree({
   databases: DatabaseSchemaTree[];
   connectionId: string;
   engine?: string;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   /** Opens a Table Data tab; receives the owning database context. */
@@ -86,7 +84,6 @@ export function SchemaTree({
           database={database}
           depth={0}
           engine={engine}
-          onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
@@ -106,7 +103,6 @@ const DatabaseNode = memo(function DatabaseNode({
   database,
   depth,
   engine,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -116,7 +112,6 @@ const DatabaseNode = memo(function DatabaseNode({
   database: DatabaseSchemaTree;
   depth: number;
   engine?: string;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: (schema: string, table: string, database: string) => void;
@@ -144,6 +139,7 @@ const DatabaseNode = memo(function DatabaseNode({
       <TreeRow
         depth={depth}
         label={database.name ?? "database"}
+        icon={<Database size={12} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
         secondary={secondary}
         expandable={childCount > 0}
         open={open}
@@ -178,7 +174,6 @@ const DatabaseNode = memo(function DatabaseNode({
           schemas={schemas}
           tables={tables}
           depth={depth}
-          onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={
@@ -214,7 +209,6 @@ export function DatabaseChildren({
   schemas,
   tables,
   depth,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -223,7 +217,6 @@ export function DatabaseChildren({
   schemas: IntrospectedSchema[];
   tables: IntrospectedTable[];
   depth: number;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
@@ -236,7 +229,6 @@ export function DatabaseChildren({
           key={`${schema.name ?? index}`}
           schema={schema}
           depth={depth + 1}
-          onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
@@ -246,7 +238,6 @@ export function DatabaseChildren({
       <TableList
         tables={tables}
         depth={depth + 1}
-        onSelectTop100={onSelectTop100}
         onCountRows={onCountRows}
         onCopyDdl={onCopyDdl}
         onOpenTableData={onOpenTableData}
@@ -259,7 +250,6 @@ export function DatabaseChildren({
 const SchemaNode = memo(function SchemaNode({
   schema,
   depth,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -267,7 +257,6 @@ const SchemaNode = memo(function SchemaNode({
 }: {
   schema: IntrospectedSchema;
   depth: number;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
@@ -280,6 +269,7 @@ const SchemaNode = memo(function SchemaNode({
       <TreeRow
         depth={depth}
         label={schema.name ?? "schema"}
+        icon={<Folder size={12} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
         secondary={`${tables.length} table${tables.length === 1 ? "" : "s"}`}
         expandable={tables.length > 0}
         open={open}
@@ -290,7 +280,6 @@ const SchemaNode = memo(function SchemaNode({
           <TableList
             tables={tables}
             depth={depth + 1}
-            onSelectTop100={onSelectTop100}
             onCountRows={onCountRows}
             onCopyDdl={onCopyDdl}
             onOpenTableData={onOpenTableData}
@@ -310,7 +299,6 @@ export const TABLE_BATCH_SIZE = 100;
 const TableList = memo(function TableList({
   tables,
   depth,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -318,7 +306,6 @@ const TableList = memo(function TableList({
 }: {
   tables: IntrospectedTable[];
   depth: number;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
@@ -335,7 +322,6 @@ const TableList = memo(function TableList({
           key={`${table.name ?? index}`}
           table={table}
           depth={depth}
-          onSelectTop100={onSelectTop100}
           onCountRows={onCountRows}
           onCopyDdl={onCopyDdl}
           onOpenTableData={onOpenTableData}
@@ -363,7 +349,6 @@ const TableList = memo(function TableList({
 const TableNode = memo(function TableNode({
   table,
   depth,
-  onSelectTop100,
   onCountRows,
   onCopyDdl,
   onOpenTableData,
@@ -371,7 +356,6 @@ const TableNode = memo(function TableNode({
 }: {
   table: IntrospectedTable;
   depth: number;
-  onSelectTop100?: TableActionHandler;
   onCountRows?: TableActionHandler;
   onCopyDdl?: TableActionHandler;
   onOpenTableData?: TableActionHandler;
@@ -382,9 +366,6 @@ const TableNode = memo(function TableNode({
   const columns = table.columns ?? [];
   const foreignKeys = table.foreign_keys ?? [];
   const indexes = table.indexes ?? [];
-  const qualifiedName = table.schema
-    ? `${table.schema}.${table.name ?? ""}`
-    : table.name ?? "";
 
   // Capabilities are computed from the captured tree metadata at render time;
   // opening the menu never triggers a network fetch (T12 §33).
@@ -400,7 +381,7 @@ const TableNode = memo(function TableNode({
       <TreeRow
         depth={depth}
         label={table.name ?? "table"}
-        secondary={table.type}
+        icon={objectTypeIcon(table.type)}
         expandable
         open={open}
         onToggle={() => setOpen((value) => !value)}
@@ -422,71 +403,36 @@ const TableNode = memo(function TableNode({
             : undefined
         }
         actions={
-          <>
-            {onSelectTop100 && (
-              <ActionButton
-                label={`Select top 100 from ${table.name ?? ""}`}
-                title="Insert SELECT * … LIMIT 100 into a query tab"
-                icon={<ListOrdered size={12} aria-hidden="true" />}
-                onClick={() =>
-                  onSelectTop100(table.schema ?? "", table.name ?? "")
-                }
-              />
-            )}
-            {onCountRows && (
-              <ActionButton
-                label={`Count rows in ${table.name ?? ""}`}
-                title="Insert SELECT COUNT(*) into a query tab"
-                icon={<Hash size={12} aria-hidden="true" />}
-                onClick={() =>
-                  onCountRows(table.schema ?? "", table.name ?? "")
-                }
-              />
-            )}
-            {onCopyDdl && (
-              <ActionButton
-                label={`Copy DDL for ${table.name ?? ""}`}
-                title="Copy the table's CREATE statement"
-                icon={<FileCode size={12} aria-hidden="true" />}
-                onClick={() =>
-                  onCopyDdl(table.schema ?? "", table.name ?? "")
-                }
-              />
-            )}
-            <CopyButton
-              label={`Copy table name ${table.name ?? ""}`}
-              text={qualifiedName}
-            />
-            {onTableMenu && (
-              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`More actions for ${table.name ?? ""}`}
-                    title={`Actions for ${table.name ?? ""} (Shift+F10)`}
-                    className={actionButtonClass}
-                  >
-                    <MoreHorizontal size={12} aria-hidden="true" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {tableActions.map((action) => (
-                    <Fragment key={action.id}>
-                      {(action.id === "refresh" || action.id === "import") && (
-                        <DropdownMenuSeparator />
-                      )}
-                      <DropdownMenuItem
-                        disabled={action.disabled}
-                        data-testid={`table-menu-${action.id}`}
-                        onSelect={() => {
-                          onTableMenu(
-                            action.id,
-                            table.schema ?? "",
-                            table.name ?? "",
-                            table.type,
-                          );
-                        }}
-                      >
+          onTableMenu ? (
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`More actions for ${table.name ?? ""}`}
+                  title={`Actions for ${table.name ?? ""} (Shift+F10)`}
+                  className={menuTriggerClass}
+                >
+                  <MoreHorizontal size={13} aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {tableActions.map((action) => (
+                  <Fragment key={action.id}>
+                    {(action.id === "refresh" || action.id === "import") && (
+                      <DropdownMenuSeparator />
+                    )}
+                    <DropdownMenuItem
+                      disabled={action.disabled}
+                      data-testid={`table-menu-${action.id}`}
+                      onSelect={() => {
+                        onTableMenu(
+                          action.id,
+                          table.schema ?? "",
+                          table.name ?? "",
+                          table.type,
+                        );
+                      }}
+                    >
                         {action.label}
                         {action.reason ? (
                           <DropdownMenuHint>{action.reason}</DropdownMenuHint>
@@ -494,10 +440,26 @@ const TableNode = memo(function TableNode({
                       </DropdownMenuItem>
                     </Fragment>
                   ))}
-                </DropdownMenuContent>
+                {(onCountRows || onCopyDdl) && <DropdownMenuSeparator />}
+                {onCountRows ? (
+                  <DropdownMenuItem
+                    data-testid="table-menu-count-rows"
+                    onSelect={() => onCountRows(table.schema ?? "", table.name ?? "")}
+                  >
+                    Count Rows
+                  </DropdownMenuItem>
+                ) : null}
+                {onCopyDdl ? (
+                  <DropdownMenuItem
+                    data-testid="table-menu-copy-ddl"
+                    onSelect={() => onCopyDdl(table.schema ?? "", table.name ?? "")}
+                  >
+                    Copy DDL
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
               </DropdownMenu>
-            )}
-          </>
+          ) : null
         }
       />
       {open && (
@@ -589,6 +551,7 @@ const ColumnRow = memo(function ColumnRow({
 export function TreeRow({
   depth,
   label,
+  icon,
   secondary,
   expandable,
   open,
@@ -601,6 +564,8 @@ export function TreeRow({
 }: {
   depth: number;
   label: string;
+  /** Leading object-type icon (PRF-04/Phase 5). */
+  icon?: ReactNode;
   secondary?: string;
   expandable: boolean;
   open?: boolean;
@@ -642,6 +607,7 @@ export function TreeRow({
               open && "rotate-90",
             )}
           />
+          {icon}
           <span
             title={label}
             className={cn(
@@ -659,6 +625,7 @@ export function TreeRow({
         </button>
       ) : (
         <div className="flex min-w-0 flex-1 items-start gap-1 pl-[14px] text-xs text-foreground">
+          {icon}
           <span
             title={label}
             className="min-w-0 flex-1 whitespace-normal break-words font-medium leading-snug"
@@ -677,31 +644,22 @@ export function TreeRow({
   );
 }
 
-const actionButtonClass =
-  "shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] group-hover:opacity-100";
+// Always-visible row action trigger (PRF-04/Phase 5): the 3-dot menu replaces
+// the old hover-only shortcuts, so opening it never shifts the layout.
+const menuTriggerClass =
+  "shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
 
-function ActionButton({
-  label,
-  title,
-  icon,
-  onClick,
-}: {
-  label: string;
-  title: string;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={title}
-      onClick={onClick}
-      className={actionButtonClass}
-    >
-      {icon}
-    </button>
-  );
+/** Leading icon for a relation, replacing redundant type labels (PRF-04/Phase 5). */
+function objectTypeIcon(type?: string): ReactNode {
+  const upper = (type ?? "").toUpperCase();
+  const className = "mt-0.5 shrink-0 text-muted-foreground";
+  if (upper.includes("MATERIALIZED")) {
+    return <Layers size={12} className={className} aria-hidden="true" />;
+  }
+  if (upper.includes("VIEW")) {
+    return <Eye size={12} className={className} aria-hidden="true" />;
+  }
+  return <Table2 size={12} className={className} aria-hidden="true" />;
 }
 
 function CopyButton({ label, text }: { label: string; text: string }) {
@@ -719,7 +677,7 @@ function CopyButton({ label, text }: { label: string; text: string }) {
           }
         });
       }}
-      className={actionButtonClass}
+      className={menuTriggerClass}
     >
       {copied ? (
         <Check size={12} aria-hidden="true" />

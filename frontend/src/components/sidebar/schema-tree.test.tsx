@@ -32,9 +32,11 @@ describe("SchemaTree table labels (full names, wrapping)", () => {
     expect(label.className).toContain("whitespace-normal");
   });
 
-  it("keeps the object-type metadata visible", () => {
+  it("shows an object-type icon instead of a redundant type label", () => {
     render(<SchemaTree databases={treeWithLongTable()} connectionId="c1" />);
-    expect(screen.getByText("BASE TABLE")).toBeInTheDocument();
+    // PRF-04/Phase 5: the type label is replaced by a leading icon.
+    expect(screen.queryByText("BASE TABLE")).not.toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-table-2")).toBeInTheDocument();
   });
 
   it("keeps expand/collapse working with a long name", () => {

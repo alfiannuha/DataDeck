@@ -12,6 +12,7 @@ export type TableActionId =
   | "view-data"
   | "new-query"
   | "structure"
+  | "rename-table"
   | "refresh"
   | "export"
   | "import"
@@ -50,6 +51,12 @@ export function getTableActions(target: {
     { id: "view-data", label: "View Data", disabled: false },
     { id: "new-query", label: "New Query", disabled: false },
     { id: "structure", label: "Structure", disabled: false },
+    {
+      id: "rename-table",
+      label: "Rename Table…",
+      disabled: readOnly,
+      reason: readOnly ? "Views and foreign tables cannot be renamed." : undefined,
+    },
     { id: "refresh", label: "Refresh", disabled: false },
     { id: "export", label: "Export", disabled: false },
     {

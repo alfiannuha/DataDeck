@@ -25,6 +25,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   executeQuery: vi.fn(),
   getQueryHistory: vi.fn(),
   getHealth: vi.fn(),
+  applyStructure: vi.fn(),
 }));
 
 const sampleSchema: DatabaseSchemaTree[] = [
@@ -84,6 +85,18 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/**
+ * Opens a table's context menu. Radix labels the portal menu from the trigger
+ * (aria-labelledby), so the menu's accessible name is the trigger's.
+ */
+async function openTableMenu(table: string) {
+  fireEvent.keyDown(
+    await screen.findByRole("button", { name: `More actions for ${table}` }),
+    { key: "ArrowDown" },
+  );
+  await screen.findByRole("menu", { name: `More actions for ${table}` });
+}
 
 describe("SchemaExplorer", () => {
   it("prompts to select a connection when none is active", () => {
@@ -180,10 +193,11 @@ describe("SchemaExplorer", () => {
     await screen.findByText("app");
     fireEvent.click(screen.getByRole("button", { name: /^public/ }));
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Copy table name users" }),
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Qualified Name" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("users")),
     );
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("public.users"));
 
     fireEvent.click(screen.getByRole("button", { name: /^users/ }));
     fireEvent.click(
@@ -202,9 +216,8 @@ describe("SchemaExplorer", () => {
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     await screen.findByText("app");
     fireEvent.click(screen.getByRole("button", { name: /^public/ }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Select top 100 from users" }),
-    );
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
 
     const state = useWorkspaceStore.getState();
     const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
@@ -273,7 +286,8 @@ describe("SchemaExplorer", () => {
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     await screen.findByText("app");
     fireEvent.click(screen.getByRole("button", { name: /^public/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Count rows in users" }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Count Rows" }));
 
     const state = useWorkspaceStore.getState();
     const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
@@ -294,10 +308,11 @@ describe("SchemaExplorer", () => {
     await screen.findByText("main.db");
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Count rows in widgets" }),
+        screen.getByRole("button", { name: "More actions for widgets" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Count rows in widgets" }));
+    await openTableMenu("widgets");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Count Rows" }));
 
     const state = useWorkspaceStore.getState();
     const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
@@ -312,12 +327,9 @@ describe("SchemaExplorer", () => {
     await screen.findByText("app");
     fireEvent.click(screen.getByRole("button", { name: /^public/ }));
 
-    expect(
-      screen.getByRole("button", { name: "Count rows in users" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Copy DDL for users" }),
-    ).not.toBeInTheDocument();
+    await openTableMenu("users");
+    expect(screen.getByRole("menuitem", { name: "Count Rows" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Copy DDL" })).not.toBeInTheDocument();
   });
 
   it("copies accurate MySQL DDL via SHOW CREATE TABLE", async () => {
@@ -338,9 +350,8 @@ describe("SchemaExplorer", () => {
 
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     await screen.findByText("main.db");
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Copy DDL for widgets" }),
-    );
+    await openTableMenu("widgets");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy DDL" }));
 
     await waitFor(() =>
       expect(executeQuery).toHaveBeenCalledWith(
@@ -368,9 +379,8 @@ describe("SchemaExplorer", () => {
 
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     await screen.findByText("main.db");
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Copy DDL for widgets" }),
-    );
+    await openTableMenu("widgets");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy DDL" }));
 
     await waitFor(() =>
       expect(executeQuery).toHaveBeenCalledWith(
@@ -393,9 +403,8 @@ describe("SchemaExplorer", () => {
 
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     await screen.findByText("main.db");
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Copy DDL for widgets" }),
-    );
+    await openTableMenu("widgets");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy DDL" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("no such table");
   });
@@ -630,11 +639,17 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
 
     renderWithProviders(<SchemaExplorer connectionId="c1" />);
     fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Select top 100 from table_in_alpha" }));
+    fireEvent.keyDown(
+      await screen.findByRole("button", { name: "More actions for table_in_alpha" }),
+      { key: "ArrowDown" },
+    );
+    await screen.findByRole("menu", { name: "More actions for table_in_alpha" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Query" }));
 
-    const tab = asQueryTab(useWorkspaceStore.getState().tabs[0]);
-    expect(tab.connectionId).toBe("c1");
-    expect(tab.database).toBe("alpha");
+    const state = useWorkspaceStore.getState();
+    const active = asQueryTab(state.tabs.find((tab) => tab.id === state.activeTabId));
+    expect(active.connectionId).toBe("c1");
+    expect(active.database).toBe("alpha");
   });
 
   it("marks the explorer selection without rebinding existing tabs", async () => {
@@ -783,18 +798,6 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     ];
   }
 
-  /**
-   * Opens a table's context menu. Radix labels the portal menu from the
-   * trigger (aria-labelledby), so the menu's accessible name is the trigger's.
-   */
-  async function openTableMenu(table: string) {
-    fireEvent.keyDown(
-      screen.getByRole("button", { name: `More actions for ${table}` }),
-      { key: "ArrowDown" },
-    );
-    await screen.findByRole("menu", { name: `More actions for ${table}` });
-  }
-
   beforeEach(() => {
     useWorkspaceStore.setState({ tabs: [], activeTabId: null });
     useExportStore.setState({ target: null });
@@ -829,6 +832,23 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     }
     // §33: opening the menu is local-only — no network traffic.
     expect(vi.mocked(getSchemas).mock.calls.length).toBe(callsBefore);
+  });
+
+  it("Rename Table opens the rename dialog for the captured target", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename Table…" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Rename table" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("New table name")).toHaveValue("users");
   });
 
   it("opens via right-click and Shift+F10", async () => {

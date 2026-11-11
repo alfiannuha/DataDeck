@@ -194,9 +194,9 @@ func TestConnectionRepositoryReadsLegacyStore(t *testing.T) {
 	if err := reopened.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	// PRF-01 migrations are additive (001 initial + 002 database context).
-	if migrations != 2 {
-		t.Errorf("schema_migrations count = %d, want 2", migrations)
+	// PRF migrations are additive (001 initial + 002 database context + 003 color).
+	if migrations != 3 {
+		t.Errorf("schema_migrations count = %d, want 3", migrations)
 	}
 
 	got, err := NewConnectionRepository(reopened.DB()).Get(ctx, "legacy")
