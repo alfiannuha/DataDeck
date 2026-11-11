@@ -7,29 +7,46 @@ end users.
 ## Build
 
 ```bash
-make macos-app          # -> release/DataDeck.app
-make macos-dmg          # -> release/DataDeck.app + release/DataDeck-<version>.dmg
+make macos-app                                # -> release/DataDeck-<version>-macos-arm64.app
+make macos-package                            # -> .app + .dmg + .zip + checksums.txt + install guide
+# (make macos-dmg is an alias for macos-package)
 ```
 
-`scripts/build-macos-app.sh`:
+`scripts/build-macos-app.sh` (pass `--package` for the full release set):
 1. builds the Next.js static export and copies it into `backend/internal/web/dist/`;
 2. compiles the Go backend for `darwin/arm64` (`CGO_ENABLED=0`, version/commit/date/channel injected);
 3. compiles the Swift launcher (`desktop/macos/Sources/DataDeckLauncher.swift`);
-4. assembles `DataDeck.app` with `Info.plist`, `AppIcon.icns`, the launcher and the backend;
-5. validates the plist, executables and arm64 architecture, checks the backend `--version`, and runs the launcher `--self-test`.
+4. assembles the `.app` with `Info.plist`, `AppIcon.icns`, the launcher and the backend;
+5. validates the plist, executables and arm64 architecture, checks the backend `--version`, and runs the launcher `--self-test`;
+6. `--package` additionally produces `DataDeck-<version>-macos-arm64.dmg` (via `hdiutil`),
+   `DataDeck-<version>-macos-arm64.zip` (via `ditto`, preserving bundle structure/permissions),
+   `checksums.txt` (SHA-256 of the dmg + zip) and a copy of `README-INSTALL-MACOS.md`.
 
 It does not touch `scripts/build-release.sh` (cross-platform binaries) or `make build`.
+
+### Release artifacts (free / unsigned distribution)
+
+| File | Notes |
+|---|---|
+| `DataDeck-<version>-macos-arm64.app` | the bundle (distributed inside the `.zip`/`.dmg`) |
+| `DataDeck-<version>-macos-arm64.dmg` | drag-to-Applications installer |
+| `DataDeck-<version>-macos-arm64.zip` | `ditto` archive of the bundle |
+| `checksums.txt` | SHA-256 of the dmg + zip |
+| `README-INSTALL-MACOS.md` | end-user install guide (no Terminal) |
 
 ## Bundle layout
 
 ```
-DataDeck.app/Contents/
+DataDeck-<version>-macos-arm64.app/Contents/
 ├── Info.plist            CFBundleIdentifier io.datadeck.desktop, name/executable DataDeck
 ├── MacOS/DataDeck        Swift AppKit launcher
 └── Resources/
     ├── AppIcon.icns
     └── backend/datadeck  Go backend (embedded frontend)
 ```
+
+The bundle directory is version/platform-suffixed; the app display name and
+executable remain **DataDeck**.
 
 ## Runtime behavior (launcher lifecycle)
 
@@ -58,11 +75,12 @@ JSON). Neither ever contains the encryption key, credentials, or raw secrets.
 
 ## Install
 
-1. `make macos-dmg` (or `make macos-app`).
-2. Open `release/DataDeck-<version>.dmg` and drag **DataDeck** into **Applications**.
-3. Launch from Finder/Launchpad/Dock.
+1. `make macos-package` (or `make macos-app` for the bundle only).
+2. Open `release/DataDeck-<version>-macos-arm64.dmg` and drag the app into **Applications**.
+3. Launch from Finder/Launchpad/Dock. End-user instructions (including the first-launch
+   Gatekeeper steps) live in [`README-INSTALL-MACOS.md`](../../README-INSTALL-MACOS.md).
 
-Dev validation without installing: `open release/DataDeck.app`.
+Dev validation without installing: `open release/DataDeck-<version>-macos-arm64.app`.
 
 ## Gatekeeper (ad-hoc signed, not notarized)
 
@@ -83,21 +101,25 @@ right-click → Open bypass no longer works. Use one of:
 Do not disable macOS security globally. This build is **not** notarized and is
 not ready for unattended public distribution.
 
-### Signing / notarization (for a clean public release)
+### Optional Developer ID signing / notarization
 
-Notarization requires a paid Apple Developer account (Developer ID Application
-certificate + notary credentials). The build script is structured so this can be
-added without launcher changes:
+The default build is **ad-hoc signed** (integrity only) and **not notarized** —
+this is *not* Developer ID signing and carries no Apple identity. A clean,
+warning-free public build requires a paid Apple Developer account (Developer ID
+Application certificate + notary credentials). The build script already supports
+it; enable it by exporting:
 
 ```bash
-codesign --force --deep --options runtime --timestamp \
-  --sign "Developer ID Application: <team>" release/DataDeck.app
-xcrun notarytool submit release/DataDeck-<version>.dmg --wait \
-  --apple-id <id> --team-id <team> --password <app-specific-password>
-xcrun stapler staple release/DataDeck.app   # staple to the distributed artifact
+export MACOS_SIGN_IDENTITY="Developer ID Application: <name> (<TEAMID>)"
+export MACOS_NOTARY_PROFILE="<notarytool keychain profile>"
+make macos-package
 ```
 
-Hardened runtime + minimal entitlements only where required.
+When `MACOS_SIGN_IDENTITY` is unset the script ad-hoc signs; when
+`MACOS_NOTARY_PROFILE` is unset it skips notarization. In CI the same two values
+come from repository secrets (`MACOS_SIGN_IDENTITY`, `MACOS_NOTARY_PROFILE`) and
+are **optional** — the workflow succeeds without them. Never commit the
+certificate, key, or notary password.
 
 ## Encryption key migration (important)
 

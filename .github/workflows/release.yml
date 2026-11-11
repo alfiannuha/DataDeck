@@ -170,9 +170,47 @@ jobs:
           path: release/datadeck_*
           if-no-files-found: error
 
+  macos-app:
+    name: Build macOS app (arm64, unsigned)
+    needs: validate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache-dependency-path: backend/go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Builds the frontend export, the Go backend, the Swift launcher, the .app,
+      # then the .dmg, .zip, checksums.txt and install guide. Signing is OPTIONAL
+      # and driven only by secrets; with no secrets this produces an ad-hoc
+      # signed, non-notarized (free) distribution and still succeeds.
+      - name: Build app + dmg + zip + checksums
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
+        run: bash scripts/build-macos-app.sh --package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/checksums.txt
+            release/README-INSTALL-MACOS.md
+          if-no-files-found: error
+
   supply-chain:
     name: SBOM, licenses, packaging, checksums
-    needs: build
+    needs: [build, macos-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -194,6 +232,12 @@ jobs:
           pattern: binary-*
           path: release
           merge-multiple: true
+
+      - name: Collect macOS app artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: release
 
       - name: Install syft
         run: GOBIN=/usr/local/bin go install github.com/anchore/syft/cmd/syft@latest
@@ -249,5 +293,6 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "DataDeck ${GITHUB_REF_NAME}" \
             --generate-notes \
-            release/*.tar.gz release/*.zip release/SHA256SUMS \
+            release/*.tar.gz release/*.zip release/SHA256SUMS release/checksums.txt \
+            release/*.dmg release/README-INSTALL-MACOS.md \
             release/sbom/*.json release/licenses/*.txt

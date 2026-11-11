@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: help setup install dev backend frontend test lint typecheck build embed release release-dry-run macos-app macos-dmg docker-build docker-validate clean check
+.PHONY: help setup install dev backend frontend test lint typecheck build embed release release-dry-run macos-app macos-package macos-dmg docker-build docker-validate clean check
 
 help:
 	@echo "DataDeck development commands:"
@@ -66,9 +66,12 @@ release-dry-run:
 macos-app:
 	bash scripts/build-macos-app.sh
 
-# macOS .app + .dmg.
-macos-dmg:
-	bash scripts/build-macos-app.sh --dmg
+# macOS full release package: .app + .dmg + .zip + checksums.txt + install guide.
+macos-package:
+	bash scripts/build-macos-app.sh --package
+
+# Alias kept for convenience (see docs/macos README).
+macos-dmg: macos-package
 
 # Container image (see docs/release/docker.md).
 docker-build:

@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 #
-# Build a macOS Apple Silicon application bundle for DataDeck.
+# Build a free-to-distribute macOS (Apple Silicon) DataDeck application.
 #
-# Produces release/DataDeck.app (macOS .app with a native Swift launcher and the
-# Go backend + embedded frontend). Pass --dmg to also produce a .dmg.
+# Default: build release/DataDeck.app (native Swift launcher + Go backend with the
+# embedded frontend).
+# --package: also produce the release artifacts:
+#   DataDeck-<version>-macos-arm64.app
+#   DataDeck-<version>-macos-arm64.dmg
+#   DataDeck-<version>-macos-arm64.zip
+#   checksums.txt
+#   README-INSTALL-MACOS.md
 #
-# The bundle is unsigned for local development; see desktop/macos/README.md for
-# Gatekeeper notes and the signing/notarization path for public releases.
+# Signing: the bundle is AD-HOC signed by default (integrity only). This is NOT
+# Developer ID signing and the app is NOT notarized. Developer ID signing and
+# notarization are optional and enabled only when the environment provides
+# credentials; they never run otherwise, so the build always succeeds without an
+# Apple Developer Program membership:
+#   MACOS_SIGN_IDENTITY   "Developer ID Application: <name> (<TEAMID>)"
+#   MACOS_NOTARY_PROFILE  a `notarytool store-credentials` keychain profile name
+# No certificate, key, or password is ever read from the repository.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,12 +32,20 @@ else
   BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 
-MAKE_DMG=0
-[ "${1:-}" = "--dmg" ] && MAKE_DMG=1
+PACKAGE=0
+case "${1:-}" in
+  --package|--dmg) PACKAGE=1 ;;
+esac
 
 ARCH="arm64"
 RELEASE_DIR="$ROOT/release"
-APP="$RELEASE_DIR/$APP_NAME.app"
+ARTIFACT_BASE="${APP_NAME}-${VERSION}-macos-${ARCH}"
+APP="$RELEASE_DIR/${ARTIFACT_BASE}.app"
+DMG="$RELEASE_DIR/${ARTIFACT_BASE}.dmg"
+ZIP="$RELEASE_DIR/${ARTIFACT_BASE}.zip"
+CHECKSUMS="$RELEASE_DIR/checksums.txt"
+INSTALL_README_SRC="$ROOT/README-INSTALL-MACOS.md"
+INSTALL_README="$RELEASE_DIR/README-INSTALL-MACOS.md"
 LAUNCHER_SRC="$ROOT/desktop/macos/Sources/DataDeckLauncher.swift"
 DIST="$ROOT/backend/internal/web/dist"
 
@@ -86,7 +106,7 @@ else
   APPICNS=""
 fi
 
-echo "==> Assembling bundle"
+echo "==> Assembling bundle ($(basename "$APP"))"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/backend"
 cp "$RELEASE_DIR/.DataDeckLauncher" "$APP/Contents/MacOS/$APP_NAME"
@@ -115,10 +135,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Ad-hoc code signing bundle"
-# Unsigned bundles are reported as "damaged" by Gatekeeper once quarantined; an
-# ad-hoc signature binds Info.plist and produces a valid (if unidentified) bundle.
-codesign --force --deep --sign - "$APP" >/dev/null
+# --- Code signing -------------------------------------------------------------
+# Default: ad-hoc signature (integrity only). It is NOT Developer ID signing and
+# the app is NOT notarized; macOS Gatekeeper still warns on a downloaded copy.
+SIGN_IDENTITY="${MACOS_SIGN_IDENTITY:-}"
+if [ -n "$SIGN_IDENTITY" ]; then
+  echo "==> Signing with Developer ID: $SIGN_IDENTITY (hardened runtime)"
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+else
+  echo "==> Ad-hoc signing bundle (NOT Developer ID signed, NOT notarized)"
+  codesign --force --deep --sign - "$APP" >/dev/null
+fi
 codesign --verify --deep --strict "$APP"
 
 echo "==> Validating bundle"
@@ -139,16 +166,51 @@ rm -rf "$RELEASE_DIR/.datadeck-backend" "$RELEASE_DIR/.DataDeckLauncher" "$ICONS
 
 echo "==> Bundle ready: $APP"
 
-if [ "$MAKE_DMG" -eq 1 ]; then
+if [ "$PACKAGE" -eq 1 ]; then
   echo "==> Packaging .dmg"
   STAGE="$(mktemp -d)"
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
-  DMG="$RELEASE_DIR/${APP_NAME}-${VERSION}.dmg"
   rm -f "$DMG"
   hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
   rm -rf "$STAGE"
-  echo "==> DMG ready: $DMG"
+  echo "==> Checkpoint: .dmg ready ($(basename "$DMG"))"
+
+  echo "==> Packaging .zip (ditto: preserves bundle structure/permissions/symlinks)"
+  rm -f "$ZIP"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+  echo "==> Checkpoint: .zip ready ($(basename "$ZIP"))"
+
+  if [ -n "${MACOS_NOTARY_PROFILE:-}" ]; then
+    if [ -n "$SIGN_IDENTITY" ]; then
+      echo "==> Notarizing .dmg (profile: $MACOS_NOTARY_PROFILE)"
+      xcrun notarytool submit "$DMG" --keychain-profile "$MACOS_NOTARY_PROFILE" --wait
+      xcrun stapler staple "$APP"
+      # Re-seal + re-create the DMG so the stapled ticket travels with it.
+      codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+      STAGE="$(mktemp -d)"; cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+      rm -f "$DMG"; hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+      rm -rf "$STAGE"
+    else
+      echo "WARN: MACOS_NOTARY_PROFILE set without MACOS_SIGN_IDENTITY; skipping notarization"
+    fi
+  else
+    echo "==> Not notarized (no MACOS_NOTARY_PROFILE); Gatekeeper will warn on first launch"
+  fi
+
+  echo "==> Writing checksums.txt"
+  ( cd "$RELEASE_DIR" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > "$(basename "$CHECKSUMS")" )
+  cat "$CHECKSUMS"
+
+  if [ -f "$INSTALL_README_SRC" ]; then
+    cp "$INSTALL_README_SRC" "$INSTALL_README"
+    echo "==> Install guide: $INSTALL_README"
+  else
+    echo "WARN: $INSTALL_README_SRC not found; release will not include README-INSTALL-MACOS.md"
+  fi
+
+  echo "==> Package artifacts ready in $RELEASE_DIR:"
+  ls -1 "$RELEASE_DIR" | grep -E "^${ARTIFACT_BASE}\.(app|dmg|zip)$|^checksums\.txt$|^README-INSTALL-MACOS\.md$" || true
 fi
 
 echo "==> Done."
