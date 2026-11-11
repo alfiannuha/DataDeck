@@ -23,7 +23,7 @@ const (
 // daemon is not exposed to the local network unless explicitly overridden.
 const (
 	DefaultHost        = "127.0.0.1"
-	DefaultPort        = 8090
+	DefaultPort        = 3200
 	DefaultStoragePath = "./data/datadeck.db"
 	DefaultLogLevel    = "info"
 	DefaultEnvironment = EnvDevelopment

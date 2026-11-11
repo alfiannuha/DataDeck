@@ -377,7 +377,7 @@ go mod tidy
 go install github.com/swaggo/swag/cmd/swag@latest
 swag init -g cmd/server/main.go -o docs
 
-# Run the backend bridge locally (starts on 127.0.0.1:8090)
+# Run the backend bridge locally (starts on 127.0.0.1:3200)
 go run cmd/server/main.go
 ```
 
@@ -435,11 +435,11 @@ services:
       context: ./backend
       dockerfile: ../docker/Dockerfile.backend
     ports:
-      - "8090:8090"
+      - "3200:3200"
     volumes:
       - datadeck_storage:/data
     environment:
-      - PORT=8090
+      - PORT=3200
       - STORAGE_PATH=/data/datadeck.db
       - ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
     restart: unless-stopped
@@ -451,7 +451,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8090
+      - NEXT_PUBLIC_API_URL=http://localhost:3200
     depends_on:
       - backend
     restart: unless-stopped

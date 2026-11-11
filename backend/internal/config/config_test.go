@@ -48,8 +48,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Environment != EnvDevelopment {
 		t.Errorf("Environment = %q, want %q", cfg.Environment, EnvDevelopment)
 	}
-	if got := cfg.Addr(); got != "127.0.0.1:8090" {
-		t.Errorf("Addr() = %q, want %q", got, "127.0.0.1:8090")
+	if got := cfg.Addr(); got != "127.0.0.1:3200" {
+		t.Errorf("Addr() = %q, want %q", got, "127.0.0.1:3200")
 	}
 	if cfg.EncryptionKey != "" {
 		t.Errorf("EncryptionKey = %q, want empty when unset", cfg.EncryptionKey)

@@ -47,7 +47,7 @@ docker run --rm --entrypoint sh "$IMAGE" -c \
   'command -v node || command -v npm || command -v go || echo "no node/npm/go present"'
 
 echo "==> Starting container"
-docker run -d --name "$NAME" -e ENCRYPTION_KEY="$KEY" -p 18099:8080 "$IMAGE" >/dev/null
+docker run -d --name "$NAME" -e ENCRYPTION_KEY="$KEY" -p 18099:3200 "$IMAGE" >/dev/null
 
 for _ in $(seq 1 60); do
   if curl -sf "http://127.0.0.1:18099/api/v1/health" >/dev/null 2>&1; then break; fi

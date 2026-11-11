@@ -40,7 +40,9 @@ esac
 ARCH="arm64"
 RELEASE_DIR="$ROOT/release"
 ARTIFACT_BASE="${APP_NAME}-${VERSION}-macos-${ARCH}"
-APP="$RELEASE_DIR/${ARTIFACT_BASE}.app"
+# The bundle keeps the clean app name (this is what users see after installing);
+# only the downloadable archives carry the version/platform suffix.
+APP="$RELEASE_DIR/$APP_NAME.app"
 DMG="$RELEASE_DIR/${ARTIFACT_BASE}.dmg"
 ZIP="$RELEASE_DIR/${ARTIFACT_BASE}.zip"
 CHECKSUMS="$RELEASE_DIR/checksums.txt"
@@ -210,7 +212,7 @@ if [ "$PACKAGE" -eq 1 ]; then
   fi
 
   echo "==> Package artifacts ready in $RELEASE_DIR:"
-  ls -1 "$RELEASE_DIR" | grep -E "^${ARTIFACT_BASE}\.(app|dmg|zip)$|^checksums\.txt$|^README-INSTALL-MACOS\.md$" || true
+  ls -1 "$RELEASE_DIR" | grep -E "^${APP_NAME}\.app$|^${ARTIFACT_BASE}\.(dmg|zip)$|^checksums\.txt$|^README-INSTALL-MACOS\.md$" || true
 fi
 
 echo "==> Done."

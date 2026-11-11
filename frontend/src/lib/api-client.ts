@@ -4,12 +4,12 @@ import type { ApiEnvelope } from "@/types/api";
  * Backend base URL.
  *
  * - Development: point at the Go daemon, e.g.
- *   NEXT_PUBLIC_API_URL=http://127.0.0.1:8090
+ *   NEXT_PUBLIC_API_URL=http://127.0.0.1:3200
  * - Single-binary / same-origin deployment: set NEXT_PUBLIC_API_URL="" so
  *   requests are relative and served by the embedded backend.
  */
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8090";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3200";
 
 /** All backend routes live under this prefix. */
 export const API_PREFIX = "/api/v1";

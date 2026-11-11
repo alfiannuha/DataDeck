@@ -35,7 +35,7 @@ make setup          # npm install (frontend) + go mod download (backend)
 
 ```bash
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-make backend        # go run ./cmd/server  (defaults: 127.0.0.1:8090, ./data/datadeck.db)
+make backend        # go run ./cmd/server  (defaults: 127.0.0.1:3200, ./data/datadeck.db)
 ```
 
 ## Run the frontend (dev server)
@@ -44,7 +44,7 @@ make backend        # go run ./cmd/server  (defaults: 127.0.0.1:8090, ./data/dat
 make frontend       # next dev on http://localhost:3000
 ```
 
-Point the dev frontend at the daemon with `NEXT_PUBLIC_API_URL=http://localhost:8090`
+Point the dev frontend at the daemon with `NEXT_PUBLIC_API_URL=http://localhost:3200`
 (see `.env.example`). The single-binary build uses same-origin instead.
 
 ## Conventions

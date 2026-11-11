@@ -14,7 +14,7 @@ Common problems and verified resolutions for DataDeck v0.1.0.
 ## Browser cannot connect
 
 Confirm the daemon is running and open the exact `HOST:PORT` it logs (default
-`http://127.0.0.1:8090`). The server binds **loopback only** unless `ALLOW_REMOTE=1`
+`http://127.0.0.1:3200`). The server binds **loopback only** unless `ALLOW_REMOTE=1`
 is set; a non-loopback `HOST` without that flag is refused at startup.
 
 ## Credential decryption failure

@@ -18,7 +18,7 @@ import Security
 let kBundleIdentifier = "io.datadeck.desktop"
 let kKeychainService = kBundleIdentifier
 let kKeychainAccount = "encryption-key"
-let kDefaultPort = 8080
+let kDefaultPort = 3200
 let kPortScanSpan = 100
 let kReadinessTimeout: TimeInterval = 25
 let kReadinessPoll: TimeInterval = 0.25
@@ -435,7 +435,7 @@ func runSelfTests() -> Bool {
         if condition { print("ok: \(name)") } else { FileHandle.standardError.write("FAIL: \(name)\n".data(using: .utf8)!); passed = false }
     }
 
-    check(kDefaultPort == 8080, "default port is 8080")
+    check(kDefaultPort == 3200, "default port is 3200")
     check(databasePath().hasSuffix("/.datadeck/datadeck.db"), "database path under ~/.datadeck")
     check(launcherLogPath().hasSuffix("/.datadeck/logs/launcher.log"), "launcher log path")
     check(backendLogPath().hasSuffix("/.datadeck/logs/backend.log"), "backend log path")

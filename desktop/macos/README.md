@@ -7,7 +7,7 @@ end users.
 ## Build
 
 ```bash
-make macos-app                                # -> release/DataDeck-<version>-macos-arm64.app
+make macos-app                                # -> release/DataDeck.app
 make macos-package                            # -> .app + .dmg + .zip + checksums.txt + install guide
 # (make macos-dmg is an alias for macos-package)
 ```
@@ -28,7 +28,7 @@ It does not touch `scripts/build-release.sh` (cross-platform binaries) or `make 
 
 | File | Notes |
 |---|---|
-| `DataDeck-<version>-macos-arm64.app` | the bundle (distributed inside the `.zip`/`.dmg`) |
+| `DataDeck.app` | the bundle — clean install name; shipped inside the `.zip`/`.dmg` |
 | `DataDeck-<version>-macos-arm64.dmg` | drag-to-Applications installer |
 | `DataDeck-<version>-macos-arm64.zip` | `ditto` archive of the bundle |
 | `checksums.txt` | SHA-256 of the dmg + zip |
@@ -37,7 +37,7 @@ It does not touch `scripts/build-release.sh` (cross-platform binaries) or `make 
 ## Bundle layout
 
 ```
-DataDeck-<version>-macos-arm64.app/Contents/
+DataDeck.app/Contents/
 ├── Info.plist            CFBundleIdentifier io.datadeck.desktop, name/executable DataDeck
 ├── MacOS/DataDeck        Swift AppKit launcher
 └── Resources/
@@ -45,8 +45,8 @@ DataDeck-<version>-macos-arm64.app/Contents/
     └── backend/datadeck  Go backend (embedded frontend)
 ```
 
-The bundle directory is version/platform-suffixed; the app display name and
-executable remain **DataDeck**.
+The bundle directory is always **DataDeck.app** (clean install name); only the
+downloadable archives carry the version/platform suffix.
 
 ## Runtime behavior (launcher lifecycle)
 
@@ -55,7 +55,7 @@ executable remain **DataDeck**.
 2. Create `~/.datadeck/` (`0700`) with `datadeck.db`, `logs/`, `config/`.
 3. Retrieve the encryption key from the macOS **Keychain** (service
    `io.datadeck.desktop`); generate 32 random bytes → 64 hex on first launch only.
-4. Choose a free **loopback** port (default 8080; scans upward if busy).
+4. Choose a free **loopback** port (default 3200; scans upward if busy).
 5. Start the backend with an explicit environment: `HOST=127.0.0.1`, `PORT`,
    `STORAGE_PATH=~/.datadeck/datadeck.db`, `ENVIRONMENT=production`, `LOG_LEVEL=info`,
    `ENCRYPTION_KEY` (env only — never argv). `ALLOW_REMOTE` is never set.
@@ -80,7 +80,7 @@ JSON). Neither ever contains the encryption key, credentials, or raw secrets.
 3. Launch from Finder/Launchpad/Dock. End-user instructions (including the first-launch
    Gatekeeper steps) live in [`README-INSTALL-MACOS.md`](../../README-INSTALL-MACOS.md).
 
-Dev validation without installing: `open release/DataDeck-<version>-macos-arm64.app`.
+Dev validation without installing: `open release/DataDeck.app`.
 
 ## Gatekeeper (ad-hoc signed, not notarized)
 

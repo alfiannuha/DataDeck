@@ -30,6 +30,11 @@ shows how to install and launch it **without using Terminal**.
    On some macOS versions you can instead **right-click (or Control-click) the
    app → Open → Open**. Either way, you only need to do this once.
 
+   If macOS then asks whether DataDeck may access a saved item in your
+   **Keychain** (the encryption key DataDeck stores for you), choose **Always
+   Allow**. This appears only when you upgrade between separately built copies;
+   a fresh install creates the key without asking.
+
 ## Why does macOS show this warning?
 
 macOS Gatekeeper verifies that apps are signed with a paid **Developer ID**

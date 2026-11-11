@@ -9,12 +9,12 @@ export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ./datadeck
 ```
 
-The daemon listens on `http://127.0.0.1:8090` by default
+The daemon listens on `http://127.0.0.1:3200` by default
 ([configuration](configuration.md)).
 
 ## 2. Open the application
 
-Open `http://127.0.0.1:8090`. You land in an **empty workspace**. Nothing is
+Open `http://127.0.0.1:3200`. You land in an **empty workspace**. Nothing is
 opened automatically — connection and database selection never create a query tab.
 
 ## 3. Create a connection profile

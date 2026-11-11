@@ -61,7 +61,7 @@ COPY --from=backend /out/datadeck /usr/local/bin/datadeck
 # docs/release/docker.md). Native binary defaults remain 127.0.0.1 + no opt-in.
 ENV HOST=0.0.0.0 \
     ALLOW_REMOTE=1 \
-    PORT=8090 \
+    PORT=3200 \
     STORAGE_PATH=/data/datadeck.db \
     ENVIRONMENT=production \
     LOG_LEVEL=info
@@ -70,7 +70,7 @@ ENV HOST=0.0.0.0 \
 # the operator supplies a key at runtime. Never bake a real key into the image.
 
 USER datadeck
-EXPOSE 8090
+EXPOSE 3200
 VOLUME ["/data"]
 
 # Unauthenticated health endpoint; requires no credentials.

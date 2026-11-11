@@ -54,10 +54,10 @@ from source for now: [docs/development/building.md](docs/development/building.md
 # 1. Generate an encryption key (32 raw bytes / 64 hex chars) and keep it safe.
 export ENCRYPTION_KEY="$(openssl rand -hex 32)"
 
-# 2. Run the daemon (defaults: http://127.0.0.1:8090, ./data/datadeck.db).
+# 2. Run the daemon (defaults: http://127.0.0.1:3200, ./data/datadeck.db).
 ./datadeck
 
-# 3. Open http://127.0.0.1:8090 in your browser, create a connection, and browse.
+# 3. Open http://127.0.0.1:3200 in your browser, create a connection, and browse.
 ```
 
 Full walkthrough: [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md).

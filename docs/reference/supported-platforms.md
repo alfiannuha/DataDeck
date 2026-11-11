@@ -27,6 +27,6 @@ per platform before you rely on them.
 ## Docker
 
 A Dockerfile is provided (`docker/Dockerfile`) for container builds. In a container
-the process binds `0.0.0.0:8090` with `ALLOW_REMOTE=1` (documented packaging choice)
+the process binds `0.0.0.0:3200` with `ALLOW_REMOTE=1` (documented packaging choice)
 and `ENCRYPTION_KEY` must be supplied at runtime — never baked into the image.
 Container publishing is not part of v0.1.0's binary release.
