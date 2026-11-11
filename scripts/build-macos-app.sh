@@ -115,6 +115,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+echo "==> Ad-hoc code signing bundle"
+# Unsigned bundles are reported as "damaged" by Gatekeeper once quarantined; an
+# ad-hoc signature binds Info.plist and produces a valid (if unidentified) bundle.
+codesign --force --deep --sign - "$APP" >/dev/null
+codesign --verify --deep --strict "$APP"
+
 echo "==> Validating bundle"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 [ -x "$APP/Contents/MacOS/$APP_NAME" ] || { echo "ERROR: launcher not executable"; exit 1; }
