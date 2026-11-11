@@ -68,6 +68,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// v0.2.0: close idle, activity-free database pools periodically; stops on shutdown.
+	connections.StartIdleJanitor(ctx, cfg.PoolJanitorInterval, cfg.PoolIdleTimeout)
+
 	store, err := storage.Open(ctx, cfg.StoragePath)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)

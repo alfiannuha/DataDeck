@@ -1,7 +1,8 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
+import { listConnections } from "@/lib/api/endpoints";
 import { usePwaStore } from "@/store/usePwaStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
@@ -120,5 +121,24 @@ describe("TopBar PWA controls", () => {
     const version = screen.getByTestId("app-version");
     expect(version).toHaveTextContent("v0.1.0");
     expect(version).toHaveAttribute("title", expect.stringContaining("development"));
+  });
+
+  it("shows an environment badge bound to the active tab", async () => {
+    vi.mocked(listConnections).mockResolvedValue([
+      { id: "c1", name: "CCM DEV", driver: "postgres" },
+    ] as never);
+    useWorkspaceStore.setState({
+      tabs: [
+        { kind: "query", id: "t1", title: "Q", sql: "", connectionId: "c1", database: "alpha", dirty: false },
+      ],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<TopBar />);
+    const badge = await screen.findByTestId("env-badge");
+    await waitFor(() =>
+      expect(screen.getByTestId("env-badge")).toHaveTextContent("CCM DEV / alpha"),
+    );
+    expect(badge).toHaveTextContent("alpha");
+    expect(badge).toHaveTextContent("postgres");
   });
 });

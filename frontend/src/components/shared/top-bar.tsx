@@ -42,6 +42,14 @@ export function TopBar() {
   const hasDirtyTabs = useWorkspaceStore((state) =>
     state.tabs.some((tab) => tab.kind === "query" && tab.dirty),
   );
+  // v0.2.0: environment badge reflects the ACTIVE TAB's immutable binding
+  // (connection + database + driver), not the Explorer selection.
+  const activeTab = useWorkspaceStore((state) =>
+    state.tabs.find((tab) => tab.id === state.activeTabId),
+  );
+  const tabConnection = connections?.find(
+    (candidate) => candidate.id === activeTab?.connectionId,
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [confirmUpdate, setConfirmUpdate] = useState(false);
@@ -92,6 +100,20 @@ export function TopBar() {
       </div>
 
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        {activeTab ? (
+          <span
+            data-testid="env-badge"
+            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-subtle-foreground"
+            title={
+              tabConnection?.driver ? `driver: ${tabConnection.driver}` : undefined
+            }
+          >
+            {tabConnection?.name ?? activeTab.connectionId ?? "no connection"}
+            {" / "}
+            {activeTab.database ?? "(default)"}
+            {tabConnection?.driver ? ` · ${tabConnection.driver}` : ""}
+          </span>
+        ) : null}
         <span className="truncate" aria-live="polite">
           {contextLabel}
         </span>

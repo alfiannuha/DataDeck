@@ -70,6 +70,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/health", s.handleHealth)
 
 		r.Get("/connections", connections.List)
+		r.Get("/connections/status", connections.PoolStatus)
 		r.Post("/connections", connections.Create)
 		r.Post("/connections/test", connections.Test)
 		r.Delete("/connections/{id}", connections.Delete)

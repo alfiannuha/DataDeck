@@ -112,6 +112,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Connection-manager pool status
+         * @description Reports initialized database pools (identity, driver, state, database/sql stats, last-used) and the number of registered connection profiles. Credential-free; does not open pools as a side effect. Registered connections are distinct from initialized pools.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connections/test": {
         parameters: {
             query?: never;
@@ -2348,6 +2403,20 @@ export interface components {
         data: {
             data?: components["schemas"]["api.HealthResponse"];
         };
+        "database.PoolStatus": {
+            connection_id?: string;
+            database?: string;
+            driver?: string;
+            idle?: number;
+            in_use?: number;
+            last_used?: string;
+            max_open_connections?: number;
+            open_connections?: number;
+            /** @description ready | initializing */
+            state?: string;
+            wait_count?: number;
+            wait_duration_ms?: number;
+        };
         "handler.ConnectionRequest": {
             /** @example app */
             database_name?: string;
@@ -2491,6 +2560,10 @@ export interface components {
             values?: {
                 [key: string]: components["schemas"]["model.InsertValue"];
             };
+        };
+        "handler.PoolStatusResponse": {
+            pools?: components["schemas"]["database.PoolStatus"][];
+            registered_connections?: number;
         };
         "handler.QueryRequest": {
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */

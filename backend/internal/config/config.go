@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Environment identifies the runtime mode DataDeck is running in.
@@ -26,6 +27,11 @@ const (
 	DefaultStoragePath = "./data/datadeck.db"
 	DefaultLogLevel    = "info"
 	DefaultEnvironment = EnvDevelopment
+	// DefaultPoolIdleTimeout is how long an idle, active-operation-free database
+	// pool may remain open before the janitor closes it (v0.2.0).
+	DefaultPoolIdleTimeout = 30 * time.Minute
+	// DefaultPoolJanitorInterval is how often the idle-pool janitor sweeps.
+	DefaultPoolJanitorInterval = 5 * time.Minute
 )
 
 // Config is the typed runtime configuration for the backend daemon.
@@ -43,6 +49,10 @@ type Config struct {
 	// validated by the security package, never logged, and never returned via
 	// the API.
 	EncryptionKey string
+	// PoolIdleTimeout / PoolJanitorInterval configure the v0.2.0 idle-pool
+	// janitor. A zero interval disables it.
+	PoolIdleTimeout     time.Duration
+	PoolJanitorInterval time.Duration
 }
 
 // Addr returns the host:port address the HTTP server should bind to.
@@ -86,6 +96,15 @@ func Load() (Config, error) {
 
 	cfg.CORSAllowedOrigins = splitList(envOr("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"))
 
+	cfg.PoolIdleTimeout, err = parseDuration("POOL_IDLE_TIMEOUT", envOr("POOL_IDLE_TIMEOUT", DefaultPoolIdleTimeout.String()))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PoolJanitorInterval, err = parseDuration("POOL_JANITOR_INTERVAL", envOr("POOL_JANITOR_INTERVAL", DefaultPoolJanitorInterval.String()))
+	if err != nil {
+		return Config{}, err
+	}
+
 	if strings.TrimSpace(cfg.Host) == "" {
 		return Config{}, fmt.Errorf("HOST must not be empty")
 	}
@@ -128,6 +147,16 @@ func parseLogLevel(raw string) (slog.Level, error) {
 	default:
 		return 0, fmt.Errorf("invalid LOG_LEVEL %q: expected one of debug, info, warn, error", raw)
 	}
+}
+
+// parseDuration parses a Go duration string (e.g. "30m"). A zero value disables
+// the corresponding pool behavior; negative values are rejected.
+func parseDuration(key, raw string) (time.Duration, error) {
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("invalid %s %q: must be a duration such as 30m or 5m", key, raw)
+	}
+	return d, nil
 }
 
 func envOr(key, fallback string) string {

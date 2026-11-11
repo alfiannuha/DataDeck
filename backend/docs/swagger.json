@@ -26,6 +26,45 @@
                 },
                 "type": "object"
             },
+            "database.PoolStatus": {
+                "properties": {
+                    "connection_id": {
+                        "type": "string"
+                    },
+                    "database": {
+                        "type": "string"
+                    },
+                    "driver": {
+                        "type": "string"
+                    },
+                    "idle": {
+                        "type": "integer"
+                    },
+                    "in_use": {
+                        "type": "integer"
+                    },
+                    "last_used": {
+                        "type": "string"
+                    },
+                    "max_open_connections": {
+                        "type": "integer"
+                    },
+                    "open_connections": {
+                        "type": "integer"
+                    },
+                    "state": {
+                        "description": "ready | initializing",
+                        "type": "string"
+                    },
+                    "wait_count": {
+                        "type": "integer"
+                    },
+                    "wait_duration_ms": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "handler.ConnectionRequest": {
                 "properties": {
                     "database_name": {
@@ -376,6 +415,21 @@
                             "$ref": "#/components/schemas/model.InsertValue"
                         },
                         "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.PoolStatusResponse": {
+                "properties": {
+                    "pools": {
+                        "items": {
+                            "$ref": "#/components/schemas/database.PoolStatus"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "registered_connections": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -1538,6 +1592,55 @@
                     }
                 },
                 "summary": "Create a connection profile",
+                "tags": [
+                    "connections"
+                ]
+            }
+        },
+        "/connections/status": {
+            "get": {
+                "description": "Reports initialized database pools (identity, driver, state, database/sql stats, last-used) and the number of registered connection profiles. Credential-free; does not open pools as a side effect. Registered connections are distinct from initialized pools.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Connection-manager pool status",
                 "tags": [
                     "connections"
                 ]

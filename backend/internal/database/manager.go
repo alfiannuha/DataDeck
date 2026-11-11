@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ type Manager struct {
 	mu         sync.Mutex
 	pools      map[PoolKey]*sql.DB
 	lastUsed   map[PoolKey]time.Time
+	poolDriver map[PoolKey]string
 	opening    map[PoolKey]*openCall
 	connectors map[model.Driver]Connector
 	opts       Options
@@ -62,6 +64,7 @@ func NewManager(opts Options, connectors ...Connector) *Manager {
 	return &Manager{
 		pools:      make(map[PoolKey]*sql.DB),
 		lastUsed:   make(map[PoolKey]time.Time),
+		poolDriver: make(map[PoolKey]string),
 		opening:    make(map[PoolKey]*openCall),
 		connectors: registry,
 		opts:       opts,
@@ -112,6 +115,7 @@ func (m *Manager) Open(ctx context.Context, id string, cfg Config) (*sql.DB, err
 	if err == nil {
 		m.pools[key] = db
 		m.lastUsed[key] = time.Now()
+		m.poolDriver[key] = string(cfg.Driver)
 		m.evictOverCapLocked(id)
 	}
 	call.err = err
@@ -148,6 +152,7 @@ func (m *Manager) evictOverCapLocked(connectionID string) {
 		db := m.pools[oldestKey]
 		delete(m.pools, oldestKey)
 		delete(m.lastUsed, oldestKey)
+		delete(m.poolDriver, oldestKey)
 		if db != nil {
 			_ = db.Close()
 		}
@@ -164,6 +169,119 @@ func (m *Manager) Get(id, database string) (*sql.DB, bool) {
 		m.lastUsed[key] = time.Now()
 	}
 	return db, ok
+}
+
+// PoolStatus is a credential-free snapshot of one managed pool (v0.2.0 telemetry).
+// It never contains passwords, DSNs, encryption keys, or raw driver errors.
+type PoolStatus struct {
+	ConnectionID       string    `json:"connection_id"`
+	Database           string    `json:"database"`
+	Driver             string    `json:"driver"`
+	State              string    `json:"state"` // ready | initializing
+	OpenConnections    int       `json:"open_connections"`
+	InUse              int       `json:"in_use"`
+	Idle               int       `json:"idle"`
+	WaitCount          int64     `json:"wait_count"`
+	WaitDurationMS     int64     `json:"wait_duration_ms"`
+	MaxOpenConnections int       `json:"max_open_connections"`
+	LastUsed           time.Time `json:"last_used"`
+}
+
+// PoolStatuses returns a sorted snapshot of initialized pools and in-flight
+// initializations. It never opens a pool (no side effects) and exposes no secrets.
+func (m *Manager) PoolStatuses() []PoolStatus {
+	m.mu.Lock()
+	out := make([]PoolStatus, 0, len(m.pools)+len(m.opening))
+	for key, db := range m.pools {
+		stats := db.Stats()
+		out = append(out, PoolStatus{
+			ConnectionID:       key.ConnectionID,
+			Database:           key.Database,
+			Driver:             m.poolDriver[key],
+			State:              "ready",
+			OpenConnections:    stats.OpenConnections,
+			InUse:              stats.InUse,
+			Idle:               stats.Idle,
+			WaitCount:          stats.WaitCount,
+			WaitDurationMS:     stats.WaitDuration.Milliseconds(),
+			MaxOpenConnections: stats.MaxOpenConnections,
+			LastUsed:           m.lastUsed[key],
+		})
+	}
+	for key := range m.opening {
+		if _, ready := m.pools[key]; ready {
+			continue
+		}
+		out = append(out, PoolStatus{
+			ConnectionID: key.ConnectionID,
+			Database:     key.Database,
+			Driver:       m.poolDriver[key],
+			State:        "initializing",
+		})
+	}
+	m.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ConnectionID != out[j].ConnectionID {
+			return out[i].ConnectionID < out[j].ConnectionID
+		}
+		return out[i].Database < out[j].Database
+	})
+	return out
+}
+
+// SweepIdle closes pools whose last use is at least threshold ago AND that have no
+// in-flight operations (database/sql Stats().InUse == 0) and are not currently
+// initializing. database/sql's InUse counter is the authoritative active-operation
+// lease; a pool with active work is never closed. It is race-safe with Open and
+// idempotent (second call closes nothing). Returns the number of pools closed.
+func (m *Manager) SweepIdle(threshold time.Duration) int {
+	if threshold <= 0 {
+		return 0
+	}
+	m.mu.Lock()
+	now := time.Now()
+	var closing []*sql.DB
+	for key, db := range m.pools {
+		if _, initializing := m.opening[key]; initializing {
+			continue
+		}
+		if now.Sub(m.lastUsed[key]) < threshold {
+			continue
+		}
+		if db.Stats().InUse > 0 {
+			continue
+		}
+		closing = append(closing, db)
+		delete(m.pools, key)
+		delete(m.lastUsed, key)
+		delete(m.poolDriver, key)
+	}
+	m.mu.Unlock()
+	for _, db := range closing {
+		_ = db.Close()
+	}
+	return len(closing)
+}
+
+// StartIdleJanitor runs SweepIdle every interval until ctx is cancelled. A
+// non-positive interval or threshold disables it. This is the only background
+// worker introduced by v0.2.0; it exits on shutdown.
+func (m *Manager) StartIdleJanitor(ctx context.Context, interval, threshold time.Duration) {
+	if interval <= 0 || threshold <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.SweepIdle(threshold)
+			}
+		}
+	}()
 }
 
 // Reconnect replaces the pool for (id, cfg.Database) with a freshly opened and
@@ -401,6 +519,7 @@ func (m *Manager) evict(id string, cfg Config) {
 	if ok {
 		delete(m.pools, key)
 		delete(m.lastUsed, key)
+		delete(m.poolDriver, key)
 	}
 	m.mu.Unlock()
 	if ok && db != nil {
@@ -417,6 +536,7 @@ func (m *Manager) Close(id, database string) error {
 	if ok {
 		delete(m.pools, key)
 		delete(m.lastUsed, key)
+		delete(m.poolDriver, key)
 	}
 	m.mu.Unlock()
 
@@ -440,6 +560,7 @@ func (m *Manager) CloseConnection(id string) error {
 		closing = append(closing, db)
 		delete(m.pools, key)
 		delete(m.lastUsed, key)
+		delete(m.poolDriver, key)
 	}
 	m.mu.Unlock()
 
@@ -459,6 +580,7 @@ func (m *Manager) CloseAll() error {
 	pools := m.pools
 	m.pools = make(map[PoolKey]*sql.DB)
 	m.lastUsed = make(map[PoolKey]time.Time)
+	m.poolDriver = make(map[PoolKey]string)
 	m.mu.Unlock()
 
 	var errs []error

@@ -77,6 +77,7 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 
 	wantPaths := []string{
 		"/connections",
+		"/connections/status",
 		"/connections/test",
 		"/connections/{id}",
 		"/connections/{id}/database-export",
@@ -212,6 +213,7 @@ func TestEnvelopeConsistencyAcrossEndpoints(t *testing.T) {
 	}{
 		{"health", http.MethodGet, "/api/v1/health", ""},
 		{"list connections", http.MethodGet, "/api/v1/connections", ""},
+		{"pool status", http.MethodGet, "/api/v1/connections/status", ""},
 		{"create invalid", http.MethodPost, "/api/v1/connections", `{}`},
 		{"test invalid", http.MethodPost, "/api/v1/connections/test", `{}`},
 		{"delete missing", http.MethodDelete, "/api/v1/connections/missing", ""},
