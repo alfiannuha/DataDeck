@@ -14,7 +14,7 @@ RUN DATADECK_STATIC_EXPORT=true NEXT_PUBLIC_API_URL= npm run build:static
 # ---------------------------------------------------------------------------
 # Stage 2 — compile the CGO-free single binary with the frontend embedded.
 # ---------------------------------------------------------------------------
-FROM golang:1.26.9-alpine AS backend
+FROM golang:1.26.11-alpine AS backend
 ARG VERSION=0.2.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
