@@ -14,6 +14,7 @@ import {
 import { insertRow } from "@/lib/api/endpoints";
 import { mutationErrorMessage } from "@/lib/mutation-errors";
 import { validateRowField, type RowFieldMode } from "@/lib/row-field-validation";
+import { columnCategory } from "@/lib/row-edit";
 import type { TableColumnInfo } from "@/types/api";
 
 type Mode = RowFieldMode;
@@ -21,11 +22,6 @@ type Mode = RowFieldMode;
 interface FieldState {
   mode: Mode;
   value: string;
-}
-
-function categoryIsBoolean(dataType: string | undefined): boolean {
-  const base = (dataType ?? "").toLowerCase().split(/[( ]/)[0];
-  return base === "bool" || base === "boolean";
 }
 
 /** Compact metadata chips (T11 §11): identity / nullability / default. */
@@ -80,6 +76,7 @@ export function AddRowDialog({
   onInserted: () => void;
 }) {
   const editable = columns.filter((column) => column.insertable !== false);
+  const nonEditable = columns.filter((column) => !editable.includes(column));
   const [fields, setFields] = useState<Record<string, FieldState>>(() =>
     Object.fromEntries(
       editable.map((column) => {
@@ -166,89 +163,139 @@ export function AddRowDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex max-h-80 flex-col gap-2 overflow-auto">
-          {columns.map((column) => {
-            const name = column.name ?? "";
-            const isEditable = editable.some((candidate) => candidate.name === name);
-            if (!isEditable) {
-              return (
-                <div
-                  key={name}
-                  className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
-                >
-                  <span className="font-medium text-foreground">{name}</span>
-                  <span className="flex items-center gap-2">
-                    <ColumnBadges column={column} />
-                    <span className="text-[10px]">
-                      {column.database_type} · database managed
-                    </span>
-                  </span>
-                </div>
-              );
-            }
-            const field = fields[name] ?? { mode: "value", value: "" };
-            const boolean = categoryIsBoolean(column.database_type);
-            const fieldError = fieldErrors[name];
-            const errorId = `${name}-field-error`;
-            return (
-              <div key={name} className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="w-32 truncate font-medium text-foreground" title={name}>
-                  {name}
-                </span>
-                <span className="flex w-24 items-center gap-1 text-[10px] text-muted-foreground">
-                  <span className="truncate" title={column.database_type}>
-                    {column.database_type}
-                  </span>
-                  <ColumnBadges column={column} />
-                </span>
-                <select
-                  aria-label={`${name} mode`}
-                  value={field.mode}
-                  onChange={(event) => update(name, { mode: event.target.value as Mode })}
-                  className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-                >
-                  <option value="value">value</option>
-                  {column.nullable ? <option value="null">null</option> : null}
-                  <option value="default">default</option>
-                </select>
-                {field.mode === "value" ? (
-                  boolean ? (
-                    <select
-                      aria-label={`${name} value`}
-                      aria-invalid={fieldError ? true : undefined}
-                      aria-describedby={fieldError ? errorId : undefined}
-                      value={field.value}
-                      onChange={(event) => update(name, { value: event.target.value })}
-                      className="w-40 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-                    >
-                      <option value="">true/false</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  ) : (
-                    <input
-                      aria-label={`${name} value`}
-                      aria-invalid={fieldError ? true : undefined}
-                      aria-describedby={fieldError ? errorId : undefined}
-                      value={field.value}
-                      onChange={(event) => update(name, { value: event.target.value })}
-                      className="w-40 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-                    />
-                  )
-                ) : null}
-                {fieldError ? (
-                  <p
-                    id={errorId}
-                    role="alert"
-                    data-testid="row-field-error"
-                    className="w-full pl-32 text-[10px] text-destructive"
+        <div className="flex max-h-80 flex-col gap-3 overflow-auto pr-1">
+          {editable.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              This table has no insertable columns; every value is database-managed.
+            </p>
+          ) : (
+            <section className="flex flex-col gap-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Fields
+              </h3>
+              {editable.map((column) => {
+                const name = column.name ?? "";
+                const field = fields[name] ?? { mode: "value", value: "" };
+                const category = columnCategory(column.database_type);
+                const fieldError = fieldErrors[name];
+                const errorId = `${name}-field-error`;
+                return (
+                  <div
+                    key={name}
+                    className="rounded border border-border bg-background p-2 text-xs"
                   >
-                    {fieldError}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span
+                        className="truncate font-medium text-foreground"
+                        title={name}
+                      >
+                        {name}
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className="truncate font-mono" title={column.database_type}>
+                          {column.database_type}
+                        </span>
+                        <ColumnBadges column={column} />
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <select
+                        aria-label={`${name} mode`}
+                        value={field.mode}
+                        onChange={(event) =>
+                          update(name, { mode: event.target.value as Mode })
+                        }
+                        className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                      >
+                        <option value="value">value</option>
+                        {column.nullable ? <option value="null">null</option> : null}
+                        <option value="default">default</option>
+                      </select>
+                      {field.mode === "value" ? (
+                        category === "boolean" ? (
+                          <select
+                            aria-label={`${name} value`}
+                            aria-invalid={fieldError ? true : undefined}
+                            aria-describedby={fieldError ? errorId : undefined}
+                            value={field.value}
+                            onChange={(event) =>
+                              update(name, { value: event.target.value })
+                            }
+                            className="min-w-0 flex-1 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                          >
+                            <option value="">true/false</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                          </select>
+                        ) : (
+                          <input
+                            aria-label={`${name} value`}
+                            aria-invalid={fieldError ? true : undefined}
+                            aria-describedby={fieldError ? errorId : undefined}
+                            type={category === "date" ? "date" : "text"}
+                            inputMode={
+                              category === "integer" || category === "decimal"
+                                ? "numeric"
+                                : undefined
+                            }
+                            value={field.value}
+                            onChange={(event) =>
+                              update(name, { value: event.target.value })
+                            }
+                            className={`min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] ${
+                              fieldError ? "border-destructive" : "border-border"
+                            } ${category === "json" ? "font-mono" : ""}`}
+                          />
+                        )
+                      ) : (
+                        <span className="flex-1 text-[10px] text-muted-foreground">
+                          {field.mode === "null"
+                            ? "NULL"
+                            : "Uses the database default"}
+                        </span>
+                      )}
+                    </div>
+                    {fieldError ? (
+                      <p
+                        id={errorId}
+                        role="alert"
+                        data-testid="row-field-error"
+                        className="mt-1 text-[10px] text-destructive"
+                      >
+                        {fieldError}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </section>
+          )}
+
+          {nonEditable.length > 0 ? (
+            <section className="flex flex-col gap-1">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Database-managed
+              </h3>
+              {nonEditable.map((column) => {
+                const name = column.name ?? "";
+                return (
+                  <div
+                    key={name}
+                    className="flex items-center justify-between gap-2 text-[11px]"
+                  >
+                    <span className="truncate text-foreground" title={name}>
+                      {name}
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="truncate font-mono">{column.database_type}</span>
+                      <ColumnBadges column={column} />
+                      <span>auto</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </section>
+          ) : null}
         </div>
 
         {error ? (

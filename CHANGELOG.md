@@ -35,6 +35,15 @@ All notable changes to DataDeck are documented here. This project follows
   key descending (falls back to First 100 with a notice when there is no PK).
 
 ### Changed
+- **Add Row panel** redesigned: grouped "Fields" / "Database-managed" sections,
+  visible column types, type-aware controls (date/boolean/numeric/JSON),
+  DEFAULT/NULL mode hints, a fixed footer and field-level validation. Inline add
+  was evaluated and deferred in favour of the panel to reuse the proven insert
+  path (DEFAULT/identity/generated handling) without destabilizing the
+  virtualized grid.
+- **Add Column** now uses a **database-aware grouped type selector** (PostgreSQL
+  / MySQL / SQLite catalogues) with Length / Precision / Scale fields; the
+  dialog receives the connection's engine.
 - Delete Database uses an explicit two-step flow (warning → type the database
   name) and shows the connection name.
 - Destructive actions (Delete Row / Selected Rows / Table / Database, structure

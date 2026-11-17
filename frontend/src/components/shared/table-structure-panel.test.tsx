@@ -11,6 +11,7 @@ import { TableStructurePanel } from "./table-structure-panel";
 vi.mock("@/lib/api/endpoints", () => ({
   getTableStructure: vi.fn(),
   applyStructure: vi.fn(),
+  listConnections: vi.fn().mockResolvedValue([]),
 }));
 
 const FULL_CAPS = {

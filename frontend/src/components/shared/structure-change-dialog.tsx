@@ -16,6 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useApplyStructure, type TableStructureTarget } from "@/hooks/use-table-structure";
 import { ApiClientError } from "@/lib/api-client";
+import {
+  baseTypeName,
+  columnTypeGroups,
+  composeColumnType,
+  typeTakesLength,
+  typeTakesPrecision,
+} from "@/lib/sql-column-types";
 import type {
   StructureCapabilities,
   StructureChangeRequest,
@@ -64,6 +71,7 @@ export function StructureChangeDialog({
   target,
   spec,
   capabilities,
+  driver,
   onApplied,
 }: {
   open: boolean;
@@ -71,6 +79,8 @@ export function StructureChangeDialog({
   target: TableStructureTarget;
   spec: StructureDialogSpec | null;
   capabilities?: StructureCapabilities;
+  /** Connection driver, for the engine-aware column type catalogue. */
+  driver?: string;
   onApplied?: () => void;
 }) {
   const apply = useApplyStructure();
@@ -79,6 +89,9 @@ export function StructureChangeDialog({
   const [newName, setNewName] = useState("");
   const [colName, setColName] = useState("");
   const [colType, setColType] = useState("");
+  const [colLength, setColLength] = useState("");
+  const [colPrecision, setColPrecision] = useState("");
+  const [colScale, setColScale] = useState("");
   const [colNullable, setColNullable] = useState(true);
   const [colDefault, setColDefault] = useState("");
   const [colDefaultExpr, setColDefaultExpr] = useState(false);
@@ -104,11 +117,20 @@ export function StructureChangeDialog({
     setError(null);
     setNewName(spec?.kind === "rename_table" ? spec.table : "");
     setColName(spec?.kind === "alter_column" ? (spec.column.name ?? "") : "");
-    setColType(
-      spec?.kind === "alter_column"
-        ? (spec.column.database_type ?? "")
-        : "",
-    );
+    const initialType =
+      spec?.kind === "alter_column" ? (spec.column.database_type ?? "") : "";
+    setColType(baseTypeName(initialType));
+    const paramMatch = initialType.match(/\(([^)]*)\)/);
+    if (paramMatch) {
+      const parts = paramMatch[1].split(",").map((part) => part.trim());
+      setColLength(parts[0] ?? "");
+      setColPrecision(parts[0] ?? "");
+      setColScale(parts[1] ?? "");
+    } else {
+      setColLength("");
+      setColPrecision("");
+      setColScale("");
+    }
     setColNullable(spec?.kind === "alter_column" ? Boolean(spec.column.nullable) : true);
     setColDefault("");
     setColDefaultExpr(false);
@@ -141,7 +163,7 @@ export function StructureChangeDialog({
           operation: "add_column",
           column: {
             name: colName.trim(),
-            type: colType.trim(),
+            type: composeColumnType(colType, colLength, colPrecision, colScale),
             nullable: colNullable,
             default: colDefault === "" ? undefined : colDefault,
             is_expression: colDefaultExpr,
@@ -157,7 +179,7 @@ export function StructureChangeDialog({
           default_action: defaultAction === "keep" ? undefined : defaultAction,
           new_column: {
             name: colName.trim(),
-            type: colType.trim(),
+            type: composeColumnType(colType, colLength, colPrecision, colScale),
             nullable: colNullable,
             default: defaultAction === "set" ? colDefault : undefined,
             is_expression: colDefaultExpr,
@@ -261,13 +283,62 @@ export function StructureChangeDialog({
                 />
               </Field>
               <Field label="Type" id="chg-col-type" className="sm:col-span-1">
-                <Input
+                <Select
                   id="chg-col-type"
-                  placeholder="varchar(255)"
                   value={colType}
                   onChange={(e) => setColType(e.target.value)}
-                />
+                >
+                  <option value="">Select a type…</option>
+                  {columnTypeGroups(driver).map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.types.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {colType &&
+                  !columnTypeGroups(driver).some((group) =>
+                    group.types.includes(colType),
+                  ) ? (
+                    <option value={colType}>{colType} (current)</option>
+                  ) : null}
+                </Select>
               </Field>
+              {typeTakesLength(colType) ? (
+                <Field label="Length" id="chg-col-length" className="sm:col-span-1">
+                  <Input
+                    id="chg-col-length"
+                    inputMode="numeric"
+                    placeholder="255"
+                    value={colLength}
+                    onChange={(e) => setColLength(e.target.value)}
+                  />
+                </Field>
+              ) : null}
+              {typeTakesPrecision(colType) ? (
+                <>
+                  <Field label="Precision" id="chg-col-precision" className="sm:col-span-1">
+                    <Input
+                      id="chg-col-precision"
+                      inputMode="numeric"
+                      placeholder="10"
+                      value={colPrecision}
+                      onChange={(e) => setColPrecision(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Scale" id="chg-col-scale" className="sm:col-span-1">
+                    <Input
+                      id="chg-col-scale"
+                      inputMode="numeric"
+                      placeholder="2"
+                      value={colScale}
+                      onChange={(e) => setColScale(e.target.value)}
+                    />
+                  </Field>
+                </>
+              ) : null}
               <label className="col-span-2 flex items-center gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"

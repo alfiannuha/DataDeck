@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StructureChangeDialog, type StructureDialogSpec } from "@/components/shared/structure-change-dialog";
 import { useTableStructure } from "@/hooks/use-table-structure";
+import { useConnections } from "@/hooks/use-connections";
 import { ApiClientError } from "@/lib/api-client";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
@@ -32,6 +33,8 @@ export function TableStructurePanel() {
     table: tab?.kind === "table-structure" ? tab.table : "",
   };
   const query = useTableStructure(target);
+  const { data: connections } = useConnections();
+  const driver = connections?.find((c) => c.id === target.connectionId)?.driver;
   const [dialog, setDialog] = useState<StructureDialogSpec | null>(null);
 
   if (tab?.kind !== "table-structure") return null;
@@ -347,6 +350,7 @@ export function TableStructurePanel() {
         target={target}
         spec={dialog}
         capabilities={data?.structure_capabilities}
+        driver={driver ?? undefined}
         onApplied={refresh}
       />
     </section>
