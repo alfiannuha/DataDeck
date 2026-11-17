@@ -3322,6 +3322,14 @@ export interface components {
             /** @example public */
             schema?: string;
             sort?: components["schemas"]["model.TableSort"];
+            /**
+             * @description SQLMode selects the SQL script shape when Format is "sql":
+             *     "insert" (default; INSERT only), "create_if_not_exists" (CREATE TABLE IF
+             *     NOT EXISTS + indexes + data), or "create" (CREATE TABLE + indexes + data).
+             * @example insert
+             * @enum {string}
+             */
+            sql_mode?: "insert" | "create_if_not_exists" | "create";
             /** @example customers */
             table?: string;
             transaction?: boolean;

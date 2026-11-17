@@ -129,6 +129,10 @@ type TableExportRequest struct {
 	InsertableOnly bool          `json:"insertable_only,omitempty"`
 	IncludeHeaders *bool         `json:"include_headers,omitempty"`
 	Transaction    *bool         `json:"transaction,omitempty"`
+	// SQLMode selects the SQL script shape when Format is "sql":
+	// "insert" (default; INSERT only), "create_if_not_exists" (CREATE TABLE IF
+	// NOT EXISTS + indexes + data), or "create" (CREATE TABLE + indexes + data).
+	SQLMode string `json:"sql_mode,omitempty" enums:"insert,create_if_not_exists,create" example:"insert"`
 }
 
 // ExportFormatEnvelope carries the decoded export request format (used by

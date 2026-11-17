@@ -909,6 +909,56 @@ describe("SchemaExplorer table context menu (PRF-02/T12)", () => {
     expect(tab.table).toBe("users");
   });
 
+  it("View First 100 opens and auto-executes a LIMIT 100 SELECT", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+    vi.mocked(executeQuery).mockResolvedValue({
+      columns: [],
+      rows: [],
+      rows_affected: 0,
+      execution_time_ms: 1,
+      truncated: false,
+    } as never);
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "View First 100" }));
+
+    await waitFor(() =>
+      expect(executeQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ sql: expect.stringContaining("LIMIT 100") }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("View Last 100 orders by the primary key descending", async () => {
+    vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
+    vi.mocked(getSchemas).mockResolvedValue(sampleSchema);
+    vi.mocked(executeQuery).mockResolvedValue({
+      columns: [],
+      rows: [],
+      rows_affected: 0,
+      execution_time_ms: 1,
+      truncated: false,
+    } as never);
+    useWorkspaceStore.setState({ tabs: [], activeTabId: null });
+
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    await screen.findByText("app");
+    fireEvent.click(screen.getByRole("button", { name: /^public/ }));
+    await openTableMenu("users");
+    fireEvent.click(screen.getByRole("menuitem", { name: "View Last 100" }));
+
+    await waitFor(() => {
+      const call = vi.mocked(executeQuery).mock.calls.at(-1)?.[0];
+      expect(call?.sql).toContain('ORDER BY "id" DESC LIMIT 100');
+    });
+  });
+
   it("New Query opens a fresh Query tab with a quoted SELECT and never executes", async () => {
     vi.mocked(listConnections).mockResolvedValue([connection("postgres", "app")]);
     vi.mocked(getSchemas).mockResolvedValue(sampleSchema);

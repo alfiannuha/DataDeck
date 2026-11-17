@@ -83,6 +83,17 @@ func (h *ConnectionHandler) TableExport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	sqlMode := strings.ToLower(strings.TrimSpace(body.SQLMode))
+	if sqlMode == "" {
+		sqlMode = "insert"
+	}
+	switch sqlMode {
+	case "insert", "create_if_not_exists", "create":
+	default:
+		response.ValidationError(w, "sql_mode must be one of: insert, create_if_not_exists, create")
+		return
+	}
+
 	var sort *model.TableSort
 	if body.Sort != nil && body.Sort.Column != "" {
 		direction := strings.ToLower(strings.TrimSpace(body.Sort.Direction))
@@ -175,11 +186,22 @@ func (h *ConnectionHandler) TableExport(w http.ResponseWriter, r *http.Request) 
 	case "xlsx":
 		sink = export.NewXLSX(bufw)
 	case "sql":
+		var structure *model.TableStructure
+		if sqlMode != "insert" {
+			st, err := h.manager.TableStructure(ctx, id, cfg, req.Schema, req.Table)
+			if err != nil {
+				h.exportError(w, r, err, nil)
+				return
+			}
+			structure = &st
+		}
 		sink = export.NewSQL(bufw, export.SQLOptions{
 			Driver:      string(cfg.Driver),
 			Schema:      req.Schema,
 			Table:       req.Table,
 			Transaction: transaction,
+			CreateMode:  sqlMode,
+			Structure:   structure,
 		})
 	}
 	if err := h.runExport(ctx, id, cfg, req, sink); err != nil {

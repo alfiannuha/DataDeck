@@ -25,6 +25,14 @@ All notable changes to DataDeck are documented here. This project follows
   TRUNCATE, DROP, destructive ALTER, multiple destructive statements) require a
   confirmation dialog; the most destructive require typing `EXECUTE`, and the
   exact confirmed SQL is the SQL executed.
+- **SQL export modes**: SQL export offers INSERT-only (default), `CREATE TABLE
+  IF NOT EXISTS` + data, and `CREATE TABLE` + data (inline constraints +
+  secondary indexes), generated in the active dialect.
+- **Import drag-and-drop**: a dropzone (drag/drop, browse, remove, replace) wraps
+  the existing upload → validate → execute flow.
+- **View Data submenu options**: "View First 100" and "View Last 100" generate
+  the SQL, open a query tab and auto-execute it; Last 100 orders by the primary
+  key descending (falls back to First 100 with a notice when there is no PK).
 
 ### Changed
 - Delete Database uses an explicit two-step flow (warning → type the database

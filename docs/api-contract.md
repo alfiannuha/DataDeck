@@ -686,9 +686,15 @@ here without an explicit requirement.
   partial_index, index_method, drop_table}`; the UI hides controls the engine
   cannot perform.
 - `POST /api/v1/connections/{id}/table-data/export` — **PRF-02/T14**. Body:
-  `{ database, schema, table, format: "csv" | "xlsx" | "sql", include_headers?
-  (default true; CSV only), transaction? (default true; SQL only),
-  insertable_only? (default false; SQL only), filters?, sort? }`. The target is
+  `{ database, schema, table, format: "csv" | "xlsx" | "sql", sql_mode?,
+  include_headers? (default true; CSV only), transaction? (default true; SQL
+  only), insertable_only? (default false; SQL only), filters?, sort? }`.
+  `sql_mode` (SQL only) is `insert` (default; INSERT statements only),
+  `create_if_not_exists` (a `CREATE TABLE IF NOT EXISTS` with inline
+  PK/unique/check constraints, then the filtered INSERTs, then the secondary
+  indexes), or `create` (same without `IF NOT EXISTS`). Foreign keys are not
+  emitted in a single-table export (documented; use a database backup for
+  cross-table FKs). The target is
   **explicit and never inferred from explorer/global state**: `database` is
   required for server-level PostgreSQL (else profile default) and for
   MySQL/SQLite must equal the profile database (`DATABASE_REQUIRED` /

@@ -37,6 +37,7 @@ export type TableMenuHandler = (
   table: string,
   database: string,
   objectType?: string,
+  primaryKey?: string[],
 ) => void;
 
 /** A table-menu dispatch already closed over its owning database. */
@@ -45,6 +46,7 @@ type TableMenuDispatch = (
   schema: string,
   table: string,
   objectType?: string,
+  primaryKey?: string[],
 ) => void;
 
 /**
@@ -184,13 +186,14 @@ const DatabaseNode = memo(function DatabaseNode({
           }
           onTableMenu={
             onTableMenu
-              ? (action, schema, table, objectType) =>
+              ? (action, schema, table, objectType, primaryKey) =>
                   onTableMenu(
                     action,
                     schema,
                     table,
                     database.name ?? "",
                     objectType,
+                    primaryKey,
                   )
               : undefined
           }
@@ -435,6 +438,7 @@ const TableNode = memo(function TableNode({
                           table.schema ?? "",
                           table.name ?? "",
                           table.type,
+                          table.primary_key?.columns ?? [],
                         );
                       }}
                     >

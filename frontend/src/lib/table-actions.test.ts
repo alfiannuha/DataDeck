@@ -8,6 +8,8 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       getTableActions({ objectType: "BASE TABLE" }).map((action) => action.id),
     ).toEqual([
       "view-data",
+      "view-first-100",
+      "view-last-100",
       "new-query",
       "structure",
       "rename-table",
@@ -24,6 +26,8 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
     const actions = getTableActions({ objectType: "BASE TABLE" });
     for (const id of [
       "view-data",
+      "view-first-100",
+      "view-last-100",
       "new-query",
       "structure",
       "rename-table",

@@ -1,5 +1,6 @@
 "use client";
 
+import { UploadCloud } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   executeTableImport,
   type ImportTargetBody,
@@ -247,23 +248,86 @@ function UploadStep({
   onCsvHeaderChange: (value: boolean) => void;
   readOnly: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
   return (
     <div className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         <span className="text-xs font-medium text-foreground">File</span>
-        <Input
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Upload file"
+          data-testid="import-dropzone"
+          onClick={() => {
+            if (!readOnly) inputRef.current?.click();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              if (!readOnly) inputRef.current?.click();
+            }
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!readOnly) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            if (readOnly) return;
+            const dropped = event.dataTransfer.files?.[0] ?? null;
+            if (dropped) onFileChange(dropped);
+          }}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed px-4 py-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]",
+            dragging
+              ? "border-[var(--color-focus-ring)] bg-accent/10"
+              : "border-border hover:bg-panel-raised/60",
+            readOnly && "cursor-not-allowed opacity-60",
+          )}
+        >
+          <UploadCloud size={22} aria-hidden="true" className="text-muted-foreground" />
+          <span className="text-xs text-foreground">Drag and drop your file here</span>
+          <span className="text-[11px] text-muted-foreground">
+            or <span className="underline">browse files</span>
+          </span>
+          <span className="text-[10px] text-subtle-foreground">
+            {format === "csv" ? "CSV (.csv)" : "SQL (.sql)"}
+          </span>
+        </div>
+        <input
+          ref={inputRef}
           type="file"
+          className="hidden"
           accept={format === "csv" ? ".csv,text/csv" : ".sql,text/plain"}
           onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
           disabled={readOnly}
           data-testid="import-file"
         />
         {file ? (
-          <span className="text-[10px] text-muted-foreground">
-            {file.name} · {file.size.toLocaleString()} bytes
-          </span>
+          <div className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
+            <span
+              className="min-w-0 truncate text-foreground"
+              data-testid="import-file-info"
+            >
+              {file.name} · {file.size.toLocaleString()} bytes
+            </span>
+            <button
+              type="button"
+              onClick={() => onFileChange(null)}
+              disabled={readOnly}
+              aria-label="Remove selected file"
+              data-testid="import-remove-file"
+              className="shrink-0 rounded px-1 text-[10px] text-destructive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+            >
+              Remove
+            </button>
+          </div>
         ) : null}
-      </label>
+      </div>
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-xs font-medium text-foreground">Format</legend>

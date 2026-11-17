@@ -297,3 +297,45 @@ func TestQuoteIdentifierExport(t *testing.T) {
 		t.Errorf("mysql quote = %q", got)
 	}
 }
+
+func TestSQLCreateModes(t *testing.T) {
+	structure := &model.TableStructure{
+		Columns: []model.StructureColumn{
+			{Name: "id", DatabaseType: "bigint", PrimaryKey: true},
+			{Name: "name", DatabaseType: "text", Nullable: true},
+		},
+		Indexes: []model.StructureIndex{{Name: "idx_t_name", Columns: []string{"name"}}},
+	}
+	columns := []model.QueryColumn{{Name: "id", Type: "BIGINT"}, {Name: "name", Type: "TEXT"}}
+
+	for _, mode := range []string{"create_if_not_exists", "create"} {
+		var buf bytes.Buffer
+		sink := NewSQL(&buf, SQLOptions{Driver: "postgres", Schema: "public", Table: "t", CreateMode: mode, Structure: structure}).(*sqlSink)
+		_ = sink.Begin(columns)
+		_ = sink.Write([]any{"1", "hi"})
+		if err := sink.End(); err != nil {
+			t.Fatalf("%s: End: %v", mode, err)
+		}
+		out := buf.String()
+		wantCreate := `CREATE TABLE "public"."t"`
+		if mode == "create_if_not_exists" {
+			wantCreate = `CREATE TABLE IF NOT EXISTS "public"."t"`
+		}
+		for _, want := range []string{wantCreate, "CREATE INDEX", "INSERT INTO"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: output missing %q:\n%s", mode, want, out)
+			}
+		}
+		if strings.Index(out, "CREATE TABLE") > strings.Index(out, "INSERT INTO") {
+			t.Errorf("%s: CREATE must precede INSERT", mode)
+		}
+	}
+
+	var buf bytes.Buffer
+	sink := NewSQL(&buf, SQLOptions{Driver: "postgres", Schema: "public", Table: "t", CreateMode: "insert"}).(*sqlSink)
+	_ = sink.Begin(columns)
+	_ = sink.End()
+	if strings.Contains(buf.String(), "CREATE TABLE") {
+		t.Errorf("insert mode must not emit CREATE TABLE: %q", buf.String())
+	}
+}

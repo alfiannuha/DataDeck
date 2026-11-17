@@ -101,6 +101,26 @@ describe("ExportDialog (PRF-02/T14)", () => {
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "users.sql");
   });
 
+  it("passes the chosen SQL script mode", async () => {
+    vi.mocked(exportTableData).mockResolvedValue({
+      blob: new Blob(["x"]),
+      filename: null,
+    });
+    useExportStore.setState({ target: baseTarget });
+
+    renderWithProviders(<ExportDialog />);
+    fireEvent.click(screen.getByTestId("export-format-sql"));
+    fireEvent.click(screen.getByTestId("export-sql-mode-create_if_not_exists"));
+    fireEvent.click(screen.getByTestId("export-submit"));
+
+    await waitFor(() =>
+      expect(exportTableData).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ format: "sql", sqlMode: "create_if_not_exists" }),
+      ),
+    );
+  });
+
   it("surfaces a backend export error and keeps the dialog open", async () => {
     vi.mocked(exportTableData).mockRejectedValue(
       new ApiClientError("sql export requires a base table", "EXPORT_FORMAT_UNSUPPORTED", 400),

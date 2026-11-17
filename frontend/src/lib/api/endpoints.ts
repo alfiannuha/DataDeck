@@ -319,6 +319,8 @@ export interface TableExportParams {
   insertableOnly?: boolean;
   includeHeaders?: boolean;
   transaction?: boolean;
+  /** SQL script shape when format=sql. */
+  sqlMode?: "insert" | "create_if_not_exists" | "create";
 }
 
 /**
@@ -347,6 +349,7 @@ export function exportTableData(
     body.include_headers = params.includeHeaders;
   }
   if (params.transaction !== undefined) body.transaction = params.transaction;
+  if (params.sqlMode !== undefined) body.sql_mode = params.sqlMode;
   return apiFetchDownload(
     `/connections/${encodeURIComponent(connectionId)}/table-data/export`,
     { method: "POST", body: JSON.stringify(body), signal },

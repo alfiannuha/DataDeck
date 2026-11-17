@@ -57,6 +57,24 @@ describe("ImportDialog (PRF-02/T15)", () => {
     useImportStore.setState({ target: null });
   });
 
+  it("accepts a dragged file and shows its name", () => {
+    useImportStore.setState({ target: baseTarget });
+    renderWithProviders(<ImportDialog />);
+
+    expect(screen.getByTestId("import-dropzone")).toHaveTextContent(
+      "Drag and drop your file here",
+    );
+    const file = new File(["a,b\n1,2"], "users.csv", { type: "text/csv" });
+    fireEvent.drop(screen.getByTestId("import-dropzone"), {
+      dataTransfer: { files: [file] },
+    });
+
+    expect(screen.getByTestId("import-file-info")).toHaveTextContent("users.csv");
+    // Remove clears the selection without uploading.
+    fireEvent.click(screen.getByTestId("import-remove-file"));
+    expect(screen.queryByTestId("import-file-info")).not.toBeInTheDocument();
+  });
+
   it("renders nothing without a target", () => {
     renderWithProviders(<ImportDialog />);
     expect(screen.queryByTestId("import-dialog")).not.toBeInTheDocument();

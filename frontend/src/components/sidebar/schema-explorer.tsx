@@ -8,6 +8,7 @@ import { useConnections } from "@/hooks/use-connections";
 import { useDatabases } from "@/hooks/use-databases";
 import { useOnline } from "@/hooks/use-online";
 import { useSchema } from "@/hooks/use-schema";
+import { useRunQuery } from "@/hooks/use-run-query";
 import { ApiClientError } from "@/lib/api-client";
 import { buildCopyDdlQuery, buildCountRows, buildSelectTop100, extractDdl, identifierQuoteFor, qualifyTable, supportsCopyDdl } from "@/lib/sql/identifiers";
 import { executeQuery, reconnectConnection } from "@/lib/api/endpoints";
@@ -73,6 +74,29 @@ export function SchemaExplorer({
   // database_name keeps the legacy single-database tree (backward compatible).
   const serverLevel = driver === "postgres" && !connection?.database_name;
   const identifierQuote = identifierQuoteFor(driver);
+  const { run: runQuery } = useRunQuery();
+
+  function quoteIdent(name: string): string {
+    return (
+      identifierQuote +
+      name.split(identifierQuote).join(identifierQuote + identifierQuote) +
+      identifierQuote
+    );
+  }
+
+  // PRF-05/K: open a query tab bound to the target DB and execute it. Deferred
+  // so the editor's active-tab reset effect settles before execution.
+  function openAndRunQuery(sql: string, databaseName: string) {
+    if (!connectionId) return;
+    openQueryForTable(connectionId, bindDatabase(databaseName), sql);
+    window.setTimeout(() => {
+      const state = useWorkspaceStore.getState();
+      const tabId = state.activeTabId ?? undefined;
+      const tab = state.tabs.find((candidate) => candidate.id === tabId);
+      const db = tab?.kind === "query" ? tab.database : bindDatabase(databaseName);
+      void runQuery(sql, connectionId, tabId, db);
+    }, 0);
+  }
 
   // Legacy/MySQL/SQLite connections use the original single-database query.
   const query = useSchema(connectionId, null, {
@@ -272,12 +296,46 @@ export function SchemaExplorer({
     table,
     database,
     objectType,
+    primaryKey,
   ) => {
     if (!connectionId) return;
     switch (action) {
       case "view-data":
         handleOpenTableData(schema, table, database);
         return;
+      case "view-first-100": {
+        openAndRunQuery(
+          buildSelectTop100(
+            namespaceFor(schema, connection?.database_name ?? ""),
+            table,
+            100,
+            identifierQuote,
+          ),
+          database,
+        );
+        return;
+      }
+      case "view-last-100": {
+        const namespace = namespaceFor(schema, connection?.database_name ?? "");
+        if (!primaryKey || primaryKey.length === 0) {
+          showNotice(
+            "error",
+            "No primary key — cannot determine the last 100 rows; showing the first 100 instead.",
+          );
+          openAndRunQuery(
+            buildSelectTop100(namespace, table, 100, identifierQuote),
+            database,
+          );
+          return;
+        }
+        const qualified = qualifyTable(namespace, table, identifierQuote);
+        const order = primaryKey.map(quoteIdent).join(", ");
+        openAndRunQuery(
+          `SELECT * FROM ${qualified} ORDER BY ${order} DESC LIMIT 100;`,
+          database,
+        );
+        return;
+      }
       case "new-query":
         // A fresh Query tab with a quoted SELECT; never auto-executed and never
         // merged into an existing tab (so dirty SQL is never overwritten).
@@ -754,8 +812,8 @@ function LazyDatabaseNode({
             }
             onTableMenu={
               onTableMenu
-                ? (action, schema, table, objectType) =>
-                    onTableMenu(action, schema, table, database, objectType)
+                ? (action, schema, table, objectType, primaryKey) =>
+                    onTableMenu(action, schema, table, database, objectType, primaryKey)
                 : undefined
             }
           />

@@ -1091,6 +1091,17 @@ components:
           type: string
         sort:
           $ref: '#/components/schemas/model.TableSort'
+        sql_mode:
+          description: |-
+            SQLMode selects the SQL script shape when Format is "sql":
+            "insert" (default; INSERT only), "create_if_not_exists" (CREATE TABLE IF
+            NOT EXISTS + indexes + data), or "create" (CREATE TABLE + indexes + data).
+          enum:
+          - insert
+          - create_if_not_exists
+          - create
+          example: insert
+          type: string
         table:
           example: customers
           type: string

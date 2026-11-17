@@ -22,8 +22,27 @@ import type { TableExportFormat } from "@/types/api";
 const FORMATS: { value: TableExportFormat; label: string; hint: string }[] = [
   { value: "csv", label: "CSV", hint: "Comma-separated values" },
   { value: "xlsx", label: "Excel (XLSX)", hint: "Spreadsheet workbook" },
-  { value: "sql", label: "SQL", hint: "INSERT script (base tables only)" },
+  { value: "sql", label: "SQL", hint: "INSERT / CREATE script (base tables only)" },
 ];
+
+const SQL_MODES = [
+  {
+    value: "insert",
+    label: "INSERT data only",
+    hint: "No CREATE TABLE statement.",
+  },
+  {
+    value: "create_if_not_exists",
+    label: "CREATE TABLE IF NOT EXISTS + data",
+    hint: "Reusable script; safe to re-run.",
+  },
+  {
+    value: "create",
+    label: "CREATE TABLE + data",
+    hint: "Fails if the table already exists.",
+  },
+] as const;
+type SqlMode = (typeof SQL_MODES)[number]["value"];
 
 /** A stable fallback filename when the server omits Content-Disposition. */
 function fallbackFilename(target: ExportTarget, format: TableExportFormat): string {
@@ -47,6 +66,7 @@ function ExportDialogBody({ target }: { target: ExportTarget }) {
   const [format, setFormat] = useState<TableExportFormat>("csv");
   const [includeHeaders, setIncludeHeaders] = useState(true);
   const [transaction, setTransaction] = useState(true);
+  const [sqlMode, setSqlMode] = useState<SqlMode>("insert");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -70,6 +90,7 @@ function ExportDialogBody({ target }: { target: ExportTarget }) {
         filters: target.filters,
         includeHeaders: format === "csv" ? includeHeaders : undefined,
         transaction: format === "sql" ? transaction : undefined,
+        sqlMode: format === "sql" ? sqlMode : undefined,
       });
       downloadBlob(result.blob, result.filename ?? fallbackFilename(target, format));
       close();
@@ -141,15 +162,41 @@ function ExportDialogBody({ target }: { target: ExportTarget }) {
           ) : null}
 
           {format === "sql" ? (
-            <label className="flex items-center gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
-                checked={transaction}
-                onChange={(event) => setTransaction(event.target.checked)}
-                data-testid="export-transaction"
-              />
-              Wrap in a transaction
-            </label>
+            <>
+              <fieldset className="flex flex-col gap-1">
+                <legend className="text-xs font-medium text-foreground">SQL script</legend>
+                {SQL_MODES.map((option) => (
+                  <label
+                    key={option.value}
+                    className="flex items-start gap-2 text-xs text-foreground"
+                  >
+                    <input
+                      type="radio"
+                      name="export-sql-mode"
+                      value={option.value}
+                      checked={sqlMode === option.value}
+                      onChange={() => setSqlMode(option.value)}
+                      data-testid={`export-sql-mode-${option.value}`}
+                    />
+                    <span className="flex flex-col">
+                      <span className="font-medium">{option.label}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {option.hint}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <label className="flex items-center gap-2 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={transaction}
+                  onChange={(event) => setTransaction(event.target.checked)}
+                  data-testid="export-transaction"
+                />
+                Wrap in a transaction
+              </label>
+            </>
           ) : null}
         </div>
 

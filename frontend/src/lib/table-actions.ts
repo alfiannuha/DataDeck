@@ -10,6 +10,8 @@
 
 export type TableActionId =
   | "view-data"
+  | "view-first-100"
+  | "view-last-100"
   | "new-query"
   | "structure"
   | "rename-table"
@@ -52,6 +54,8 @@ export function getTableActions(target: {
   const readOnly = isReadOnlyObject(target.objectType);
   return [
     { id: "view-data", label: "View Data", disabled: false },
+    { id: "view-first-100", label: "View First 100", disabled: false },
+    { id: "view-last-100", label: "View Last 100", disabled: false },
     { id: "new-query", label: "New Query", disabled: false },
     { id: "structure", label: "Structure", disabled: false },
     {

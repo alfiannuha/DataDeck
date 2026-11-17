@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/datadeck/datadeck/backend/internal/database"
+	"github.com/datadeck/datadeck/backend/internal/dbscript"
 	"github.com/datadeck/datadeck/backend/internal/model"
 )
 
@@ -23,6 +24,12 @@ type SQLOptions struct {
 	// Transaction wraps the script in BEGIN;/COMMIT; so it either applies
 	// completely or not at all.
 	Transaction bool
+	// CreateMode is "insert" (default), "create_if_not_exists", or "create".
+	// The last two prepend a CREATE TABLE (from Structure) and append the
+	// secondary indexes.
+	CreateMode string
+	// Structure is the table's metadata, required for a CREATE mode.
+	Structure *model.TableStructure
 }
 
 // NewSQL returns a sink that writes one INSERT statement per row into w. All
@@ -72,7 +79,47 @@ func (s *sqlSink) Begin(columns []model.QueryColumn) error {
 			return err
 		}
 	}
+	if err := s.writeCreate(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// writeCreate renders CREATE TABLE (from the structure) when a CREATE mode is
+// requested. Constraints (PK/unique/check) are inline; the secondary indexes are
+// written in End() after the data.
+func (s *sqlSink) writeCreate() error {
+	if s.opts.Structure == nil {
+		return nil
+	}
+	if s.opts.CreateMode != "create" && s.opts.CreateMode != "create_if_not_exists" {
+		return nil
+	}
+	ref := dbscript.TableRef{Schema: s.opts.Schema, Name: s.opts.Table}
+	var rendered strings.Builder
+	if err := dbscript.RenderCreateTable(&rendered, s.opts.Driver, ref, *s.opts.Structure); err != nil {
+		return err
+	}
+	statement := strings.TrimSpace(rendered.String())
+	if s.opts.CreateMode == "create_if_not_exists" {
+		statement = strings.Replace(statement, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
+	}
+	if _, err := fmt.Fprintln(s.writer, statement); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeIndexes appends the table's secondary indexes (for CREATE modes).
+func (s *sqlSink) writeIndexes() error {
+	if s.opts.Structure == nil {
+		return nil
+	}
+	if s.opts.CreateMode != "create" && s.opts.CreateMode != "create_if_not_exists" {
+		return nil
+	}
+	ref := dbscript.TableRef{Schema: s.opts.Schema, Name: s.opts.Table}
+	return dbscript.RenderIndexes(s.writer, s.opts.Driver, ref, *s.opts.Structure)
 }
 
 func (s *sqlSink) Write(row []any) error {
@@ -86,6 +133,9 @@ func (s *sqlSink) Write(row []any) error {
 }
 
 func (s *sqlSink) End() error {
+	if err := s.writeIndexes(); err != nil {
+		return err
+	}
 	if s.opts.Transaction {
 		_, err := fmt.Fprintln(s.writer, "COMMIT;")
 		return err
