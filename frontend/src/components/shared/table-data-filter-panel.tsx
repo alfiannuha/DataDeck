@@ -151,7 +151,7 @@ export function TableDataFilterPanel({
           type="button"
           onClick={onClose}
           aria-label="Close filters"
-          className="rounded px-1 text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+          className="rounded px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
         >
           Close
         </button>
@@ -175,7 +175,7 @@ export function TableDataFilterPanel({
                     operator: nextOps.includes(row.operator as FilterOperator) ? row.operator : (nextOps[0] ?? ""),
                   });
                 }}
-                className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                className="rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
               >
                 <option value="">column</option>
                 {columns.map((c) => (
@@ -189,7 +189,7 @@ export function TableDataFilterPanel({
                 aria-label={`Filter ${index + 1} operator`}
                 value={row.operator}
                 onChange={(event) => update(index, { operator: event.target.value as FilterOperator })}
-                className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                className="rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
               >
                 {ops.map((op) => (
                   <option key={op} value={op}>
@@ -205,14 +205,14 @@ export function TableDataFilterPanel({
                     placeholder="value1, value2"
                     value={row.values}
                     onChange={(event) => update(index, { values: event.target.value })}
-                    className="w-48 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                    className="w-48 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                   />
                 ) : (
                   <input
                     aria-label={`Filter ${index + 1} value`}
                     value={row.value}
                     onChange={(event) => update(index, { value: event.target.value })}
-                    className="w-48 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                    className="w-48 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                   />
                 ))}
 
@@ -230,7 +230,7 @@ export function TableDataFilterPanel({
       </div>
 
       {error && (
-        <p role="alert" className="mt-1 text-[10px] text-destructive">
+        <p role="alert" className="mt-1 text-xs text-destructive">
           {error}
         </p>
       )}

@@ -69,7 +69,7 @@ export function TableStructurePanel() {
             {tab.database ?? "default database"}
           </span>
           {data ? (
-            <span className="truncate text-[10px] uppercase text-muted-foreground">
+            <span className="truncate text-xs uppercase text-muted-foreground">
               {data.object_type}
             </span>
           ) : null}
@@ -240,7 +240,7 @@ export function TableStructurePanel() {
                     <Cell>{index.partial ? "yes" : "no"}</Cell>
                     <Cell>
                       {(index.columns ?? []).map((column, i) => (
-                        <span key={i} className="mr-1 inline-block rounded bg-muted px-1 font-mono text-[10px]">
+                        <span key={i} className="mr-1 inline-block rounded bg-muted px-1 font-mono text-xs">
                           {column === "" ? "(expression)" : column}
                         </span>
                       ))}
@@ -368,7 +368,7 @@ function StructureSection({
 }) {
   return (
     <section className="rounded border border-border bg-background">
-      <h2 className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <h2 className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h2>
       <div className="p-3">{children ?? <p className="text-xs text-muted-foreground">{empty}</p>}</div>
@@ -400,7 +400,7 @@ function StructureTable<T>({
             <th
               key={header}
               scope="col"
-              className="border-b border-border px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              className="border-b border-border px-2 py-1 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground"
             >
               {header}
             </th>

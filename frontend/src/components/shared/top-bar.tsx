@@ -91,7 +91,7 @@ export function TopBar() {
           DataDeck
         </span>
         <span
-          className="text-[10px] text-subtle-foreground"
+          className="text-xs text-subtle-foreground"
           data-testid="app-version"
           title={`${BUILD_INFO.channel} · ${BUILD_INFO.commit}`}
         >
@@ -103,7 +103,7 @@ export function TopBar() {
         {activeTab ? (
           <span
             data-testid="env-badge"
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-subtle-foreground"
+            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-xs text-subtle-foreground"
             title={
               tabConnection?.driver ? `driver: ${tabConnection.driver}` : undefined
             }

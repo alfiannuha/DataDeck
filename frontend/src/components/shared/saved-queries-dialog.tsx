@@ -132,13 +132,13 @@ export function SavedQueriesDialog({
                       <span className="truncate text-xs font-medium text-foreground">
                         {entry.title}
                       </span>
-                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {entry.updated_at
                           ? new Date(entry.updated_at).toLocaleDateString()
                           : "—"}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                       <span>
                         {entry.connection_id
                           ? (name ?? "connection removed")
@@ -177,7 +177,7 @@ export function SavedQueriesDialog({
                         <Trash2 size={12} aria-hidden="true" />
                       </Button>
                       {missing && (
-                        <span className="text-[10px] text-destructive">
+                        <span className="text-xs text-destructive">
                           Original connection no longer exists — choose one
                           before running.
                         </span>

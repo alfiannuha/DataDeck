@@ -523,7 +523,7 @@ export function ResultGrid({
         <div
           role="alert"
           data-testid="inline-save-error"
-          className="sticky bottom-0 border-t border-destructive/40 bg-destructive/10 px-3 py-1 text-[11px] text-destructive"
+          className="sticky bottom-0 border-t border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive"
         >
           {saveError}
         </div>
@@ -577,7 +577,7 @@ function InlineEditor({
   const name = column.name ?? "";
   const category = columnCategory(column.database_type);
   const inputClass =
-    "min-w-0 flex-1 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
+    "min-w-0 flex-1 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
 
   function handleKeyDown(event: ReactKeyboardEvent) {
     if (event.key === "Enter") {
@@ -612,7 +612,7 @@ function InlineEditor({
         </button>
       ) : null}
       {field.mode === "null" ? (
-        <span className="flex-1 text-[11px] italic text-subtle-foreground">NULL</span>
+        <span className="flex-1 text-xs italic text-subtle-foreground">NULL</span>
       ) : category === "boolean" ? (
         <select
           aria-label={`${name} value`}

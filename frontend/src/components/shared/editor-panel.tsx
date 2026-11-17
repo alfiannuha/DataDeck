@@ -239,7 +239,7 @@ export function EditorPanel() {
             Editor
           </span>
           <span
-            className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground"
+            className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
             title={
               connection
                 ? `This tab runs against ${connection.name}`
@@ -258,7 +258,7 @@ export function EditorPanel() {
                   connectionDefaultDatabase(event.target.value || null),
                 )
               }
-              className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
+              className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
             >
               <option value="">Active connection</option>
               {connections?.map((candidate) => (
@@ -279,7 +279,7 @@ export function EditorPanel() {
                     activeTab &&
                     setTabDatabase(activeTab.id, event.target.value || null)
                   }
-                  className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
+                  className="max-w-40 truncate rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
                 >
                   <option value="">Select database</option>
                   {databases?.map((database) => (
@@ -299,7 +299,7 @@ export function EditorPanel() {
             data-testid="query-context"
             aria-label="Query context"
             title="This is where SQL from this tab will execute"
-            className="shrink-0 rounded bg-panel-raised px-1.5 py-0.5 text-[10px] text-subtle-foreground"
+            className="shrink-0 rounded bg-panel-raised px-1.5 py-0.5 text-xs text-subtle-foreground"
           >
             {connection?.name ?? "No connection"}
             {" / "}
@@ -310,7 +310,7 @@ export function EditorPanel() {
           {isRunning && (
             <span
               role="status"
-              className="flex items-center gap-1 text-[10px] text-muted-foreground"
+              className="flex items-center gap-1 text-xs text-muted-foreground"
             >
               <Loader2 size={11} className="animate-spin" aria-hidden="true" />
               Running…

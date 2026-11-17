@@ -88,7 +88,7 @@ export function TabsBar() {
                     <span
                       aria-label="Unsaved changes"
                       title="Unsaved changes"
-                      className="text-[10px] leading-none text-accent"
+                      className="text-xs leading-none text-accent"
                     >
                       ●
                     </span>

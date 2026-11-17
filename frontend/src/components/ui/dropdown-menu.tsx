@@ -84,7 +84,7 @@ export function DropdownMenuHint({
 }: ComponentPropsWithoutRef<"span">) {
   return (
     <span
-      className={cn("text-[10px] font-normal text-muted-foreground", className)}
+      className={cn("text-xs font-normal text-muted-foreground", className)}
       {...props}
     />
   );

@@ -465,7 +465,7 @@ export function SchemaExplorer({
           {notice && (
             <span
               role={notice.kind === "error" ? "alert" : "status"}
-              className={notice.kind === "error" ? "text-[10px] text-destructive" : "text-[10px] text-emerald-400"}
+              className={notice.kind === "error" ? "text-xs text-destructive" : "text-xs text-emerald-400"}
             >
               {notice.text}
             </span>
@@ -540,7 +540,7 @@ export function SchemaExplorer({
           <p className="px-1 text-xs text-muted-foreground">No schema objects found.</p>
         )}
         {!online && serverLevel && (
-          <p className="px-1 pt-1 text-[10px] text-amber-400">
+          <p className="px-1 pt-1 text-xs text-amber-400">
             Offline: database discovery is unavailable.
           </p>
         )}
@@ -659,7 +659,7 @@ function DatabaseExplorer({
             <button
               type="button"
               onClick={() => setVisible((value) => value + DATABASE_BATCH_SIZE)}
-              className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="rounded px-1 text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             >
               Show {Math.min(DATABASE_BATCH_SIZE, remaining)} more ({remaining} remaining)
             </button>
@@ -757,12 +757,12 @@ function LazyDatabaseNode({
       />
       {open &&
         (schema.isLoading ? (
-          <p className="px-1 py-0.5 text-[10px] text-muted-foreground">
+          <p className="px-1 py-0.5 text-xs text-muted-foreground">
             Loading schemas…
           </p>
         ) : schema.isError ? (
           <div role="alert" className="flex flex-col gap-1 px-1 py-0.5">
-            <p className="text-[10px] text-destructive">
+            <p className="text-xs text-destructive">
               {schema.error instanceof ApiClientError
                 ? `${schema.error.message} (${schema.error.code})`
                 : "Could not load this database."}
@@ -771,7 +771,7 @@ function LazyDatabaseNode({
               <button
                 type="button"
                 onClick={() => void schema.refetch()}
-                className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                className="rounded px-1 text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
               >
                 Retry
               </button>
@@ -782,7 +782,7 @@ function LazyDatabaseNode({
                 <button
                   type="button"
                   onClick={onRefreshDatabases}
-                  className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                  className="rounded px-1 text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                 >
                   Refresh databases
                 </button>

@@ -109,7 +109,7 @@ function DatabaseExportDialogBody({ target }: { target: DatabaseScriptTarget }) 
                 data-testid={`database-export-mode-${option.value}`}
               />
               <span className="font-medium">{option.label}</span>
-              <span className="text-[10px] text-muted-foreground">{option.hint}</span>
+              <span className="text-xs text-muted-foreground">{option.hint}</span>
             </label>
           ))}
         </fieldset>
@@ -211,7 +211,7 @@ function DatabaseRestoreDialogBody({ target }: { target: DatabaseScriptTarget })
               data-testid="database-restore-file"
             />
             {file ? (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {file.name} · {file.size.toLocaleString()} bytes
               </span>
             ) : null}
@@ -235,11 +235,11 @@ function DatabaseRestoreDialogBody({ target }: { target: DatabaseScriptTarget })
               </li>
             </ul>
             {preview.excluded && preview.excluded.length > 0 ? (
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Excluded: {preview.excluded.join(", ")}
               </p>
             ) : null}
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Restore into an empty database.
             </p>
           </div>

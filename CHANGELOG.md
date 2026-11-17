@@ -44,6 +44,10 @@ All notable changes to DataDeck are documented here. This project follows
 - **Add Column** now uses a **database-aware grouped type selector** (PostgreSQL
   / MySQL / SQLite catalogues) with Length / Precision / Scale fields; the
   dialog receives the connection's engine.
+- **Global typography**: the shared `text-xs` scale is now 13px (was 12px, via
+  the theme token), the smallest 10/11px labels across modules now use that token
+  for consistency, and dialog titles are 18px. Code-editor typography is
+  unchanged.
 - Delete Database uses an explicit two-step flow (warning → type the database
   name) and shows the connection name.
 - Destructive actions (Delete Row / Selected Rows / Table / Database, structure

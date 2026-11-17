@@ -170,7 +170,7 @@ export function AddRowDialog({
             </p>
           ) : (
             <section className="flex flex-col gap-2">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Fields
               </h3>
               {editable.map((column) => {
@@ -191,7 +191,7 @@ export function AddRowDialog({
                       >
                         {name}
                       </span>
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <span className="truncate font-mono" title={column.database_type}>
                           {column.database_type}
                         </span>
@@ -205,7 +205,7 @@ export function AddRowDialog({
                         onChange={(event) =>
                           update(name, { mode: event.target.value as Mode })
                         }
-                        className="rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                        className="rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                       >
                         <option value="value">value</option>
                         {column.nullable ? <option value="null">null</option> : null}
@@ -221,7 +221,7 @@ export function AddRowDialog({
                             onChange={(event) =>
                               update(name, { value: event.target.value })
                             }
-                            className="min-w-0 flex-1 rounded border border-border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                            className="min-w-0 flex-1 rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
                           >
                             <option value="">true/false</option>
                             <option value="true">true</option>
@@ -242,13 +242,13 @@ export function AddRowDialog({
                             onChange={(event) =>
                               update(name, { value: event.target.value })
                             }
-                            className={`min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] ${
+                            className={`min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] ${
                               fieldError ? "border-destructive" : "border-border"
                             } ${category === "json" ? "font-mono" : ""}`}
                           />
                         )
                       ) : (
-                        <span className="flex-1 text-[10px] text-muted-foreground">
+                        <span className="flex-1 text-xs text-muted-foreground">
                           {field.mode === "null"
                             ? "NULL"
                             : "Uses the database default"}
@@ -260,7 +260,7 @@ export function AddRowDialog({
                         id={errorId}
                         role="alert"
                         data-testid="row-field-error"
-                        className="mt-1 text-[10px] text-destructive"
+                        className="mt-1 text-xs text-destructive"
                       >
                         {fieldError}
                       </p>
@@ -273,7 +273,7 @@ export function AddRowDialog({
 
           {nonEditable.length > 0 ? (
             <section className="flex flex-col gap-1">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Database-managed
               </h3>
               {nonEditable.map((column) => {
@@ -281,12 +281,12 @@ export function AddRowDialog({
                 return (
                   <div
                     key={name}
-                    className="flex items-center justify-between gap-2 text-[11px]"
+                    className="flex items-center justify-between gap-2 text-xs"
                   >
                     <span className="truncate text-foreground" title={name}>
                       {name}
                     </span>
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <span className="truncate font-mono">{column.database_type}</span>
                       <ColumnBadges column={column} />
                       <span>auto</span>

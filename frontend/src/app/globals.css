@@ -40,6 +40,11 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
+
+  /* Typography scale (PRF-05/I): slightly larger than Tailwind defaults for
+   * readability. Secondary/metadata (`text-xs`) is 13px instead of 12px. */
+  --text-xs: 0.8125rem; /* 13px */
+  --text-xs--line-height: 1.125rem; /* 18px */
 }
 
 @layer base {

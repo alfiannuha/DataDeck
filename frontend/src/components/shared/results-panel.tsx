@@ -73,7 +73,7 @@ export function ResultsPanel() {
         </span>
         <div className="flex items-center gap-2">
           {result ? (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {result.rows?.length ?? 0} rows
               {result.truncated ? " · partial" : ""}
             </span>
@@ -81,7 +81,7 @@ export function ResultsPanel() {
           {feedback && (
             <span
               role="status"
-              className="text-[10px] text-emerald-400"
+              className="text-xs text-emerald-400"
             >
               {feedback}
             </span>

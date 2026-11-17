@@ -291,10 +291,10 @@ function UploadStep({
         >
           <UploadCloud size={22} aria-hidden="true" className="text-muted-foreground" />
           <span className="text-xs text-foreground">Drag and drop your file here</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             or <span className="underline">browse files</span>
           </span>
-          <span className="text-[10px] text-subtle-foreground">
+          <span className="text-xs text-subtle-foreground">
             {format === "csv" ? "CSV (.csv)" : "SQL (.sql)"}
           </span>
         </div>
@@ -308,7 +308,7 @@ function UploadStep({
           data-testid="import-file"
         />
         {file ? (
-          <div className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1 text-[11px]">
+          <div className="flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1 text-xs">
             <span
               className="min-w-0 truncate text-foreground"
               data-testid="import-file-info"
@@ -321,7 +321,7 @@ function UploadStep({
               disabled={readOnly}
               aria-label="Remove selected file"
               data-testid="import-remove-file"
-              className="shrink-0 rounded px-1 text-[10px] text-destructive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="shrink-0 rounded px-1 text-xs text-destructive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             >
               Remove
             </button>
@@ -343,7 +343,7 @@ function UploadStep({
               data-testid={`import-format-${option.value}`}
             />
             <span className="font-medium">{option.label}</span>
-            <span className="text-[10px] text-muted-foreground">{option.hint}</span>
+            <span className="text-xs text-muted-foreground">{option.hint}</span>
           </label>
         ))}
       </fieldset>
@@ -416,7 +416,7 @@ function ReviewStep({
           {mapping.map((m: ImportMappingResolved, index) => (
             <span
               key={index}
-              className="rounded bg-panel-raised px-2 py-1 text-[10px] text-subtle-foreground"
+              className="rounded bg-panel-raised px-2 py-1 text-xs text-subtle-foreground"
             >
               {session.columns?.[m.source ?? 0] ?? `col ${m.source}`} → {m.target}
             </span>
@@ -426,7 +426,7 @@ function ReviewStep({
 
       {preview.length > 0 ? (
         <div className="max-h-48 overflow-auto">
-          <table className="w-full border-collapse text-[11px]" data-testid="import-preview">
+          <table className="w-full border-collapse text-xs" data-testid="import-preview">
             <thead>
               <tr>
                 {(session.columns ?? []).map((name, index) => (
@@ -457,7 +457,7 @@ function ReviewStep({
         </div>
       ) : null}
 
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Unquoted empty CSV fields and SQL NULLs import as NULL; an empty string
         must be wrapped in double quotes to survive.
       </p>

@@ -74,7 +74,7 @@ export function ExecuteRiskDialog({
 
         <pre
           data-testid="risk-sql"
-          className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-panel p-2 font-mono text-[11px] text-foreground"
+          className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-panel p-2 font-mono text-xs text-foreground"
         >
           {sql}
         </pre>

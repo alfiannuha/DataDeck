@@ -337,7 +337,7 @@ const TableList = memo(function TableList({
             <button
               type="button"
               onClick={() => setVisible((value) => value + TABLE_BATCH_SIZE)}
-              className="rounded px-1 text-[10px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="rounded px-1 text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             >
               Show {Math.min(TABLE_BATCH_SIZE, remaining)} more ({remaining}{" "}
               remaining)
@@ -544,7 +544,7 @@ const ColumnRow = memo(function ColumnRow({
         <span className="min-w-0 flex-1 truncate text-xs text-foreground">
           {column.name}
         </span>
-        <span className="shrink-0 text-[10px] text-subtle-foreground">
+        <span className="shrink-0 text-xs text-subtle-foreground">
           {column.data_type}
           {column.nullable ? "" : " · NOT NULL"}
         </span>
@@ -627,7 +627,7 @@ export function TreeRow({
             {label}
           </span>
           {secondary && (
-            <span className="shrink-0 pt-0.5 text-[10px] text-subtle-foreground">
+            <span className="shrink-0 pt-0.5 text-xs text-subtle-foreground">
               {secondary}
             </span>
           )}
@@ -642,7 +642,7 @@ export function TreeRow({
             {label}
           </span>
           {secondary && (
-            <span className="shrink-0 pt-0.5 text-[10px] text-subtle-foreground">
+            <span className="shrink-0 pt-0.5 text-xs text-subtle-foreground">
               {secondary}
             </span>
           )}

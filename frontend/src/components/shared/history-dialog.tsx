@@ -131,7 +131,7 @@ export function HistoryDialog({
                   key={entry.id}
                   className="rounded-md border border-border bg-panel p-2"
                 >
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {entry.status === "SUCCESS" ? (
                       <CheckCircle2
                         size={11}
@@ -193,7 +193,7 @@ export function HistoryDialog({
                       <Copy size={12} aria-hidden="true" />
                     </Button>
                     {missing && (
-                      <span className="text-[10px] text-destructive">
+                      <span className="text-xs text-destructive">
                         Original connection no longer exists — choose a
                         connection before running.
                       </span>

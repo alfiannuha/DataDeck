@@ -141,7 +141,7 @@ function ExportDialogBody({ target }: { target: ExportTarget }) {
                     data-testid={`export-format-${option.value}`}
                   />
                   <span className="font-medium">{option.label}</span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {disabled ? "Not available for views" : option.hint}
                   </span>
                 </label>
@@ -180,7 +180,7 @@ function ExportDialogBody({ target }: { target: ExportTarget }) {
                     />
                     <span className="flex flex-col">
                       <span className="font-medium">{option.label}</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {option.hint}
                       </span>
                     </span>

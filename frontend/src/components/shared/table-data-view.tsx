@@ -555,21 +555,21 @@ export function TableDataView() {
             <span
               data-testid="table-data-status"
               aria-live="polite"
-              className="truncate text-[10px] text-muted-foreground"
+              className="truncate text-xs text-muted-foreground"
             >
               {status}
             </span>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
             Rows
             <select
               aria-label="Page size"
               data-testid="table-data-page-size"
               value={tab.pageSize}
               onChange={(event) => changePageSize(Number(event.target.value))}
-              className="rounded border border-border bg-background px-1 py-0.5 text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="rounded border border-border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             >
               {[50, 100, 200].map((size) => (
                 <option key={size} value={size}>
@@ -743,7 +743,7 @@ export function TableDataView() {
       {selected.size > 0 && data ? (
         <div
           data-testid="table-data-selection-bar"
-          className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-panel-raised px-3 text-[11px] text-foreground"
+          className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-panel-raised px-3 text-xs text-foreground"
         >
           <span>
             {selected.size} row{selected.size === 1 ? "" : "s"} selected
@@ -842,7 +842,7 @@ export function TableDataView() {
         ) : null}
       </div>
 
-      <footer className="flex h-8 shrink-0 items-center justify-between border-b border-t border-border bg-panel px-3 text-[10px] text-muted-foreground">
+      <footer className="flex h-8 shrink-0 items-center justify-between border-b border-t border-border bg-panel px-3 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2">
           <span data-testid="table-data-duration">
             {data
@@ -894,7 +894,7 @@ export function TableDataView() {
               value={pageInput}
               onChange={(event) => setPageInput(event.target.value)}
               onBlur={submitPageInput}
-              className="h-6 w-10 rounded border border-border bg-background px-1 py-0 text-center text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="h-6 w-10 rounded border border-border bg-background px-1 py-0 text-center text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             />
             <span data-testid="table-data-total" className="whitespace-nowrap">
               {pageCount !== null
