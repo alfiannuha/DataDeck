@@ -16,9 +16,18 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ResultGrid } from "@/components/grid/result-grid";
 import { AddRowDialog } from "@/components/shared/add-row-dialog";
 import { DeleteRowDialog } from "@/components/shared/delete-row-dialog";
-import { EditRowDialog } from "@/components/shared/edit-row-dialog";
 import { TableDataFilterPanel } from "@/components/shared/table-data-filter-panel";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenuHint,
   DropdownMenuItem,
@@ -27,6 +36,8 @@ import {
 import { useTableData } from "@/hooks/use-table-data";
 import { copyText } from "@/lib/clipboard";
 import { ApiClientError } from "@/lib/api-client";
+import { deleteRow, updateRow } from "@/lib/api/endpoints";
+import { primaryKeyColumns, rowToRecord } from "@/lib/row-edit";
 import { isReadOnlyObject } from "@/lib/table-actions";
 import { rowToJSON, rowToTSV } from "@/lib/row-copy";
 import { useExportStore } from "@/store/useExportStore";
@@ -66,7 +77,6 @@ type DialogState =
       columns: TableColumnInfo[];
       prefill: Record<string, { mode: "default" | "value" | "null"; value?: string }>;
     }
-  | { kind: "edit"; target: DialogTarget; columns: TableColumnInfo[]; row: unknown[] }
   | {
       kind: "delete";
       target: DialogTarget;
@@ -96,6 +106,12 @@ export function TableDataView() {
   const [status, setStatus] = useState<string | null>(null);
   const statusTimer = useRef<number | null>(null);
   const [pageInput, setPageInput] = useState("1");
+  // PRF-05: page-scoped selection + single-row inline editing.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDirty, setEditDirty] = useState(false);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -112,6 +128,10 @@ export function TableDataView() {
   };
   const query = useTableData(target);
   const data = query.data;
+  // Real total page count (opt-in COUNT); null when the backend could not count.
+  const totalPages = data?.pagination?.total_pages ?? null;
+  // Zero records still has one (empty) page for display/navigation.
+  const pageCount = totalPages === null ? null : Math.max(totalPages, 1);
 
   useEffect(
     () => () => {
@@ -126,6 +146,29 @@ export function TableDataView() {
   useEffect(() => {
     setPageInput(String(currentPage));
   }, [currentPage]);
+
+  // Selection and edit state are scoped to the current page/query. Changing
+  // page, page size, sort, or filters clears them so no stale row references
+  // survive (indices are page-local).
+  const querySignature =
+    tab?.kind === "table-data"
+      ? JSON.stringify([
+          tab.id,
+          tab.connectionId,
+          tab.database,
+          tab.schema,
+          tab.table,
+          tab.page,
+          tab.pageSize,
+          tab.sort,
+          tab.filters,
+        ])
+      : "";
+  useEffect(() => {
+    setSelected(new Set());
+    setEditingIndex(null);
+    setEditDirty(false);
+  }, [querySignature]);
 
   if (tab?.kind !== "table-data") return null;
 
@@ -145,6 +188,14 @@ export function TableDataView() {
     void query.refetch();
   }
 
+  /** Leaving the page/sort/filter while a row has unsaved edits needs a confirm. */
+  function confirmDiscardEdit(): boolean {
+    if (editingIndex !== null && editDirty) {
+      return window.confirm("Discard unsaved row changes?");
+    }
+    return true;
+  }
+
   function closeDialogAndRefresh() {
     setDialog(null);
     void query.refetch();
@@ -152,7 +203,9 @@ export function TableDataView() {
 
   function changePage(next: number) {
     if (!tab || tab.kind !== "table-data") return;
-    updateTableData(tab.id, { page: Math.max(1, Math.min(next, MAX_PAGE)) });
+    if (!confirmDiscardEdit()) return;
+    const maxPage = totalPages && totalPages > 0 ? totalPages : MAX_PAGE;
+    updateTableData(tab.id, { page: Math.max(1, Math.min(next, maxPage)) });
   }
 
   // Direct page entry: ignore invalid input (revert), otherwise navigate. The
@@ -168,6 +221,7 @@ export function TableDataView() {
 
   function changePageSize(next: number) {
     if (!tab || tab.kind !== "table-data") return;
+    if (!confirmDiscardEdit()) return;
     updateTableData(tab.id, { pageSize: next, page: 1 });
   }
 
@@ -175,6 +229,7 @@ export function TableDataView() {
   // server-side; the page resets so the new order starts from the top.
   function handleSort(column: string) {
     if (!tab || tab.kind !== "table-data") return;
+    if (!confirmDiscardEdit()) return;
     const current = tab.sort[0];
     let sort: TableSort[] = [];
     if (!current || current.column !== column) {
@@ -188,11 +243,13 @@ export function TableDataView() {
   // Applying/clearing filters resets to page 1 and keeps sort/pageSize intact.
   function applyFilters(filters: TableFilter[]) {
     if (!tab || tab.kind !== "table-data") return;
+    if (!confirmDiscardEdit()) return;
     updateTableData(tab.id, { filters, page: 1 });
   }
 
   function clearFilters() {
     if (!tab || tab.kind !== "table-data") return;
+    if (!confirmDiscardEdit()) return;
     updateTableData(tab.id, { filters: [], page: 1 });
   }
 
@@ -209,6 +266,111 @@ export function TableDataView() {
   }
 
   const columns = data?.columns ?? [];
+
+  // --- PRF-05: page-scoped selection + inline editing ------------------------
+  const rows = data?.rows ?? [];
+  const pkColumns = primaryKeyColumns(columns);
+  const canUpdate = Boolean(data?.row_capabilities?.update) && pkColumns.length > 0;
+  const canDelete = Boolean(data?.row_capabilities?.delete) && pkColumns.length > 0;
+  const updateDisabledReason = isReadOnlyObject(data?.object_type)
+    ? "This object is read-only."
+    : pkColumns.length === 0
+      ? "No primary key — inline editing is unavailable."
+      : "Row editing is unavailable for this table.";
+
+  function toggleRow(index: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(rows.map((_, index) => index)) : new Set());
+  }
+
+  function startRowEdit(index: number) {
+    if (!canUpdate) return;
+    if (editingIndex !== null && editingIndex !== index && editDirty) {
+      if (!window.confirm("Discard unsaved row changes?")) return;
+    }
+    setEditingIndex(index);
+  }
+
+  async function saveInlineRow(
+    rowIndex: number,
+    payload: {
+      identity: Record<string, unknown>;
+      expected: Record<string, unknown>;
+      changes: Record<string, unknown>;
+    },
+  ) {
+    if (!tab || tab.kind !== "table-data" || !tab.connectionId) return;
+    await updateRow(tab.connectionId, {
+      database: tab.database,
+      schema: tab.schema,
+      table: tab.table,
+      identity: payload.identity,
+      expected: payload.expected,
+      changes: payload.changes,
+    });
+    setSelected(new Set());
+    await query.refetch();
+    flashStatus("Row updated.");
+  }
+
+  async function copySelected() {
+    const indices = [...selected].sort((a, b) => a - b);
+    const text = indices
+      .map((index) => rows[index])
+      .filter((row): row is unknown[] => Boolean(row))
+      .map((row) => rowToTSV(columns, row))
+      .join("\n");
+    const ok = await copyText(text);
+    flashStatus(
+      ok ? `Copied ${indices.length} row(s).` : "Copy failed — clipboard unavailable.",
+    );
+  }
+
+  async function deleteSelected() {
+    if (!tab || tab.kind !== "table-data" || !tab.connectionId) return;
+    const indices = [...selected].sort((a, b) => a - b);
+    setBulkDeleting(true);
+    let ok = 0;
+    let failed = 0;
+    for (const index of indices) {
+      const row = rows[index];
+      if (!row) continue;
+      const record = rowToRecord(columns, row);
+      const identity = Object.fromEntries(
+        pkColumns.map((name) => [name, record[name]]),
+      );
+      if (Object.values(identity).some((value) => value === null || value === undefined)) {
+        failed += 1;
+        continue;
+      }
+      try {
+        await deleteRow(tab.connectionId, {
+          database: tab.database,
+          schema: tab.schema,
+          table: tab.table,
+          identity,
+        });
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setBulkDeleting(false);
+    setBulkConfirmOpen(false);
+    setSelected(new Set());
+    await query.refetch();
+    flashStatus(
+      `Deleted ${ok} row${ok === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}.`,
+    );
+  }
 
   // Identity = PK values from the snapshot; expected = every non-PK column, so
   // the backend's optimistic concurrency compares the whole row (PRF-02).
@@ -291,9 +453,9 @@ export function TableDataView() {
           disabled={!capabilities?.update}
           data-testid="row-menu-edit"
           onSelect={() => {
+            const index = menuOpenIndex;
             setMenuOpenIndex(null);
-            const target = dialogTarget();
-            if (target) setDialog({ kind: "edit", target, columns, row });
+            if (index !== null) startRowEdit(index);
           }}
         >
           Edit Row
@@ -332,6 +494,7 @@ export function TableDataView() {
         <DropdownMenuItem
           disabled={!capabilities?.delete}
           data-testid="row-menu-delete"
+          className="text-destructive focus:text-destructive"
           onSelect={() => {
             setMenuOpenIndex(null);
             const target = dialogTarget();
@@ -541,19 +704,6 @@ export function TableDataView() {
         />
       ) : null}
 
-      {dialog?.kind === "edit" ? (
-        <EditRowDialog
-          connectionId={dialog.target.connectionId}
-          database={dialog.target.database}
-          schema={dialog.target.schema}
-          table={dialog.target.table}
-          columns={dialog.columns}
-          row={dialog.row}
-          onClose={() => setDialog(null)}
-          onUpdated={closeDialogAndRefresh}
-        />
-      ) : null}
-
       {dialog?.kind === "delete" ? (
         <DeleteRowDialog
           connectionId={dialog.target.connectionId}
@@ -565,6 +715,69 @@ export function TableDataView() {
           onClose={() => setDialog(null)}
           onDeleted={closeDialogAndRefresh}
         />
+      ) : null}
+
+      <AlertDialog open={bulkConfirmOpen} onOpenChange={setBulkConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size} row{selected.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected rows are deleted by primary-key identity. This cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkDeleting}
+              onClick={() => void deleteSelected()}
+            >
+              {bulkDeleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {selected.size > 0 && data ? (
+        <div
+          data-testid="table-data-selection-bar"
+          className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-panel-raised px-3 text-[11px] text-foreground"
+        >
+          <span>
+            {selected.size} row{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="selection-copy"
+              onClick={() => void copySelected()}
+            >
+              Copy
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="selection-delete"
+              disabled={!canDelete || bulkDeleting}
+              title={canDelete ? undefined : updateDisabledReason}
+              className="text-destructive hover:text-destructive"
+              onClick={() => setBulkConfirmOpen(true)}
+            >
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="selection-clear"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-hidden bg-result-surface">
@@ -608,6 +821,23 @@ export function TableDataView() {
               onRowContextMenu: (rowIndex) => setMenuOpenIndex(rowIndex),
               renderItems: rowMenuItems,
             }}
+            selection={{
+              selected,
+              onToggleRow: toggleRow,
+              onToggleAll: toggleAll,
+            }}
+            edit={{
+              columns,
+              enabled: canUpdate,
+              reason: updateDisabledReason,
+              onSave: saveInlineRow,
+            }}
+            editingIndex={editingIndex}
+            onCancelEdit={() => {
+              setEditingIndex(null);
+              setEditDirty(false);
+            }}
+            onDirtyChange={setEditDirty}
           />
         ) : null}
       </div>
@@ -628,24 +858,26 @@ export function TableDataView() {
           <Button
             variant="outline"
             size="icon"
+            className="h-6 w-6"
             data-testid="table-data-first"
             aria-label="First page"
             title="First page"
             disabled={tab.page <= 1 || query.isFetching}
             onClick={() => changePage(1)}
           >
-            <ChevronsLeft size={13} aria-hidden="true" />
+            <ChevronsLeft size={14} aria-hidden="true" />
           </Button>
           <Button
             variant="outline"
             size="icon"
+            className="h-6 w-6"
             data-testid="table-data-prev"
             aria-label="Previous page"
             title="Previous page"
             disabled={tab.page <= 1 || query.isFetching}
             onClick={() => changePage(tab.page - 1)}
           >
-            <ChevronLeft size={13} aria-hidden="true" />
+            <ChevronLeft size={14} aria-hidden="true" />
           </Button>
           <form
             className="flex items-center gap-1"
@@ -662,30 +894,47 @@ export function TableDataView() {
               value={pageInput}
               onChange={(event) => setPageInput(event.target.value)}
               onBlur={submitPageInput}
-              className="w-12 rounded border border-border bg-background px-1 py-0.5 text-center text-[10px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+              className="h-6 w-10 rounded border border-border bg-background px-1 py-0 text-center text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
             />
-            {data?.pagination?.has_more ? "of more" : "of 1"}
+            <span data-testid="table-data-total" className="whitespace-nowrap">
+              {pageCount !== null
+                ? `of ${pageCount}`
+                : data?.pagination?.has_more
+                  ? "of ?"
+                  : `of ${tab.page}`}
+            </span>
           </form>
           <Button
             variant="outline"
             size="icon"
+            className="h-6 w-6"
             data-testid="table-data-next"
             aria-label="Next page"
             title="Next page"
-            disabled={!data?.pagination?.has_more || query.isFetching}
+            disabled={
+              (pageCount !== null
+                ? tab.page >= pageCount
+                : !data?.pagination?.has_more) || query.isFetching
+            }
             onClick={() => changePage(tab.page + 1)}
           >
-            <ChevronRight size={13} aria-hidden="true" />
+            <ChevronRight size={14} aria-hidden="true" />
           </Button>
           <Button
             variant="outline"
             size="icon"
+            className="h-6 w-6"
             data-testid="table-data-last"
             aria-label="Last page"
-            title="Last page — the total page count is unknown for large tables, so jump directly with the page box"
-            disabled
+            title={
+              pageCount === null
+                ? "Last page — the total page count is unknown for this query"
+                : "Last page"
+            }
+            disabled={pageCount === null || tab.page >= pageCount || query.isFetching}
+            onClick={() => changePage(pageCount ?? tab.page)}
           >
-            <ChevronsRight size={13} aria-hidden="true" />
+            <ChevronsRight size={14} aria-hidden="true" />
           </Button>
         </div>
       </footer>

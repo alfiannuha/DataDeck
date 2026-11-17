@@ -52,6 +52,8 @@ describe("DeleteDatabaseDialog (PRF-02/T18)", () => {
     useDeleteDatabaseStore.setState({ target });
 
     renderWithProviders(<DeleteDatabaseDialog />);
+    // Step 1: warning with the target, then Continue to the type-to-confirm step.
+    fireEvent.click(await screen.findByTestId("delete-database-continue"));
     const submit = await screen.findByTestId("delete-database-submit");
     expect(submit).toBeDisabled();
 

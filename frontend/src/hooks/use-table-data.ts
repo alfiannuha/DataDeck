@@ -52,6 +52,7 @@ export function useTableData(target: TableDataTarget, enabled = true) {
           pageSize: target.pageSize,
           sort: target.sort,
           filters: target.filters,
+          includeTotal: true,
         },
         signal,
       ),

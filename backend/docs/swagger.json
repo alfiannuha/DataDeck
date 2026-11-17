@@ -702,7 +702,8 @@
                             "create_index",
                             "drop_index",
                             "add_constraint",
-                            "drop_constraint"
+                            "drop_constraint",
+                            "drop_table"
                         ],
                         "example": "add_column",
                         "type": "string"
@@ -1229,6 +1230,10 @@
                     "drop_index": {
                         "type": "boolean"
                     },
+                    "drop_table": {
+                        "description": "DropTable reports whether a base table may be dropped (all engines).",
+                        "type": "boolean"
+                    },
                     "index_method": {
                         "type": "boolean"
                     },
@@ -1710,6 +1715,12 @@
                         "type": "integer"
                     },
                     "page_size": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "total_pages": {
                         "type": "integer"
                     }
                 },

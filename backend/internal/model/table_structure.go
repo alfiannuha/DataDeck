@@ -34,6 +34,8 @@ type StructureCapabilities struct {
 	DropConstraint bool `json:"drop_constraint"`
 	PartialIndex   bool `json:"partial_index"`
 	IndexMethod    bool `json:"index_method"`
+	// DropTable reports whether a base table may be dropped (all engines).
+	DropTable bool `json:"drop_table"`
 }
 
 // StructureColumn is the canonical column metadata for the structure endpoint.

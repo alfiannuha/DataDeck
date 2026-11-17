@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
@@ -22,6 +24,10 @@ type TableBrowseRequest struct {
 	Sort *model.TableSort
 	// Filters are optional structured predicates ANDed together (PRF-02/T06).
 	Filters []model.TableFilter
+	// IncludeTotal asks the manager to also run a COUNT(*) with the same WHERE
+	// so the UI can show a real last page. It is opt-in (ADR-010 §6): the
+	// default browse never counts and must not invent a total.
+	IncludeTotal bool
 }
 
 // BrowseTable reads one bounded page of rows from a specific table without the
@@ -138,7 +144,65 @@ func (m *Manager) BrowseTable(ctx context.Context, id string, cfg Config, req Ta
 	page.Truncated = result.Truncated
 	page.Pagination.HasMore = hasMore
 	page.ExecutionTimeMS = result.ExecutionTimeMS
+
+	// Optional real total (include_total=true). A failed/unsupported count must
+	// never fail the browse: leave the total unknown rather than invent one.
+	if req.IncludeTotal {
+		page.Pagination.Total, page.Pagination.TotalPages = m.countTableRows(ctx, connector, db, schemaForSQL, req.Table, whereClause, filterArgs, quote, req.Limit)
+	}
 	return page, nil
+}
+
+// countTableRows runs COUNT(*) with the same parameterized WHERE as the page
+// query. It returns nil totals when the engine cannot count reliably.
+func (m *Manager) countTableRows(ctx context.Context, connector Connector, db *sql.DB, schema, table, whereClause string, filterArgs []any, quote string, pageSize int) (*int, *int) {
+	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", qualifiedTable(quote, schema, table), whereClause)
+	var result model.QueryResult
+	var err error
+	if len(filterArgs) > 0 {
+		executor, ok := connector.(ArgumentExecutor)
+		if !ok {
+			return nil, nil
+		}
+		result, err = executor.ExecuteArgs(ctx, db, countSQL, filterArgs)
+	} else {
+		result, err = connector.Execute(ctx, db, countSQL)
+	}
+	if err != nil || len(result.Rows) != 1 || len(result.Rows[0]) != 1 {
+		return nil, nil
+	}
+	total, ok := countValue(result.Rows[0][0])
+	if !ok {
+		return nil, nil
+	}
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	return &total, &totalPages
+}
+
+// countValue normalizes the driver's COUNT(*) scalar (int64, []byte, string…).
+func countValue(value any) (int, bool) {
+	switch n := value.(type) {
+	case int64:
+		return int(n), true
+	case int32:
+		return int(n), true
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	case []byte:
+		if parsed, err := strconv.Atoi(string(n)); err == nil {
+			return parsed, true
+		}
+	case string:
+		if parsed, err := strconv.Atoi(n); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 // findTable resolves a relation inside the introspection tree. PostgreSQL

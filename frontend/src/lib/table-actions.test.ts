@@ -16,6 +16,7 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
       "import",
       "copy-name",
       "copy-qualified",
+      "delete-table",
     ]);
   });
 
@@ -67,6 +68,19 @@ describe("getTableActions (PRF-02/T12 capability descriptor)", () => {
     );
     expect(rename?.disabled).toBe(true);
     expect(rename?.reason).toMatch(/cannot be renamed/i);
+  });
+
+  it("marks Delete Table as destructive and disables it for views", () => {
+    const base = getTableActions({ objectType: "BASE TABLE" }).find(
+      (action) => action.id === "delete-table",
+    );
+    expect(base?.destructive).toBe(true);
+    expect(base?.disabled).toBe(false);
+    const view = getTableActions({ objectType: "VIEW" }).find(
+      (action) => action.id === "delete-table",
+    );
+    expect(view?.disabled).toBe(true);
+    expect(view?.destructive).toBe(true);
   });
 });
 

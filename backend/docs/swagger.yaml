@@ -499,6 +499,7 @@ components:
           - drop_index
           - add_constraint
           - drop_constraint
+          - drop_table
           example: add_column
           type: string
         schema:
@@ -868,6 +869,10 @@ components:
           type: boolean
         drop_index:
           type: boolean
+        drop_table:
+          description: DropTable reports whether a base table may be dropped (all
+            engines).
+          type: boolean
         index_method:
           type: boolean
         partial_index:
@@ -1210,6 +1215,10 @@ components:
         page:
           type: integer
         page_size:
+          type: integer
+        total:
+          type: integer
+        total_pages:
           type: integer
       type: object
     model.TableSort:

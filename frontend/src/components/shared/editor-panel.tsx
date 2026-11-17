@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { SqlEditor, type SqlEditorHandle } from "@/components/editor/sql-editor";
 import { SaveQueryDialog } from "@/components/shared/save-query-dialog";
+import { ExecuteRiskDialog } from "@/components/shared/execute-risk-dialog";
 import { Button } from "@/components/ui/button";
 import { useConnections } from "@/hooks/use-connections";
 import { useDatabases } from "@/hooks/use-databases";
@@ -13,6 +14,7 @@ import { useRunQuery } from "@/hooks/use-run-query";
 import { useSchema } from "@/hooks/use-schema";
 import type { SqlDialect } from "@/lib/sql/dialect";
 import { executableSql } from "@/lib/sql/statements";
+import { analyzeSqlRisk, type SqlRisk } from "@/lib/sql-risk";
 import { useConnectionStore } from "@/store/useConnectionStore";
 import { useExecutionStore } from "@/store/useExecutionStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -59,6 +61,14 @@ export function EditorPanel() {
   const selectionRef = useRef({ from: 0, to: 0 });
   const editorRef = useRef<SqlEditorHandle>(null);
   const [saveOpen, setSaveOpen] = useState(false);
+  // PRF-05/H: captured high-risk SQL awaiting explicit confirmation.
+  const [pendingRisk, setPendingRisk] = useState<{
+    sql: string;
+    risk: SqlRisk;
+    connectionId: string;
+    tabId: string | null;
+    database: string | null;
+  } | null>(null);
 
   const boundConnectionId = activeTab?.connectionId ?? null;
   const effectiveConnectionId = boundConnectionId ?? activeConnectionId;
@@ -107,6 +117,7 @@ export function EditorPanel() {
 
   function runSql(sql: string) {
     if (isRunning) return;
+    if (pendingRisk) return;
     if (!online) {
       rejectLocal(
         "OFFLINE",
@@ -147,6 +158,18 @@ export function EditorPanel() {
       );
     }
     if (sql.trim().length > 0) {
+      const risk = analyzeSqlRisk(sql);
+      if (risk.level === "high") {
+        // Capture the exact SQL + context; execution waits for confirmation.
+        setPendingRisk({
+          sql,
+          risk,
+          connectionId: effectiveConnectionId,
+          tabId: activeTab?.id ?? null,
+          database: tabDatabase,
+        });
+        return;
+      }
       void run(sql, effectiveConnectionId, activeTab?.id, tabDatabase);
     }
   }
@@ -397,6 +420,26 @@ export function EditorPanel() {
           setSaveOpen(false);
         }}
       />
+
+      {pendingRisk ? (
+        <ExecuteRiskDialog
+          sql={pendingRisk.sql}
+          risk={pendingRisk.risk}
+          database={pendingRisk.database}
+          onCancel={() => setPendingRisk(null)}
+          onConfirm={() => {
+            const pending = pendingRisk;
+            setPendingRisk(null);
+            // Execute exactly the SQL the user confirmed.
+            void run(
+              pending.sql,
+              pending.connectionId,
+              pending.tabId ?? undefined,
+              pending.database ?? undefined,
+            );
+          }}
+        />
+      ) : null}
     </section>
   );
 }

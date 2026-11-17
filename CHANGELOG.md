@@ -3,6 +3,35 @@
 All notable changes to DataDeck are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — v0.4.x
+
+### Fixed
+- **Refresh Schema** now refetches every cached schema subtree (all databases)
+  for server-level PostgreSQL connections, not just the database list; it shows a
+  spinning/disabled state, prevents duplicate requests, and reports success or
+  failure.
+- **Pagination**: compact icon controls (ChevronsLeft/ChevronLeft/ChevronRight/
+  ChevronsRight) with larger relative icons, a compact page input, and a working
+  **Last** page. The table-data API now supports an opt-in `include_total=true`
+  (`COUNT(*)` with the same filters) so the UI can display a real total page count
+  and enable Last/direct navigation; when the total is unknown it is never
+  invented.
+
+### Added
+- **Delete Table** from the schema explorer table menu, with two-step
+  confirmation (warning → type the exact table name). Backend `drop_table` DDL
+  (quoted, metadata-validated, never CASCADE; dependency errors surfaced).
+- **SQL execution safety guard**: high-risk statements (unfiltered UPDATE/DELETE,
+  TRUNCATE, DROP, destructive ALTER, multiple destructive statements) require a
+  confirmation dialog; the most destructive require typing `EXECUTE`, and the
+  exact confirmed SQL is the SQL executed.
+
+### Changed
+- Delete Database uses an explicit two-step flow (warning → type the database
+  name) and shows the connection name.
+- Destructive actions (Delete Row / Selected Rows / Table / Database, structure
+  drops) are rendered in the destructive (red) treatment.
+
 ## [0.4.0] — 2026-11-11
 
 ### Added

@@ -235,6 +235,8 @@ export interface TableDataParams {
   sort?: { column: string; direction: "asc" | "desc" } | null;
   /** Structured, ANDed server-side filters (never raw SQL/WHERE). */
   filters?: TableFilterParams[];
+  /** Ask the backend for a real total/total_pages (opt-in COUNT). */
+  includeTotal?: boolean;
 }
 
 /**
@@ -259,6 +261,7 @@ export function browseTableData(
   if (params.filters && params.filters.length > 0) {
     query.set("filters", JSON.stringify(params.filters));
   }
+  if (params.includeTotal) query.set("include_total", "true");
   return apiFetch<TableDataPage>(
     `/connections/${encodeURIComponent(connectionId)}/table-data?${query.toString()}`,
     { signal },

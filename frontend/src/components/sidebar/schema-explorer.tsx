@@ -24,6 +24,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { DatabaseMenu, type DatabaseMenuHandler } from "./database-menu";
 import { DatabaseChildren, SchemaTree, TreeRow, type TableMenuHandler } from "./schema-tree";
 import { StructureChangeDialog } from "@/components/shared/structure-change-dialog";
+import { DeleteTableDialog, type DeleteTableTarget } from "@/components/shared/delete-table-dialog";
 
 /** A table action that also carries the database it belongs to (PRF-01). */
 type DatabaseTableAction = (schema: string, table: string, database: string) => void;
@@ -65,6 +66,8 @@ export function SchemaExplorer({
     table: string;
     database: string;
   } | null>(null);
+  // Delete-table dialog target (PRF-05/E). Captured at menu-open time.
+  const [deleteTableTarget, setDeleteTableTarget] = useState<DeleteTableTarget | null>(null);
   // A PostgreSQL profile with no default database is a server-level connection
   // (PRF-01): it uses database discovery. A PostgreSQL profile that carries a
   // database_name keeps the legacy single-database tree (backward compatible).
@@ -78,6 +81,8 @@ export function SchemaExplorer({
 
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
 
   function namespaceFor(schema: string, database: string): string {
     return driver === "mysql" ? database : schema;
@@ -223,6 +228,7 @@ export function SchemaExplorer({
         // captured database, never the Explorer selection or active tab.
         useDeleteDatabaseStore.getState().open({
           connectionId,
+          connectionName: connection?.name,
           database,
           engine: driver ?? "",
         });
@@ -297,6 +303,15 @@ export function SchemaExplorer({
       case "rename-table":
         setRenameTarget({ schema: schema || "", table, database });
         return;
+      case "delete-table":
+        setDeleteTableTarget({
+          connectionId,
+          connectionName: connection?.name,
+          database,
+          schema: schema || "",
+          table,
+        });
+        return;
       case "refresh":
         refreshMetadata();
         return;
@@ -347,12 +362,39 @@ export function SchemaExplorer({
     }
   };
 
-  function refresh() {
-    if (serverLevel) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.databases(connectionId ?? "") });
-      return;
+  // PRF-05/A: reload the explorer's metadata for the active connection.
+  // Root cause of the old bug: for server-level connections this only
+  // invalidated the database list, leaving already-loaded schema subtrees stale.
+  // Now it invalidates every schema query (all databases) + the database list,
+  // guards against duplicate requests, and reports success/failure.
+  async function refresh() {
+    if (!connectionId || refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
+    try {
+      if (serverLevel) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.schemaRoot(connectionId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.databases(connectionId) }),
+        ]);
+        showNotice("success", "Schema refreshed");
+      } else {
+        const result = await query.refetch();
+        if (result.isError) {
+          showNotice(
+            "error",
+            result.error instanceof ApiClientError
+              ? result.error.message
+              : "Schema refresh failed",
+          );
+        } else {
+          showNotice("success", "Schema refreshed");
+        }
+      }
+    } finally {
+      refreshInFlight.current = false;
+      setRefreshing(false);
     }
-    void query.refetch();
   }
 
   return (
@@ -375,10 +417,15 @@ export function SchemaExplorer({
               variant="ghost"
               size="icon"
               aria-label="Refresh schema"
-              onClick={refresh}
-              disabled={serverLevel ? false : query.isFetching}
+              data-testid="refresh-schema"
+              onClick={() => void refresh()}
+              disabled={refreshing || (!serverLevel && query.isFetching)}
             >
-              <RefreshCw size={13} aria-hidden="true" />
+              <RefreshCw
+                size={13}
+                aria-hidden="true"
+                className={refreshing ? "animate-spin" : undefined}
+              />
             </Button>
           )}
         </div>
@@ -409,7 +456,7 @@ export function SchemaExplorer({
                 ? `${query.error.message} (${query.error.code})`
                 : "Could not load schema."}
             </p>
-            <Button variant="outline" size="sm" onClick={refresh}>
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing}>
               Retry
             </Button>
           </div>
@@ -459,6 +506,16 @@ export function SchemaExplorer({
           capabilities={{ rename_table: true }}
           onApplied={() => {
             setRenameTarget(null);
+            refreshMetadata();
+          }}
+        />
+      ) : null}
+
+      {deleteTableTarget ? (
+        <DeleteTableDialog
+          target={deleteTableTarget}
+          onClose={() => {
+            setDeleteTableTarget(null);
             refreshMetadata();
           }}
         />

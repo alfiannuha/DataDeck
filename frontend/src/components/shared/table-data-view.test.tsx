@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { browseTableData, deleteRow, insertRow, updateRow } from "@/lib/api/endpoints";
@@ -571,8 +571,10 @@ describe("TableDataView edit row", () => {
 
     openRowMenu(1);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
+    // PRF-05: editing happens inline; no dialog is opened.
+    expect(screen.queryByTestId("edit-row-dialog")).not.toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText("name value"), { target: { value: "Bob" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save row" }));
 
     await waitFor(() =>
       expect(updateRow).toHaveBeenCalledWith(
@@ -641,7 +643,7 @@ describe("TableDataView edit row", () => {
     );
   });
 
-  it("submits against the tab binding captured when the dialog opened", async () => {
+  it("clears the inline editor when switching tabs (no cross-tab mutation)", async () => {
     vi.mocked(browseTableData).mockResolvedValue(
       pageResult({
         row_capabilities: { insert: true, update: true, delete: false, duplicate: false },
@@ -652,7 +654,6 @@ describe("TableDataView edit row", () => {
         rows: [["42", "Alice"]],
       }) as never,
     );
-    vi.mocked(insertRow).mockResolvedValue({ affected_rows: 1 } as never);
     vi.mocked(updateRow).mockResolvedValue({ affected_rows: 1 } as never);
     useWorkspaceStore.setState({
       tabs: [tableTab({ id: "td1", database: "alpha" }), tableTab({ id: "td2", database: "beta", table: "users" })],
@@ -665,16 +666,12 @@ describe("TableDataView edit row", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
     fireEvent.change(await screen.findByLabelText("name value"), { target: { value: "Bob" } });
 
-    // Switching tabs while the dialog is open must not retarget the mutation.
+    // Switching tabs drops the editor; the edit is never applied to the new tab.
     useWorkspaceStore.setState({ activeTabId: "td2" });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
     await waitFor(() =>
-      expect(updateRow).toHaveBeenCalledWith(
-        "c1",
-        expect.objectContaining({ database: "alpha" }),
-      ),
+      expect(screen.queryByRole("button", { name: "Save row" })).not.toBeInTheDocument(),
     );
+    expect(updateRow).not.toHaveBeenCalled();
   });
 });
 
@@ -937,5 +934,166 @@ describe("TableDataView row copy", () => {
     expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Last page" })).toBeDisabled();
+  });
+  it("enables Last and shows the real total when total_pages is known", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        pagination: { page: 1, page_size: 100, has_more: true, total: 350, total_pages: 4 },
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    expect(screen.getByTestId("table-data-total")).toHaveTextContent("of 4");
+    const last = screen.getByRole("button", { name: "Last page" });
+    expect(last).toBeEnabled();
+    fireEvent.click(last);
+    await waitFor(() => {
+      const tab = useWorkspaceStore.getState().tabs[0];
+      expect(tab.kind === "table-data" && tab.page).toBe(4);
+    });
+  });
+});
+
+// PRF-05: page-scoped row selection + inline editing.
+function editablePage() {
+  return pageResult({
+    row_capabilities: { insert: false, update: true, delete: true, duplicate: false },
+    row_identity: { kind: "primary_key", columns: ["id"] },
+    columns: [
+      { name: "id", database_type: "bigint", primary_key: true, updatable: false, nullable: false },
+      { name: "name", database_type: "text", nullable: true, updatable: true },
+      { name: "age", database_type: "integer", nullable: true, updatable: true },
+    ],
+    rows: [
+      ["1", "A", 10],
+      ["2", "B", 20],
+      ["3", "C", 30],
+    ],
+  });
+}
+
+describe("TableDataView row selection", () => {
+  it("selects a single row and shows the count", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Select row 1"));
+    expect(screen.getByTestId("table-data-selection-bar")).toHaveTextContent(
+      "1 row selected",
+    );
+  });
+
+  it("selects all rows on the page and clears them", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Select all rows on this page"));
+    expect(screen.getByTestId("table-data-selection-bar")).toHaveTextContent(
+      "3 rows selected",
+    );
+
+    fireEvent.click(screen.getByTestId("selection-clear"));
+    expect(screen.queryByTestId("table-data-selection-bar")).not.toBeInTheDocument();
+  });
+
+  it("bulk deletes selected rows by primary-key identity after confirmation", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    vi.mocked(deleteRow).mockResolvedValue({ affected_rows: 1 } as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Select all rows on this page"));
+    fireEvent.click(screen.getByTestId("selection-delete"));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Delete 3 rows?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteRow).toHaveBeenCalledTimes(3));
+    expect(deleteRow).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ identity: { id: "1" } }),
+    );
+    expect(deleteRow).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ identity: { id: "3" } }),
+    );
+  });
+
+  it("clears the selection when paging", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ ...editablePage(), pagination: { page: 1, page_size: 100, has_more: true } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Select row 1"));
+    expect(screen.getByTestId("table-data-selection-bar")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("table-data-selection-bar")).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe("TableDataView inline editing", () => {
+  it("toggles a nullable value to NULL and saves null", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    vi.mocked(updateRow).mockResolvedValue({ affected_rows: 1 } as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
+    fireEvent.click(screen.getByLabelText("Toggle NULL for name"));
+    fireEvent.click(screen.getByRole("button", { name: "Save row" }));
+
+    await waitFor(() =>
+      expect(updateRow).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({
+          identity: { id: "1" },
+          changes: { name: null },
+        }),
+      ),
+    );
+  });
+
+  it("blocks save on an invalid value and keeps the editor open", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
+    fireEvent.change(screen.getByLabelText("age value"), { target: { value: "not-a-number" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save row" }));
+
+    expect(screen.getByLabelText("age value")).toHaveAttribute("aria-invalid", "true");
+    expect(updateRow).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("inline-save-error")).toBeInTheDocument();
+  });
+
+  it("keeps input and shows an error when the update fails", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(editablePage() as never);
+    vi.mocked(updateRow).mockRejectedValue(
+      new ApiClientError("This row changed since it was loaded.", "ROW_CONFLICT", 409),
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    openRowMenu(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit Row" }));
+    fireEvent.change(screen.getByLabelText("name value"), { target: { value: "Bob" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save row" }));
+
+    expect(await screen.findByTestId("inline-save-error")).toHaveTextContent(
+      "ROW_CONFLICT",
+    );
+    // The editor stays open with the user's input preserved.
+    expect(screen.getByLabelText("name value")).toHaveValue("Bob");
   });
 });

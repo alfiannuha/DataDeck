@@ -753,6 +753,24 @@ describe("SchemaExplorer database discovery (PRF-01)", () => {
       .map((tab) => (tab.kind === "table-data" ? tab.database : null));
     expect(databases).toEqual(["alpha", "beta"]);
   });
+
+  it("Refresh reloads cached schema subtrees for a server-level connection", async () => {
+    vi.mocked(listConnections).mockResolvedValue([serverConnection()]);
+    vi.mocked(listDatabases).mockResolvedValue([{ name: "alpha" }] as never);
+    vi.mocked(getSchemas).mockResolvedValue(databaseTree("alpha") as never);
+    renderWithProviders(<SchemaExplorer connectionId="c1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^alpha/ }));
+    await waitFor(() => expect(getSchemas).toHaveBeenCalled());
+    const before = vi.mocked(getSchemas).mock.calls.length;
+
+    fireEvent.click(screen.getByTestId("refresh-schema"));
+
+    // The regression: schema subtrees must be refetched, not just the DB list.
+    await waitFor(() =>
+      expect(vi.mocked(getSchemas).mock.calls.length).toBeGreaterThan(before),
+    );
+    expect(await screen.findByText("Schema refreshed")).toBeInTheDocument();
+  });
 });
 
 describe("SchemaExplorer table context menu (PRF-02/T12)", () => {

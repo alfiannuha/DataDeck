@@ -59,6 +59,7 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 		response.ValidationError(w, err.Error())
 		return
 	}
+	includeTotal := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_total")), "true")
 
 	sortSpec, err := parseTableSort(r)
 	if err != nil {
@@ -110,12 +111,13 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 	cfg.Database = effectiveDatabase
 
 	page, err := h.manager.BrowseTable(ctx, id, cfg, database.TableBrowseRequest{
-		Schema:  schema,
-		Table:   table,
-		Limit:   params.PageSize,
-		Offset:  params.Offset,
-		Sort:    sortSpec,
-		Filters: filters,
+		Schema:       schema,
+		Table:        table,
+		Limit:        params.PageSize,
+		Offset:       params.Offset,
+		Sort:         sortSpec,
+		Filters:      filters,
+		IncludeTotal: includeTotal,
 	})
 	if err != nil {
 		h.tableDataError(w, r, err)
@@ -124,16 +126,25 @@ func (h *ConnectionHandler) TableData(w http.ResponseWriter, r *http.Request) {
 
 	page.Database = effectiveDatabase
 	page.Pagination = model.TablePagination{
-		Page:     params.Page,
-		PageSize: params.PageSize,
-		HasMore:  page.Pagination.HasMore,
+		Page:       params.Page,
+		PageSize:   params.PageSize,
+		HasMore:    page.Pagination.HasMore,
+		Total:      page.Pagination.Total,
+		TotalPages: page.Pagination.TotalPages,
 	}
 
-	response.SuccessWithMeta(w, page, map[string]any{
+	meta := map[string]any{
 		"page":      params.Page,
 		"page_size": params.PageSize,
 		"has_more":  page.Pagination.HasMore,
-	})
+	}
+	if page.Pagination.Total != nil {
+		meta["total"] = *page.Pagination.Total
+	}
+	if page.Pagination.TotalPages != nil {
+		meta["total_pages"] = *page.Pagination.TotalPages
+	}
+	response.SuccessWithMeta(w, page, meta)
 }
 
 // parseTableSort validates the structured sort query parameters. Both are

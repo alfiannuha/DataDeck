@@ -3011,7 +3011,7 @@ export interface components {
              * @example add_column
              * @enum {string}
              */
-            operation: "rename_table" | "add_column" | "drop_column" | "alter_column" | "create_index" | "drop_index" | "add_constraint" | "drop_constraint";
+            operation: "rename_table" | "add_column" | "drop_column" | "alter_column" | "create_index" | "drop_index" | "add_constraint" | "drop_constraint" | "drop_table";
             schema?: string;
             /** @example orders */
             table: string;
@@ -3209,6 +3209,8 @@ export interface components {
             drop_column?: boolean;
             drop_constraint?: boolean;
             drop_index?: boolean;
+            /** @description DropTable reports whether a base table may be dropped (all engines). */
+            drop_table?: boolean;
             index_method?: boolean;
             partial_index?: boolean;
             rename_table?: boolean;
@@ -3379,6 +3381,8 @@ export interface components {
             has_more?: boolean;
             page?: number;
             page_size?: number;
+            total?: number;
+            total_pages?: number;
         };
         "model.TableSort": {
             /** @example created_at */

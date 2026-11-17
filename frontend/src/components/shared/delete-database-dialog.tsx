@@ -38,7 +38,7 @@ export function DeleteDatabaseDialog() {
   return <DeleteDatabaseDialogBody target={target} />;
 }
 
-type Stage = "preflight" | "ready" | "blocked" | "deleting" | "deleted" | "unknown";
+type Stage = "preflight" | "warn" | "ready" | "blocked" | "deleting" | "deleted" | "unknown";
 
 function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) {
   const close = useDeleteDatabaseStore((state) => state.close);
@@ -57,7 +57,7 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
       .then((preflight) => {
         if (cancelled) return;
         setToken(preflight.token ?? null);
-        setStage("ready");
+        setStage("warn");
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -70,7 +70,8 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
   }, [target.connectionId, target.database]);
 
   const canDelete =
-    stage === "ready" && token !== null && typed === target.database && acknowledged;
+    stage === "ready" && token !== null && typed.trim() === target.database && acknowledged;
+  const deleting = stage === "deleting";
 
   async function submit() {
     if (busyRef.current || !canDelete || !token) return;
@@ -115,11 +116,24 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
         </DialogHeader>
 
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-foreground">
+          {target.connectionName ? (
+            <>
+              <dt className="text-muted-foreground">Connection</dt>
+              <dd>{target.connectionName}</dd>
+            </>
+          ) : null}
           <dt className="text-muted-foreground">Database</dt>
           <dd className="font-medium">{target.database}</dd>
           <dt className="text-muted-foreground">Engine</dt>
           <dd>{target.engine}</dd>
         </dl>
+
+        {stage === "warn" || stage === "ready" || stage === "deleting" ? (
+          <p className="text-xs font-medium text-destructive">
+            WARNING: this action cannot be undone. The database and all of its
+            contents will be permanently deleted.
+          </p>
+        ) : null}
 
         {stage === "preflight" ? (
           <p className="text-xs text-muted-foreground" data-testid="delete-database-preflight">
@@ -135,9 +149,6 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
 
         {stage === "ready" || stage === "deleting" ? (
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium text-destructive">
-              WARNING: this action cannot be undone.
-            </p>
             <label className="flex flex-col gap-1">
               <span className="text-xs text-foreground">
                 Type &quot;{target.database}&quot; to confirm
@@ -145,7 +156,7 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
               <Input
                 value={typed}
                 onChange={(event) => setTyped(event.target.value)}
-                disabled={stage === "deleting"}
+                disabled={deleting}
                 data-testid="delete-database-typed"
               />
             </label>
@@ -154,7 +165,7 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
                 type="checkbox"
                 checked={acknowledged}
                 onChange={(event) => setAcknowledged(event.target.checked)}
-                disabled={stage === "deleting"}
+                disabled={deleting}
                 data-testid="delete-database-ack"
               />
               I understand this action cannot be undone.
@@ -184,19 +195,28 @@ function DeleteDatabaseDialogBody({ target }: { target: DeleteDatabaseTarget }) 
           <Button
             variant="ghost"
             onClick={close}
-            disabled={stage === "deleting"}
+            disabled={deleting}
             data-testid="delete-database-cancel"
           >
             {stage === "deleted" ? "Close" : "Cancel"}
           </Button>
-          {stage !== "deleted" && stage !== "blocked" && stage !== "unknown" ? (
+          {stage === "warn" ? (
+            <Button
+              variant="destructive"
+              onClick={() => setStage("ready")}
+              data-testid="delete-database-continue"
+            >
+              Continue
+            </Button>
+          ) : null}
+          {stage === "ready" || deleting ? (
             <Button
               variant="destructive"
               onClick={() => void submit()}
-              disabled={!canDelete}
+              disabled={!canDelete || deleting}
               data-testid="delete-database-submit"
             >
-              {stage === "deleting" ? "Deleting…" : "Delete Database"}
+              {deleting ? "Deleting…" : "Delete Database"}
             </Button>
           ) : null}
         </DialogFooter>

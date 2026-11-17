@@ -198,6 +198,7 @@ export function TableStructurePanel() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="text-destructive"
                             data-testid={`structure-drop-column-${column.name}`}
                             onClick={() =>
                               setDialog({ kind: "drop_column", column: column.name ?? "" })
@@ -246,7 +247,8 @@ export function TableStructurePanel() {
                         <Button
                           variant="outline"
                           size="sm"
-                          data-testid={`structure-drop-index-${index.name}`}
+                          className="text-destructive"
+                            data-testid={`structure-drop-index-${index.name}`}
                           onClick={() => setDialog({ kind: "drop_index", index: index.name ?? "" })}
                         >
                           Drop
@@ -274,7 +276,8 @@ export function TableStructurePanel() {
                         <Button
                           variant="outline"
                           size="sm"
-                          data-testid={`structure-drop-constraint-${constraint.name}`}
+                          className="text-destructive"
+                            data-testid={`structure-drop-constraint-${constraint.name}`}
                           onClick={() =>
                             setDialog({
                               kind: "drop_constraint",
@@ -314,7 +317,8 @@ export function TableStructurePanel() {
                         <Button
                           variant="outline"
                           size="sm"
-                          data-testid={`structure-drop-fk-${fk.name}`}
+                          className="text-destructive"
+                            data-testid={`structure-drop-fk-${fk.name}`}
                           onClick={() =>
                             setDialog({
                               kind: "drop_constraint",

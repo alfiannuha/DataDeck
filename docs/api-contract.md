@@ -594,15 +594,19 @@ here without an explicit requirement.
   values; BIGINT is accepted as an exact string. OR groups are **not**
   supported in v0.1.0. Unknown columns → `400 COLUMN_NOT_FOUND`; invalid
   operator/value/type → `400 INVALID_FILTER`. Filtering runs before sorting and
-  pagination. The backend resolves the relation against introspection
+  pagination. Set `include_total=true` to also receive `total` and `total_pages`
+  (an opt-in `COUNT(*)` with the same filters; when omitted or when the engine
+  cannot count they are absent and clients must not invent a total — ADR-010
+  §6). The backend resolves the relation against introspection
   metadata and generates an explicit, dialect-quoted `SELECT … LIMIT n+1
   OFFSET m`; it never accepts SQL, a `WHERE` clause, or a raw sort expression.
   Response `data`: `{ database, schema?, table, object_type, columns[]
   (name/database_type/nullable/ordinal_position/primary_key), rows (array of
   arrays, same BIGINT-as-string/NULL/bytea/JSON rules as query execution),
-  pagination{page,page_size,has_more}, truncated, execution_time_ms }` (PRF-04/Phase 4: the database's execution time for the page SELECT); `meta` mirrors
-  `page/page_size/has_more`. There is no `total`/`COUNT(*)` by design (ADR-010
-  §6); `has_more` comes from fetching one extra row. Errors: `400
+  pagination{page,page_size,has_more,total?,total_pages?}, truncated,
+  execution_time_ms }` (PRF-04/Phase 4: the database's execution time for the
+  page SELECT); `meta` mirrors `page/page_size/has_more` (+ `total`/`total_pages`
+  when counted). `has_more` comes from fetching one extra row. Errors: `400
   VALIDATION_ERROR` (missing/invalid args, missing database → `DATABASE_REQUIRED`),
   `404 NOT_FOUND` (unknown connection) / `TABLE_NOT_FOUND`, `400
   DATABASE_NOT_FOUND`/`DATABASE_CONNECT_DENIED`, `502 CONNECTION_ERROR`, `504
@@ -661,21 +665,26 @@ here without an explicit requirement.
 - `POST /api/v1/connections/{id}/table-structure` — **PRF-04/Phase 2**. Body:
   `{ operation, database?, schema?, table, ... }` where `operation` is one of
   `rename_table` | `add_column` | `drop_column` | `alter_column` |
-  `create_index` | `drop_index` | `add_constraint` | `drop_constraint`, plus the
+  `create_index` | `drop_index` | `add_constraint` | `drop_constraint` |
+  `drop_table`, plus the
   fields for that operation (`new_name`, `column`, `column_name`, `new_column`,
   `default_action`, `index`, `index_name`, `constraint`, `constraint_name`,
   `constraint_type`). Identifiers are quoted with the engine's identifier quote;
   literal defaults are emitted as SQL literals; raw fragments (type/expression/
   WHERE) reject `;` and comments so each request stays a single statement.
   PostgreSQL/SQLite apply all-or-nothing in one transaction; MySQL DDL cannot
-  roll back, so multi-statement changes are rejected. Response `data`:
+  roll back, so multi-statement changes are rejected. `drop_table` emits a plain
+  `DROP TABLE` with a quoted, metadata-validated identifier and **never CASCADE**;
+  dependent objects must be resolved explicitly (an engine dependency error is
+  surfaced to the user). Response `data`:
   `{ operation, statements }`. Errors: `400 VALIDATION_ERROR` (bad input),
   `400 SQL_ERROR`/`SQL_SYNTAX_ERROR` (engine rejection), `404 NOT_FOUND`/
   `TABLE_NOT_FOUND`, `501 NOT_IMPLEMENTED` (operation unsupported by the engine),
   `502 CONNECTION_ERROR`, `504 INTROSPECTION_TIMEOUT`. The GET response also
   advertises `structure_capabilities{rename_table, add_column, drop_column,
   alter_column, create_index, drop_index, add_constraint, drop_constraint,
-  partial_index, index_method}`; the UI hides controls the engine cannot perform.
+  partial_index, index_method, drop_table}`; the UI hides controls the engine
+  cannot perform.
 - `POST /api/v1/connections/{id}/table-data/export` — **PRF-02/T14**. Body:
   `{ database, schema, table, format: "csv" | "xlsx" | "sql", include_headers?
   (default true; CSV only), transaction? (default true; SQL only),

@@ -17,7 +17,8 @@ export type TableActionId =
   | "export"
   | "import"
   | "copy-name"
-  | "copy-qualified";
+  | "copy-qualified"
+  | "delete-table";
 
 export interface TableActionDescriptor {
   id: TableActionId;
@@ -25,6 +26,8 @@ export interface TableActionDescriptor {
   disabled: boolean;
   /** Why the action is unavailable; shown under disabled items. */
   reason?: string;
+  /** High-risk/destructive action: render in the destructive color. */
+  destructive?: boolean;
 }
 
 /** Views / foreign tables are read-only objects for UX wording (backend decides). */
@@ -67,5 +70,12 @@ export function getTableActions(target: {
     },
     { id: "copy-name", label: "Copy Table Name", disabled: false },
     { id: "copy-qualified", label: "Copy Qualified Name", disabled: false },
+    {
+      id: "delete-table",
+      label: "Delete Table…",
+      disabled: readOnly,
+      reason: readOnly ? "Only base tables can be dropped here." : undefined,
+      destructive: true,
+    },
   ];
 }

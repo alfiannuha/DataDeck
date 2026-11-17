@@ -239,3 +239,17 @@ func TestStructureCapabilitiesMatrix(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+func TestBuildDropTableNoCascade(t *testing.T) {
+	pg := statements(t, model.DriverPostgres, StructureChange{Operation: OpDropTable, Schema: "public", Table: "orders"})
+	if len(pg) != 1 || pg[0] != `DROP TABLE "public"."orders"` {
+		t.Errorf("postgres drop table = %v", pg)
+	}
+	my := statements(t, model.DriverMySQL, StructureChange{Operation: OpDropTable, Schema: "shop", Table: "orders"})
+	if len(my) != 1 || my[0] != "DROP TABLE `shop`.`orders`" {
+		t.Errorf("mysql drop table = %v", my)
+	}
+	if caps := StructureCapabilitiesFor(model.DriverSQLite); !caps.DropTable {
+		t.Errorf("sqlite cap = %+v, want drop_table", caps)
+	}
+}

@@ -25,6 +25,7 @@ const (
 	OpDropIndex      = "drop_index"
 	OpAddConstraint  = "add_constraint"
 	OpDropConstraint = "drop_constraint"
+	OpDropTable      = "drop_table"
 )
 
 // ErrInvalidStructureChange marks a schema-change request that failed client-side
@@ -111,7 +112,7 @@ func StructureCapabilitiesFor(driver model.Driver) model.StructureCapabilities {
 		return model.StructureCapabilities{
 			RenameTable: true, AddColumn: true, DropColumn: true, AlterColumn: true,
 			CreateIndex: true, DropIndex: true, AddConstraint: true, DropConstraint: true,
-			PartialIndex: true, IndexMethod: true,
+			PartialIndex: true, IndexMethod: true, DropTable: true,
 		}
 	case model.DriverMySQL:
 		// MySQL DDL implicitly commits, so a multi-statement change is not
@@ -119,7 +120,7 @@ func StructureCapabilitiesFor(driver model.Driver) model.StructureCapabilities {
 		return model.StructureCapabilities{
 			RenameTable: true, AddColumn: true, DropColumn: true, AlterColumn: true,
 			CreateIndex: true, DropIndex: true, AddConstraint: true, DropConstraint: true,
-			PartialIndex: false, IndexMethod: false,
+			PartialIndex: false, IndexMethod: false, DropTable: true,
 		}
 	case model.DriverSQLite:
 		// SQLite cannot alter column definitions or add table constraints; those
@@ -127,7 +128,7 @@ func StructureCapabilitiesFor(driver model.Driver) model.StructureCapabilities {
 		return model.StructureCapabilities{
 			RenameTable: true, AddColumn: true, DropColumn: true, AlterColumn: false,
 			CreateIndex: true, DropIndex: true, AddConstraint: false, DropConstraint: false,
-			PartialIndex: true, IndexMethod: false,
+			PartialIndex: true, IndexMethod: false, DropTable: true,
 		}
 	default:
 		return model.StructureCapabilities{}
@@ -155,6 +156,8 @@ func buildStructureStatements(driver model.Driver, quote string, c StructureChan
 		return buildAddConstraint(driver, quote, c)
 	case OpDropConstraint:
 		return buildDropConstraint(driver, quote, c)
+	case OpDropTable:
+		return buildDropTable(quote, c)
 	default:
 		return nil, invalidChange("unknown structure operation %q", c.Operation)
 	}
@@ -374,6 +377,15 @@ func buildForeignKey(quote, prefix string, con *ConstraintDefinition) ([]string,
 		stmt += " ON DELETE " + action
 	}
 	return []string{stmt}, nil
+}
+
+// buildDropTable emits a plain DROP TABLE (never CASCADE). Dependencies must be
+// resolved explicitly by the user; the engine rejects the drop if they exist.
+func buildDropTable(quote string, c StructureChange) ([]string, error) {
+	if strings.TrimSpace(c.Table) == "" {
+		return nil, invalidChange("table is required")
+	}
+	return []string{"DROP TABLE " + qualifiedTable(quote, c.Schema, c.Table)}, nil
 }
 
 func buildDropConstraint(driver model.Driver, quote string, c StructureChange) ([]string, error) {

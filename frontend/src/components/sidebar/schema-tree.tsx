@@ -424,6 +424,11 @@ const TableNode = memo(function TableNode({
                     <DropdownMenuItem
                       disabled={action.disabled}
                       data-testid={`table-menu-${action.id}`}
+                      className={
+                        action.destructive
+                          ? "text-destructive focus:text-destructive"
+                          : undefined
+                      }
                       onSelect={() => {
                         onTableMenu(
                           action.id,

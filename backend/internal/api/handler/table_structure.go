@@ -153,7 +153,7 @@ type StructureConstraintRequest struct {
 // (PRF-04/Phase 2). Exactly one operation is applied; only the fields for that
 // operation are read.
 type StructureChangeRequest struct {
-	Operation      string                      `json:"operation" binding:"required" enums:"rename_table,add_column,drop_column,alter_column,create_index,drop_index,add_constraint,drop_constraint" example:"add_column"`
+	Operation      string                      `json:"operation" binding:"required" enums:"rename_table,add_column,drop_column,alter_column,create_index,drop_index,add_constraint,drop_constraint,drop_table" example:"add_column"`
 	Database       string                      `json:"database,omitempty"`
 	Schema         string                      `json:"schema,omitempty"`
 	Table          string                      `json:"table" binding:"required" example:"orders"`
@@ -281,6 +281,8 @@ func structureOpSupported(caps model.StructureCapabilities, op string) bool {
 		return caps.AddConstraint
 	case database.OpDropConstraint:
 		return caps.DropConstraint
+	case database.OpDropTable:
+		return caps.DropTable
 	default:
 		return false
 	}

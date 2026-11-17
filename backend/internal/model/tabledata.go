@@ -80,12 +80,16 @@ type RowMutationResult struct {
 }
 
 // TablePagination is the bounded page descriptor. There is deliberately no
-// total/total_pages: an exact COUNT(*) is not run for every browse request
-// (ADR-010 §6).
+// total/total_pages unless the request opts in (include_total=true), because an
+// exact COUNT(*) is not run for every browse request (ADR-010 §6). When the
+// caller opts in, Total/TotalPages are populated; otherwise they are nil and
+// must not be invented by clients.
 type TablePagination struct {
-	Page     int  `json:"page"`
-	PageSize int  `json:"page_size"`
-	HasMore  bool `json:"has_more"`
+	Page       int  `json:"page"`
+	PageSize   int  `json:"page_size"`
+	HasMore    bool `json:"has_more"`
+	Total      *int `json:"total,omitempty"`
+	TotalPages *int `json:"total_pages,omitempty"`
 }
 
 // TableDataPage is the structured response for GET /connections/{id}/table-data.

@@ -10,6 +10,7 @@ import { create } from "zustand";
  */
 export interface DeleteDatabaseTarget {
   connectionId: string;
+  connectionName?: string;
   database: string;
   engine: string;
 }
