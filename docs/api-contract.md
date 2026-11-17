@@ -339,14 +339,22 @@ Response `data` for `GET /api/v1/connections`, `POST /api/v1/connections`, and
   "username": "appuser",
   "ssl_mode": "disable",
   "color": "#3b82f6",
+  "sort_order": 0,
   "created_at": "2026-09-25T14:32:00Z",
   "updated_at": "2026-09-25T14:32:00Z"
 }
 ```
 
-- `GET /api/v1/connections` returns an array (empty `[]` when none exist).
+- `GET /api/v1/connections` returns an array ordered by `sort_order` (manual
+  position, ascending) with a deterministic `name, id` tie-break for legacy rows.
 - `POST /api/v1/connections` returns the sanitized profile with `200 OK`
-  (**Needs Validation:** the contract's `201 Created` remains a candidate).
+  (**Needs Validation:** the contract's `201 Created` remains a candidate). New
+  profiles are appended at the bottom (`sort_order = max + 1`).
+- `PATCH /api/v1/connections/order` — body `{ "connection_ids": [...] }`. The ids
+  must be a **permutation of every existing connection id** (no duplicates,
+  unknown, or missing ids → `400 VALIDATION_ERROR`); positions are rewritten
+  `0..n-1` in one transaction. Returns the new ordered profile list. Editing a
+  profile never changes its position.
 - `PUT /api/v1/connections/{id}` — **PRF-03/B**. Replaces the mutable fields of
   an existing profile and returns the updated sanitized profile. An empty or
   omitted `password` keeps the stored credential; a non-empty one is re-encrypted.
@@ -427,6 +435,7 @@ here without an explicit requirement.
 | `GET` | `/api/v1/health` | Daemon health status |
 | `GET` | `/api/v1/connections` | List profiles (passwords masked) |
 | `POST` | `/api/v1/connections` | Persist a new connection profile |
+| `PATCH` | `/api/v1/connections/order` | Persist a manual connection order (full permutation of ids) |
 | `PUT` | `/api/v1/connections/{id}` | Edit an existing profile; empty password keeps the stored credential (PRF-03/B) |
 | `POST` | `/api/v1/connections/test` | Verify connection parameters before saving |
 | `DELETE` | `/api/v1/connections/{id}` | Terminate pool and remove the record |

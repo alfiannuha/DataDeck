@@ -194,9 +194,9 @@ func TestConnectionRepositoryReadsLegacyStore(t *testing.T) {
 	if err := reopened.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	// PRF migrations are additive (001 initial + 002 database context + 003 color).
-	if migrations != 3 {
-		t.Errorf("schema_migrations count = %d, want 3", migrations)
+	// PRF migrations are additive (001-004).
+	if migrations != 4 {
+		t.Errorf("schema_migrations count = %d, want 4", migrations)
 	}
 
 	got, err := NewConnectionRepository(reopened.DB()).Get(ctx, "legacy")
@@ -211,5 +211,113 @@ func TestConnectionRepositoryReadsLegacyStore(t *testing.T) {
 	}
 	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
 		t.Error("timestamps were not preserved")
+	}
+}
+
+func TestConnectionRepositoryReorder(t *testing.T) {
+	ctx := context.Background()
+	repo := NewConnectionRepository(newTestDB(t))
+	for _, profile := range []*model.ConnectionProfile{
+		sampleProfile("c1", "Alpha"),
+		sampleProfile("c2", "Beta"),
+		sampleProfile("c3", "Gamma"),
+	} {
+		if err := repo.Create(ctx, profile); err != nil {
+			t.Fatalf("Create(%s): %v", profile.ID, err)
+		}
+	}
+
+	// New connections are appended at the bottom.
+	before, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if before[0].ID != "c1" || before[1].ID != "c2" || before[2].ID != "c3" {
+		t.Fatalf("initial order = %s,%s,%s", before[0].ID, before[1].ID, before[2].ID)
+	}
+
+	if err := repo.Reorder(ctx, []string{"c3", "c1", "c2"}); err != nil {
+		t.Fatalf("Reorder: %v", err)
+	}
+	after, _ := repo.List(ctx)
+	if after[0].ID != "c3" || after[1].ID != "c1" || after[2].ID != "c2" {
+		t.Fatalf("order after reorder = %s,%s,%s", after[0].ID, after[1].ID, after[2].ID)
+	}
+
+	// Editing a profile preserves its position.
+	c1, _ := repo.Get(ctx, "c1")
+	c1.Name = "Alpha renamed"
+	if err := repo.Update(ctx, c1); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	reloaded, _ := repo.List(ctx)
+	if reloaded[1].ID != "c1" || reloaded[1].Name != "Alpha renamed" {
+		t.Errorf("edit changed position: %+v", reloaded)
+	}
+
+	// A new connection is still appended last.
+	if err := repo.Create(ctx, sampleProfile("c4", "Delta")); err != nil {
+		t.Fatalf("Create c4: %v", err)
+	}
+	withNew, _ := repo.List(ctx)
+	if withNew[len(withNew)-1].ID != "c4" {
+		t.Errorf("new connection not last: %+v", withNew)
+	}
+
+	// Invalid orders are rejected.
+	for _, ids := range [][]string{
+		{"c1", "c2"},
+		{"c1", "c2", "c3", "c4", "c5"},
+		{"c1", "c1", "c2", "c3"},
+		{},
+	} {
+		if err := repo.Reorder(ctx, ids); !errors.Is(err, ErrInvalidOrder) {
+			t.Errorf("Reorder(%v) error = %v, want ErrInvalidOrder", ids, err)
+		}
+	}
+}
+
+func TestConnectionRepositoryReorderEmptyStore(t *testing.T) {
+	repo := NewConnectionRepository(newTestDB(t))
+	if err := repo.Reorder(context.Background(), nil); err != nil {
+		t.Fatalf("Reorder(empty store) error = %v", err)
+	}
+}
+
+func TestConnectionOrderPersistsAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "datadeck.db")
+	store, err := storage.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open storage: %v", err)
+	}
+	repo := NewConnectionRepository(store.DB())
+	for _, profile := range []*model.ConnectionProfile{
+		sampleProfile("c1", "Alpha"),
+		sampleProfile("c2", "Beta"),
+		sampleProfile("c3", "Gamma"),
+	} {
+		if err := repo.Create(ctx, profile); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	if err := repo.Reorder(ctx, []string{"c2", "c3", "c1"}); err != nil {
+		t.Fatalf("Reorder: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	reopened, err := storage.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	list, err := NewConnectionRepository(reopened.DB()).List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if list[0].ID != "c2" || list[1].ID != "c3" || list[2].ID != "c1" {
+		t.Fatalf("order after restart = %s,%s,%s", list[0].ID, list[1].ID, list[2].ID)
 	}
 }

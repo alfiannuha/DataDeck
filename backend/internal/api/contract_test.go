@@ -77,6 +77,7 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 
 	wantPaths := []string{
 		"/connections",
+		"/connections/order",
 		"/connections/status",
 		"/connections/test",
 		"/connections/{id}",

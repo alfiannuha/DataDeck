@@ -3,7 +3,7 @@
 All notable changes to DataDeck are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.4.x
+## [0.4.1] — 2026-11-17
 
 ### Fixed
 - **Refresh Schema** now refetches every cached schema subtree (all databases)
@@ -18,6 +18,12 @@ All notable changes to DataDeck are documented here. This project follows
   invented.
 
 ### Added
+- **Connection reordering**: drag a connection by its handle (with a drop
+  indicator) or use the three-dot menu (Move to Top / Up / Down / Bottom). The
+  order persists in a new `sort_order` column (migration 004, backfilled to the
+  previous name order) and is written in one transaction via
+  `PATCH /connections/order`. New connections append at the bottom, edits keep
+  their position, and the UI updates optimistically (rolled back on failure).
 - **Delete Table** from the schema explorer table menu, with two-step
   confirmation (warning → type the exact table name). Backend `drop_table` DDL
   (quoted, metadata-validated, never CASCADE; dependency errors surfaced).

@@ -9,6 +9,7 @@ import {
 import type {
   ConnectionCreateRequest,
   ConnectionUpdateRequest,
+  ReorderRequest,
   DatabaseInfo,
   ConnectionResponse,
   ConnectionTestRequest,
@@ -56,6 +57,21 @@ export function listConnections(
   signal?: AbortSignal,
 ): Promise<ConnectionResponse[]> {
   return apiFetch<ConnectionResponse[]>("/connections", { signal });
+}
+
+/**
+ * Persist a manual connection order. `connectionIds` must be a permutation of
+ * every existing connection id; the backend rewrites positions in a transaction
+ * and returns the ordered list.
+ */
+export function reorderConnections(
+  connectionIds: string[],
+): Promise<ConnectionResponse[]> {
+  const body: ReorderRequest = { connection_ids: connectionIds };
+  return apiFetch<ConnectionResponse[]>("/connections/order", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 export function createConnection(

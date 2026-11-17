@@ -1,7 +1,12 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deleteConnection, listConnections } from "@/lib/api/endpoints";
+import {
+  deleteConnection,
+  listConnections,
+  reorderConnections,
+} from "@/lib/api/endpoints";
+import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
 import { useConnectionStore } from "@/store/useConnectionStore";
 
@@ -13,6 +18,7 @@ vi.mock("@/lib/api/endpoints", () => ({
   updateConnection: vi.fn(),
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
+  reorderConnections: vi.fn(),
 }));
 
 const savedConnection = {
@@ -156,5 +162,118 @@ describe("ConnectionList", () => {
       await screen.findByRole("heading", { name: "Edit connection" }),
     ).toBeInTheDocument();
     expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument();
+  });
+});
+
+const reorderData = [
+  { ...savedConnection, id: "c1", name: "Alpha" },
+  { ...savedConnection, id: "c2", name: "Beta" },
+  { ...savedConnection, id: "c3", name: "Gamma" },
+];
+
+function displayedOrder(): string[] {
+  const list = screen.getByRole("list", { name: "Saved connections" });
+  return within(list)
+    .getAllByRole("listitem")
+    .map((item) => {
+      const text = item.textContent ?? "";
+      return text.includes("Alpha") ? "Alpha" : text.includes("Beta") ? "Beta" : "Gamma";
+    });
+}
+
+async function openReorderMenu(name: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Reorder ${name}` }), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menu", { name: `Reorder ${name}` });
+}
+
+describe("ConnectionList manual ordering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useConnectionStore.setState({ activeConnectionId: null });
+    vi.mocked(listConnections).mockResolvedValue(reorderData as never);
+  });
+
+  it("moves a connection down via the menu and persists the full order", async () => {
+    vi.mocked(reorderConnections).mockResolvedValue([] as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    await openReorderMenu("Alpha");
+    fireEvent.click(await screen.findByTestId("conn-move-down-c1"));
+
+    await waitFor(() =>
+      expect(reorderConnections).toHaveBeenCalledWith(["c2", "c1", "c3"]),
+    );
+  });
+
+  it("moves a connection to the bottom and disables irrelevant actions", async () => {
+    vi.mocked(reorderConnections).mockResolvedValue([] as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    await openReorderMenu("Alpha");
+    expect(screen.getByTestId("conn-move-up-c1")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    fireEvent.click(await screen.findByTestId("conn-move-bottom-c1"));
+    await waitFor(() =>
+      expect(reorderConnections).toHaveBeenCalledWith(["c2", "c3", "c1"]),
+    );
+  });
+
+  it("applies the order optimistically and rolls back on failure", async () => {
+    let rejectOrder: ((error: unknown) => void) | undefined;
+    vi.mocked(reorderConnections).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOrder = reject;
+        }) as never,
+    );
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    await openReorderMenu("Alpha");
+    fireEvent.click(await screen.findByTestId("conn-move-down-c1"));
+    await waitFor(() =>
+      expect(displayedOrder()).toEqual(["Beta", "Alpha", "Gamma"]),
+    );
+
+    rejectOrder?.(new ApiClientError("nope", "VALIDATION_ERROR", 400));
+    await waitFor(() =>
+      expect(displayedOrder()).toEqual(["Alpha", "Beta", "Gamma"]),
+    );
+  });
+
+  it("reorders via drag and drop (handle → drop before the first row)", async () => {
+    vi.mocked(reorderConnections).mockResolvedValue([] as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    const items = within(
+      screen.getByRole("list", { name: "Saved connections" }),
+    ).getAllByRole("listitem");
+    const rows = items.map((item) => item.querySelector("div") as HTMLElement);
+    const handle = items[2].querySelector("[data-drag-handle]") as HTMLElement;
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: () => "c3",
+    };
+
+    fireEvent.dragStart(handle, { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "c3");
+    fireEvent.dragOver(rows[0], { dataTransfer, clientY: 0 });
+    fireEvent.drop(rows[0], { dataTransfer, clientY: 0 });
+
+    await waitFor(() => expect(reorderConnections).toHaveBeenCalled());
+    expect(vi.mocked(reorderConnections).mock.calls[0]?.[0]).toEqual([
+      "c3",
+      "c1",
+      "c2",
+    ]);
   });
 });

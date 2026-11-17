@@ -389,6 +389,57 @@ func (h *ConnectionHandler) Test(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, TestConnectionResponse{Status: "ok"})
 }
 
+// ReorderRequest is the body for PATCH /connections/order. ConnectionIDs must
+// list every existing connection exactly once, in the desired order.
+type ReorderRequest struct {
+	ConnectionIDs []string `json:"connection_ids" example:"[\"id-b\",\"id-a\"]"`
+}
+
+// Reorder godoc
+// @Summary      Reorder connection profiles
+// @Description  Persists a manual order. `connection_ids` must be a permutation of every existing connection id (no duplicates/unknown/missing ids); the whole order is rewritten in one transaction and the new ordered list is returned. New connections are appended at the bottom on creation; editing a profile never changes its position.
+// @Tags         connections
+// @Accept       json
+// @Produce      json
+// @Param        request  body      handler.ReorderRequest  true  "Ordered connection ids"
+// @Success      200      {object}  response.Envelope{data=[]handler.ConnectionResponse}
+// @Failure      400      {object}  response.ErrorEnvelope
+// @Failure      500      {object}  response.ErrorEnvelope
+// @Router       /connections/order [patch]
+func (h *ConnectionHandler) Reorder(w http.ResponseWriter, r *http.Request) {
+	var req ReorderRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	ids := make([]string, 0, len(req.ConnectionIDs))
+	for _, raw := range req.ConnectionIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			response.ValidationError(w, "connection ids must not be empty")
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := h.connections.Reorder(r.Context(), ids); err != nil {
+		if errors.Is(err, repository.ErrInvalidOrder) {
+			response.ValidationError(w, "connection_ids must list every existing connection exactly once")
+			return
+		}
+		h.internalError(w, r, "reorder_connections", err)
+		return
+	}
+	profiles, err := h.connections.List(r.Context())
+	if err != nil {
+		h.repositoryError(w, r, "list_connections", err)
+		return
+	}
+	out := make([]ConnectionResponse, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, newConnectionResponse(profile))
+	}
+	response.Success(w, out)
+}
+
 // Delete godoc
 // @Summary      Delete a connection profile
 // @Description  Closes any active pool and removes the profile.

@@ -9,4 +9,7 @@ import "errors"
 var (
 	ErrNotFound = errors.New("repository: not found")
 	ErrConflict = errors.New("repository: conflict")
+	// ErrInvalidOrder marks a connection reorder request that is not a valid
+	// permutation of all existing connections (unknown/duplicate/missing ids).
+	ErrInvalidOrder = errors.New("repository: invalid connection order")
 )

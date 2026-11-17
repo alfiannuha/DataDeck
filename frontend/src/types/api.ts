@@ -64,6 +64,7 @@ export type HealthResponse = Schemas["api.HealthResponse"];
 export type ConnectionResponse = Schemas["handler.ConnectionResponse"];
 export type ConnectionCreateRequest = Schemas["handler.ConnectionRequest"];
 export type ConnectionUpdateRequest = Schemas["handler.ConnectionUpdateRequest"];
+export type ReorderRequest = Schemas["handler.ReorderRequest"];
 export type ConnectionTestRequest = Schemas["handler.ConnectionTestRequest"];
 export type TestConnectionResponse = Schemas["handler.TestConnectionResponse"];
 export type DeleteConnectionResponse = Schemas["handler.DeleteConnectionResponse"];

@@ -112,6 +112,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connections/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Reorder connection profiles
+         * @description Persists a manual order. `connection_ids` must be a permutation of every existing connection id (no duplicates/unknown/missing ids); the whole order is rewritten in one transaction and the new ordered list is returned. New connections are appended at the bottom on creation; editing a profile never changes its position.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Ordered connection ids */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ReorderRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/connections/status": {
         parameters: {
             query?: never;
@@ -2947,6 +3016,15 @@ export interface components {
             database?: string;
             /** @example ok */
             status?: string;
+        };
+        "handler.ReorderRequest": {
+            /**
+             * @example [
+             *       "[\"id-b\"",
+             *       "\"id-a\"]"
+             *     ]
+             */
+            connection_ids?: string[];
         };
         "handler.RowMutationRequest": {
             changes?: {

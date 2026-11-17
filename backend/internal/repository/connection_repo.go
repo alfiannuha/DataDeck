@@ -24,7 +24,7 @@ func NewConnectionRepository(db *sql.DB) *ConnectionRepository {
 
 const connectionColumns = `id, name, driver, host, port, database_name, username,
 	encrypted_password, ssl_mode, ssh_enabled, ssh_host, ssh_port, ssh_username,
-	ssh_encrypted_password, ssh_key_path, color, created_at, updated_at`
+	ssh_encrypted_password, ssh_key_path, color, sort_order, created_at, updated_at`
 
 // Create inserts a new connection profile, assigning timestamps when unset.
 func (r *ConnectionRepository) Create(ctx context.Context, profile *model.ConnectionProfile) error {
@@ -44,14 +44,22 @@ func (r *ConnectionRepository) Create(ctx context.Context, profile *model.Connec
 	}
 	profile.SSLMode = sslMode
 
+	// New connections are appended at the bottom of the manual order.
+	var nextOrder int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(sort_order)+1, 0) FROM connection_profiles`).Scan(&nextOrder); err != nil {
+		return fmt.Errorf("next connection order: %w", err)
+	}
+	profile.SortOrder = nextOrder
+
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO connection_profiles (`+connectionColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		profile.ID, profile.Name, string(profile.Driver), nullString(profile.Host), nullInt(profile.Port),
 		profile.DatabaseName, nullString(profile.Username), nullString(profile.EncryptedPassword), sslMode,
 		boolToInt(profile.SSHEnabled), nullString(profile.SSHHost), nullInt(profile.SSHPort),
 		nullString(profile.SSHUsername), nullString(profile.SSHEncryptedPassword), nullString(profile.SSHKeyPath),
-		nullText(profile.Color), profile.CreatedAt, profile.UpdatedAt)
+		nullText(profile.Color), profile.SortOrder, profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("connection %q: %w", profile.ID, ErrConflict)
@@ -74,10 +82,11 @@ func (r *ConnectionRepository) Get(ctx context.Context, id string) (*model.Conne
 	return profile, nil
 }
 
-// List returns all profiles ordered by name then id for deterministic output.
+// List returns all profiles ordered by their manual position (deterministic
+// name/id tie-break for legacy rows with equal or NULL sort_order).
 func (r *ConnectionRepository) List(ctx context.Context) ([]model.ConnectionProfile, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+connectionColumns+` FROM connection_profiles ORDER BY name ASC, id ASC`)
+		`SELECT `+connectionColumns+` FROM connection_profiles ORDER BY sort_order ASC, name ASC, id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list connections: %w", err)
 	}
@@ -151,6 +160,66 @@ func (r *ConnectionRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// Reorder persists a manual ordering. ids must be a permutation of every
+// existing connection id (same set, no duplicates, no unknown ids); the whole
+// list is rewritten in one transaction so positions are unique (0..n-1).
+func (r *ConnectionRepository) Reorder(ctx context.Context, ids []string) error {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM connection_profiles`)
+	if err != nil {
+		return fmt.Errorf("list connection ids: %w", err)
+	}
+	existing := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan connection id: %w", err)
+		}
+		existing[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate connection ids: %w", err)
+	}
+	_ = rows.Close()
+
+	if len(ids) != len(existing) {
+		return fmt.Errorf("%w: expected %d ids, got %d", ErrInvalidOrder, len(existing), len(ids))
+	}
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := existing[id]; !ok {
+			return fmt.Errorf("%w: unknown connection %q", ErrInvalidOrder, id)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("%w: duplicate connection %q", ErrInvalidOrder, id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin reorder: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for position, id := range ids {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE connection_profiles SET sort_order = ? WHERE id = ?`, position, id)
+		if err != nil {
+			return fmt.Errorf("reorder connection %q: %w", id, err)
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("reorder connection %q: %w", id, err)
+		} else if n != 1 {
+			return fmt.Errorf("reorder connection %q: %w", id, ErrInvalidOrder)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit reorder: %w", err)
+	}
+	return nil
+}
+
 func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 	var (
 		profile    model.ConnectionProfile
@@ -171,7 +240,7 @@ func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 	if err := s.Scan(
 		&profile.ID, &profile.Name, &driver, &host, &port, &profile.DatabaseName,
 		&username, &encrypted, &sslMode, &sshEnabled, &sshHost, &sshPort,
-		&sshUser, &sshEncPw, &sshKey, &color, &profile.CreatedAt, &profile.UpdatedAt,
+		&sshUser, &sshEncPw, &sshKey, &color, &profile.SortOrder, &profile.CreatedAt, &profile.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}

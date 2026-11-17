@@ -52,7 +52,10 @@ type ConnectionProfile struct {
 	// Color is a presentation hint (a #RRGGBB hex string) used to distinguish
 	// connections in the UI. The empty string means "no color assigned"; the API
 	// substitutes a default for display. It never carries credentials.
-	Color     string
+	Color string
+	// SortOrder is the manual sidebar position (0-based, unique). New
+	// connections are appended at the bottom; editing never changes it.
+	SortOrder int
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

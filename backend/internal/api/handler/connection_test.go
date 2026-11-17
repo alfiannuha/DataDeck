@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/datadeck/datadeck/backend/internal/database"
+	"github.com/datadeck/datadeck/backend/internal/model"
 	"github.com/datadeck/datadeck/backend/internal/repository"
 	"github.com/datadeck/datadeck/backend/internal/security"
 	"github.com/datadeck/datadeck/backend/internal/storage"
@@ -620,5 +621,56 @@ func TestUpdateConnectionValidationAndNotFound(t *testing.T) {
 	h.Update(rec, bad)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid color status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// PRF-05/Reordering: the order endpoint persists a full permutation and returns
+// the ordered list; invalid permutations are rejected with 400.
+func TestReorderConnections(t *testing.T) {
+	h, db, _ := newTestHandler(t)
+	for _, profile := range []*model.ConnectionProfile{
+		{ID: "c1", Name: "Alpha", Driver: model.DriverPostgres, DatabaseName: "app"},
+		{ID: "c2", Name: "Beta", Driver: model.DriverPostgres, DatabaseName: "app"},
+		{ID: "c3", Name: "Gamma", Driver: model.DriverPostgres, DatabaseName: "app"},
+	} {
+		seedProfile(t, db, profile)
+	}
+
+	do := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/connections/order", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		h.Reorder(rec, req)
+		return rec
+	}
+
+	rec := do(`{"connection_ids":["c3","c1","c2"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var ordered []ConnectionResponse
+	if err := json.Unmarshal(decodeEnvelope(t, rec).Data, &ordered); err != nil {
+		t.Fatalf("decode ordered list: %v", err)
+	}
+	if len(ordered) != 3 || ordered[0].ID != "c3" || ordered[1].ID != "c1" || ordered[2].ID != "c2" {
+		t.Fatalf("ordered list = %+v", ordered)
+	}
+
+	for name, body := range map[string]string{
+		"duplicate id": `{"connection_ids":["c1","c1","c2"]}`,
+		"unknown id":   `{"connection_ids":["c1","c2","zzz"]}`,
+		"missing id":   `{"connection_ids":["c1","c2"]}`,
+		"empty list":   `{"connection_ids":[]}`,
+		"malformed":    `{`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := do(body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+			}
+			if env := decodeEnvelope(t, rec); env.Error == nil || env.Error.Code != "VALIDATION_ERROR" {
+				t.Errorf("error = %+v, want VALIDATION_ERROR", env.Error)
+			}
+		})
 	}
 }

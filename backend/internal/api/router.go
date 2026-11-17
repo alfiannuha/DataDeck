@@ -71,6 +71,7 @@ func (s *Server) Router() http.Handler {
 
 		r.Get("/connections", connections.List)
 		r.Get("/connections/status", connections.PoolStatus)
+		r.Patch("/connections/order", connections.Reorder)
 		r.Post("/connections", connections.Create)
 		r.Put("/connections/{id}", connections.Update)
 		r.Post("/connections/test", connections.Test)

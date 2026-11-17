@@ -6,12 +6,14 @@ import {
   createConnection,
   deleteConnection,
   listConnections,
+  reorderConnections,
   testConnection,
   updateConnection,
 } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   ConnectionCreateRequest,
+  ConnectionResponse,
   ConnectionTestRequest,
   ConnectionUpdateRequest,
 } from "@/types/api";
@@ -37,6 +39,43 @@ export function useCreateConnection() {
 export function useTestConnection() {
   return useMutation({
     mutationFn: (body: ConnectionTestRequest) => testConnection(body),
+  });
+}
+
+/**
+ * Persists a manual connection order with an optimistic cache update and
+ * rollback on failure (PRF-05 reordering). The backend remains the source of
+ * truth; the list is refetched on settle.
+ */
+export function useReorderConnections() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => reorderConnections(ids),
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.connections });
+      const previous = queryClient.getQueryData<ConnectionResponse[]>(
+        queryKeys.connections,
+      );
+      if (previous) {
+        const byId = new Map(previous.map((connection) => [connection.id, connection]));
+        const next = ids
+          .map((id) => byId.get(id))
+          .filter((connection): connection is ConnectionResponse => Boolean(connection));
+        // Only apply a full permutation; never drop entries optimistically.
+        if (next.length === previous.length) {
+          queryClient.setQueryData(queryKeys.connections, next);
+        }
+      }
+      return { previous };
+    },
+    onError: (_error, _ids, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.connections, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.connections });
+    },
   });
 }
 

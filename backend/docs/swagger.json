@@ -562,6 +562,22 @@
                 },
                 "type": "object"
             },
+            "handler.ReorderRequest": {
+                "properties": {
+                    "connection_ids": {
+                        "example": [
+                            "[\"id-b\"",
+                            "\"id-a\"]"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "handler.RowMutationRequest": {
                 "properties": {
                     "changes": {
@@ -1985,6 +2001,78 @@
                     }
                 },
                 "summary": "Create a connection profile",
+                "tags": [
+                    "connections"
+                ]
+            }
+        },
+        "/connections/order": {
+            "patch": {
+                "description": "Persists a manual order. `connection_ids` must be a permutation of every existing connection id (no duplicates/unknown/missing ids); the whole order is rewritten in one transaction and the new ordered list is returned. New connections are appended at the bottom on creation; editing a profile never changes its position.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/handler.ReorderRequest",
+                                "summary": "request",
+                                "description": "Ordered connection ids"
+                            }
+                        }
+                    },
+                    "description": "Ordered connection ids",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/data"
+                                        }
+                                    ],
+                                    "properties": {
+                                        "data": {},
+                                        "error": {
+                                            "$ref": "#/components/schemas/response.APIError"
+                                        },
+                                        "meta": {
+                                            "additionalProperties": {},
+                                            "type": "object"
+                                        },
+                                        "success": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/response.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Reorder connection profiles",
                 "tags": [
                     "connections"
                 ]
