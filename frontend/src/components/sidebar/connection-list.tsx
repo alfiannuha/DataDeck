@@ -91,6 +91,7 @@ export function ConnectionList() {
   const [mainExpanded, setMainExpanded] = useState(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const [groupDropId, setGroupDropId] = useState<string | null>(null);
 
   const busy = reorder.isPending;
 
@@ -115,40 +116,43 @@ export function ConnectionList() {
     });
   }
 
-  function orderedIds(): string[] {
-    return (data ?? []).map((c) => c.id).filter(Boolean) as string[];
-  }
-
-  function commitOrder(next: string[]) {
-    const previous = orderedIds();
-    if (next.join("\u0000") === previous.join("\u0000")) return;
+  // ----- Per-container manual ordering -------------------------------------
+  // A "container" is a group's member list or the ungrouped list. Reordering a
+  // container sends only that container's ids; the backend permutes their
+  // existing sort_order slots, leaving other containers untouched.
+  function submitContainerOrder(containerIds: string[], next: string[]) {
+    if (busy) return;
+    if (next.join("\u0000") === containerIds.join("\u0000")) return;
     reorder.mutate(next);
   }
 
-  function moveToReducedIndex(id: string, reducedIndex: number) {
+  function moveWithin(containerIds: string[], id: string, reducedIndex: number) {
     if (busy) return;
-    const ids = orderedIds();
-    const reduced = ids.filter((candidate) => candidate !== id);
+    const reduced = containerIds.filter((candidate) => candidate !== id);
     const index = Math.max(0, Math.min(reducedIndex, reduced.length));
     reduced.splice(index, 0, id);
-    commitOrder(reduced);
+    submitContainerOrder(containerIds, reduced);
   }
 
-  function moveStep(id: string, delta: number) {
-    const ids = orderedIds();
-    const from = ids.indexOf(id);
+  function stepWithin(containerIds: string[], id: string, delta: number) {
+    const from = containerIds.indexOf(id);
     if (from < 0) return;
-    moveToReducedIndex(id, from + delta);
+    moveWithin(containerIds, id, from + delta);
   }
 
-  function drop(dragId: string, targetId: string, after: boolean) {
-    if (busy || dragId === targetId) return;
-    const reduced = orderedIds().filter((candidate) => candidate !== dragId);
+  function dropWithin(
+    containerIds: string[],
+    dragId: string,
+    targetId: string,
+    after: boolean,
+  ) {
+    if (busy || dragId === targetId || !containerIds.includes(dragId)) return;
+    const reduced = containerIds.filter((candidate) => candidate !== dragId);
     let index = reduced.indexOf(targetId);
     if (index < 0) return;
     if (after) index += 1;
     reduced.splice(index, 0, dragId);
-    commitOrder(reduced);
+    submitContainerOrder(containerIds, reduced);
   }
 
   async function confirmDelete() {
@@ -201,7 +205,12 @@ export function ConnectionList() {
     reorderGroups.mutate(ids);
   }
 
-  function renderConnectionRow(connection: ConnectionResponse, index: number, isLast: boolean) {
+  function renderConnectionRow(
+    connection: ConnectionResponse,
+    index: number,
+    isLast: boolean,
+    containerIds: string[],
+  ) {
     const id = connection.id as string;
     const isActive = id === activeConnectionId;
     const isDragging = draggingId === id;
@@ -236,7 +245,7 @@ export function ConnectionList() {
                 const rect = event.currentTarget.getBoundingClientRect();
                 after = event.clientY > rect.top + rect.height / 2;
               }
-              drop(dragId, id, after);
+              dropWithin(containerIds, dragId, id, after);
             }
             setDraggingId(null);
             setDropTarget(null);
@@ -312,28 +321,28 @@ export function ConnectionList() {
               <DropdownMenuItem
                 data-testid={`conn-move-top-${id}`}
                 disabled={busy || isFirst}
-                onSelect={() => moveToReducedIndex(id, 0)}
+                onSelect={() => moveWithin(containerIds, id, 0)}
               >
                 Move to Top
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid={`conn-move-up-${id}`}
                 disabled={busy || isFirst}
-                onSelect={() => moveStep(id, -1)}
+                onSelect={() => stepWithin(containerIds, id, -1)}
               >
                 Move Up
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid={`conn-move-down-${id}`}
                 disabled={busy || isLast}
-                onSelect={() => moveStep(id, 1)}
+                onSelect={() => stepWithin(containerIds, id, 1)}
               >
                 Move Down
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid={`conn-move-bottom-${id}`}
                 disabled={busy || isLast}
-                onSelect={() => moveToReducedIndex(id, orderedIds().length - 1)}
+                onSelect={() => moveWithin(containerIds, id, containerIds.length - 1)}
               >
                 Move to Bottom
               </DropdownMenuItem>
@@ -456,10 +465,39 @@ export function ConnectionList() {
 
           {groupList.map((group) => {
             const members = all.filter((c) => c.group_id === group.id);
+            const memberIds = members.map((c) => c.id as string);
             const groupIndex = groupList.findIndex((g) => g.id === group.id);
             return (
               <div key={group.id as string} data-testid={`group-${group.id}`}>
-                <div className="group flex items-center gap-0.5 rounded px-1 py-1 hover:bg-panel-raised">
+                <div
+                  data-testid={`group-header-${group.id}`}
+                  onDragOver={(event) => {
+                    if (!draggingId) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setGroupDropId(group.id as string);
+                  }}
+                  onDragLeave={() =>
+                    setGroupDropId((current) =>
+                      current === group.id ? null : current,
+                    )
+                  }
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const dragId = event.dataTransfer.getData("text/plain") || draggingId;
+                    if (dragId) {
+                      setGroup.mutate({ connectionId: dragId, groupId: group.id as string });
+                    }
+                    setDraggingId(null);
+                    setDropTarget(null);
+                    setGroupDropId(null);
+                  }}
+                  className={cn(
+                    "group flex items-center gap-0.5 rounded px-1 py-1 hover:bg-panel-raised",
+                    groupDropId === group.id &&
+                      "bg-accent/10 ring-1 ring-inset ring-[var(--color-focus-ring)]",
+                  )}
+                >
                   <button
                     type="button"
                     aria-expanded={group.is_expanded}
@@ -525,7 +563,7 @@ export function ConnectionList() {
                 {group.is_expanded && members.length > 0 ? (
                   <ul className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1">
                     {members.map((connection, index) =>
-                      renderConnectionRow(connection, index, index === members.length - 1),
+                      renderConnectionRow(connection, index, index === members.length - 1, memberIds),
                     )}
                   </ul>
                 ) : null}
@@ -542,7 +580,7 @@ export function ConnectionList() {
           {ungrouped.length > 0 ? (
             <ul className="flex flex-col gap-0.5" aria-label="Saved connections">
               {ungrouped.map((connection, index) =>
-                renderConnectionRow(connection, index, index === ungrouped.length - 1),
+                renderConnectionRow(connection, index, index === ungrouped.length - 1, ungrouped.map((c) => c.id as string)),
               )}
             </ul>
           ) : null}

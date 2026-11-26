@@ -670,6 +670,50 @@ func (h *ConnectionHandler) SetConnectionGroup(w http.ResponseWriter, r *http.Re
 	response.Success(w, newConnectionResponse(*profile))
 }
 
+// ReorderSubset godoc
+// @Summary      Reorder a subset of connections (e.g. one group)
+// @Description  Permutes the given connections' existing sort_order slots among themselves, leaving other connections and containers untouched. ids must be existing connections without duplicates.
+// @Tags         connections
+// @Accept       json
+// @Produce      json
+// @Param        request  body      handler.ReorderRequest  true  "Ordered connection ids (subset)"
+// @Success      200      {object}  response.Envelope{data=[]handler.ConnectionResponse}
+// @Failure      400      {object}  response.ErrorEnvelope
+// @Router       /connections/reorder [patch]
+func (h *ConnectionHandler) ReorderSubset(w http.ResponseWriter, r *http.Request) {
+	var req ReorderRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	ids := make([]string, 0, len(req.ConnectionIDs))
+	for _, raw := range req.ConnectionIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			response.ValidationError(w, "connection ids must not be empty")
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := h.connections.ReorderSubset(r.Context(), ids); err != nil {
+		if errors.Is(err, repository.ErrInvalidOrder) {
+			response.ValidationError(w, "connection_ids must reference existing connections without duplicates")
+			return
+		}
+		h.internalError(w, r, "reorder_connections_subset", err)
+		return
+	}
+	profiles, err := h.connections.List(r.Context())
+	if err != nil {
+		h.repositoryError(w, r, "list_connections", err)
+		return
+	}
+	out := make([]ConnectionResponse, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, newConnectionResponse(profile))
+	}
+	response.Success(w, out)
+}
+
 // Delete godoc
 // @Summary      Delete a connection profile
 // @Description  Closes any active pool and removes the profile.

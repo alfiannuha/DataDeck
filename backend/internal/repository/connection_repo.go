@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/datadeck/datadeck/backend/internal/model"
@@ -245,6 +246,66 @@ func (r *ConnectionRepository) SetGroup(ctx context.Context, id string, groupID 
 	}
 	if n == 0 {
 		return fmt.Errorf("connection %q: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// ReorderSubset reorders a subset of connections (e.g. one group or the
+// ungrouped list) by permuting their existing sort_order slots among themselves.
+// Other connections' positions are untouched, so containers keep independent
+// manual order. ids must be existing connections with no duplicates.
+func (r *ConnectionRepository) ReorderSubset(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, sort_order FROM connection_profiles`)
+	if err != nil {
+		return fmt.Errorf("list connection slots: %w", err)
+	}
+	slots := make(map[string]int)
+	for rows.Next() {
+		var id string
+		var order int
+		if err := rows.Scan(&id, &order); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan connection slot: %w", err)
+		}
+		slots[id] = order
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate connection slots: %w", err)
+	}
+	_ = rows.Close()
+
+	values := make([]int, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		order, ok := slots[id]
+		if !ok {
+			return fmt.Errorf("%w: unknown connection %q", ErrInvalidOrder, id)
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("%w: duplicate connection %q", ErrInvalidOrder, id)
+		}
+		seen[id] = struct{}{}
+		values = append(values, order)
+	}
+	sort.Ints(values)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin subset reorder: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for i, id := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE connection_profiles SET sort_order = ? WHERE id = ?`, values[i], id); err != nil {
+			return fmt.Errorf("reorder connection %q: %w", id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit subset reorder: %w", err)
 	}
 	return nil
 }

@@ -321,3 +321,34 @@ func TestConnectionOrderPersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("order after restart = %s,%s,%s", list[0].ID, list[1].ID, list[2].ID)
 	}
 }
+
+func TestConnectionRepositoryReorderSubset(t *testing.T) {
+	ctx := context.Background()
+	repo := NewConnectionRepository(newTestDB(t))
+	for _, id := range []string{"c1", "c2", "c3", "c4"} {
+		if err := repo.Create(ctx, sampleProfile(id, id)); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+	// Reorder only c1 and c3 (their slots are 0 and 2): c3 takes 0, c1 takes 2.
+	if err := repo.ReorderSubset(ctx, []string{"c3", "c1"}); err != nil {
+		t.Fatalf("ReorderSubset: %v", err)
+	}
+	list, _ := repo.List(ctx)
+	got := []string{list[0].ID, list[1].ID, list[2].ID, list[3].ID}
+	want := []string{"c3", "c2", "c1", "c4"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order after subset reorder = %v, want %v", got, want)
+		}
+	}
+	if err := repo.ReorderSubset(ctx, []string{"c1", "zzz"}); !errors.Is(err, ErrInvalidOrder) {
+		t.Errorf("unknown id error = %v, want ErrInvalidOrder", err)
+	}
+	if err := repo.ReorderSubset(ctx, []string{"c1", "c1"}); !errors.Is(err, ErrInvalidOrder) {
+		t.Errorf("duplicate id error = %v, want ErrInvalidOrder", err)
+	}
+	if err := repo.ReorderSubset(ctx, nil); err != nil {
+		t.Errorf("empty subset error = %v, want nil", err)
+	}
+}

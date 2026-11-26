@@ -358,4 +358,62 @@ describe("ConnectionList grouping", () => {
       expect(setConnectionGroup).toHaveBeenCalledWith("c1", "g1"),
     );
   });
+
+  it("moves a connection into a group by dropping it on the group header", async () => {
+    vi.mocked(listConnectionGroups).mockResolvedValue([
+      { id: "g1", name: "Dev", sort_order: 0, is_expanded: false },
+    ] as never);
+    vi.mocked(setConnectionGroup).mockResolvedValue({} as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    const items = within(
+      screen.getByRole("list", { name: "Saved connections" }),
+    ).getAllByRole("listitem");
+    const handle = items[0].querySelector("[data-drag-handle]") as HTMLElement;
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: () => "c1",
+    };
+
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.drop(screen.getByTestId("group-header-g1"), { dataTransfer });
+
+    await waitFor(() =>
+      expect(setConnectionGroup).toHaveBeenCalledWith("c1", "g1"),
+    );
+  });
+
+  it("reorders within a group sending only the group's members", async () => {
+    vi.mocked(listConnectionGroups).mockResolvedValue([
+      { id: "g1", name: "Dev", sort_order: 0, is_expanded: true },
+    ] as never);
+    vi.mocked(listConnections).mockResolvedValue([
+      { ...savedConnection, id: "c1", name: "Alpha", group_id: "g1" },
+      { ...savedConnection, id: "c2", name: "Beta", group_id: "g1" },
+      { ...savedConnection, id: "c3", name: "Gamma" },
+    ] as never);
+    vi.mocked(reorderConnections).mockResolvedValue([] as never);
+    renderWithProviders(<ConnectionList />);
+
+    const groupEl = await screen.findByTestId("group-g1");
+    const members = within(groupEl).getAllByRole("listitem");
+    const memberRows = members.map((li) => li.querySelector("div") as HTMLElement);
+    const handle = memberRows[1].querySelector("[data-drag-handle]") as HTMLElement;
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: () => "c2",
+    };
+
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.drop(memberRows[0], { dataTransfer, clientY: 0 });
+
+    await waitFor(() => expect(reorderConnections).toHaveBeenCalled());
+    // Only the group's members are sent (subset), not the ungrouped Gamma (c3).
+    expect(vi.mocked(reorderConnections).mock.calls[0]?.[0]).toEqual(["c2", "c1"]);
+  });
 });

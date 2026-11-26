@@ -75,6 +75,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/connections", connections.List)
 		r.Get("/connections/status", connections.PoolStatus)
 		r.Patch("/connections/order", connections.Reorder)
+		r.Patch("/connections/reorder", connections.ReorderSubset)
 		r.Get("/connection-groups", connections.ListGroups)
 		r.Post("/connection-groups", connections.CreateGroup)
 		r.Patch("/connection-groups/order", connections.ReorderGroups)

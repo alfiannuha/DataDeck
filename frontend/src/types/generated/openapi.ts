@@ -308,6 +308,66 @@ export interface paths {
         };
         trace?: never;
     };
+    "/connections/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Reorder a subset of connections (e.g. one group)
+         * @description Permutes the given connections' existing sort_order slots among themselves, leaving other connections and containers untouched. ids must be existing connections without duplicates.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Ordered connection ids (subset) */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.ReorderRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["response.ErrorEnvelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/connections/status": {
         parameters: {
             query?: never;

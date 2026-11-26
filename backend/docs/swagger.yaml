@@ -3145,6 +3145,47 @@ paths:
       summary: Reorder connection profiles
       tags:
       - connections
+  /connections/reorder:
+    patch:
+      description: Permutes the given connections' existing sort_order slots among
+        themselves, leaving other connections and containers untouched. ids must be
+        existing connections without duplicates.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/handler.ReorderRequest'
+              description: Ordered connection ids (subset)
+              summary: request
+        description: Ordered connection ids (subset)
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/response.ErrorEnvelope'
+          description: Bad Request
+      summary: Reorder a subset of connections (e.g. one group)
+      tags:
+      - connections
   /connections/status:
     get:
       description: Reports initialized database pools (identity, driver, state, database/sql
