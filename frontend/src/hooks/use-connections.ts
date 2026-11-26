@@ -4,11 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createConnection,
+  createConnectionGroup,
   deleteConnection,
+  deleteConnectionGroup,
+  listConnectionGroups,
   listConnections,
+  reorderConnectionGroups,
   reorderConnections,
+  setConnectionGroup,
   testConnection,
   updateConnection,
+  updateConnectionGroup,
 } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query-keys";
 import type {
@@ -16,6 +22,8 @@ import type {
   ConnectionResponse,
   ConnectionTestRequest,
   ConnectionUpdateRequest,
+  GroupCreateRequest,
+  GroupUpdateRequest,
 } from "@/types/api";
 
 export function useConnections() {
@@ -119,6 +127,67 @@ export function useDeleteConnection() {
       void queryClient.removeQueries({
         queryKey: queryKeys.databases(connectionId),
       });
+    },
+  });
+}
+
+export function useConnectionGroups() {
+  return useQuery({
+    queryKey: queryKeys.groups,
+    queryFn: ({ signal }) => listConnectionGroups(signal),
+  });
+}
+
+export function useCreateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: GroupCreateRequest) => createConnectionGroup(body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+    },
+  });
+}
+
+export function useUpdateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, body }: { groupId: string; body: GroupUpdateRequest }) =>
+      updateConnectionGroup(groupId, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+    },
+  });
+}
+
+export function useDeleteGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groupId: string) => deleteConnectionGroup(groupId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.connections });
+    },
+  });
+}
+
+export function useReorderGroups() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groupIds: string[]) => reorderConnectionGroups(groupIds),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
+    },
+  });
+}
+
+export function useSetConnectionGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, groupId }: { connectionId: string; groupId: string | null }) =>
+      setConnectionGroup(connectionId, groupId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.connections });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
     },
   });
 }

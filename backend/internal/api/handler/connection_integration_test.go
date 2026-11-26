@@ -55,6 +55,7 @@ func TestConnectionTestIntegration(t *testing.T) {
 	manager := database.NewManager(database.DefaultOptions(), database.Postgres{})
 	h := handler.NewConnectionHandler(
 		repository.NewConnectionRepository(store.DB()),
+		repository.NewConnectionGroupRepository(store.DB()),
 		manager,
 		cipher,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),

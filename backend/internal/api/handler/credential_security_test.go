@@ -54,7 +54,7 @@ func newCredentialHarness(t *testing.T) (
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	return NewConnectionHandler(repo, manager, cipher, logger),
+	return NewConnectionHandler(repo, nil, manager, cipher, logger),
 		NewQueryHandler(repo, history, manager, cipher, logger),
 		store.DB(), cipher, logs
 }

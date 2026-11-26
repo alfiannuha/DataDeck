@@ -9,6 +9,10 @@ import {
 import type {
   ConnectionCreateRequest,
   ConnectionUpdateRequest,
+  ConnectionGroup,
+  GroupCreateRequest,
+  GroupUpdateRequest,
+  GroupReorderRequest,
   ReorderRequest,
   DatabaseInfo,
   ConnectionResponse,
@@ -239,6 +243,51 @@ export interface TableFilterParams {
   operator: FilterOperator;
   value?: unknown;
   values?: unknown[];
+}
+
+export function listConnectionGroups(signal?: AbortSignal): Promise<ConnectionGroup[]> {
+  return apiFetch<ConnectionGroup[]>("/connection-groups", { signal });
+}
+
+export function createConnectionGroup(body: GroupCreateRequest): Promise<ConnectionGroup> {
+  return apiFetch<ConnectionGroup>("/connection-groups", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateConnectionGroup(
+  groupId: string,
+  body: GroupUpdateRequest,
+): Promise<ConnectionGroup> {
+  return apiFetch<ConnectionGroup>(`/connection-groups/${encodeURIComponent(groupId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteConnectionGroup(groupId: string): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/connection-groups/${encodeURIComponent(groupId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function reorderConnectionGroups(groupIds: string[]): Promise<ConnectionGroup[]> {
+  const body: GroupReorderRequest = { group_ids: groupIds };
+  return apiFetch<ConnectionGroup[]>("/connection-groups/order", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function setConnectionGroup(
+  connectionId: string,
+  groupId: string | null,
+): Promise<ConnectionResponse> {
+  return apiFetch<ConnectionResponse>(
+    `/connections/${encodeURIComponent(connectionId)}/group`,
+    { method: "PATCH", body: JSON.stringify({ group_id: groupId }) },
+  );
 }
 
 export interface TableDataParams {

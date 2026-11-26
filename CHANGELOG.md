@@ -3,7 +3,7 @@
 All notable changes to DataDeck are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.2] — 2026-11-26
 
 ### Fixed
 - Editing a row and setting a **nullable** column to NULL now succeeds (previously
@@ -14,6 +14,15 @@ All notable changes to DataDeck are documented here. This project follows
 ### Added
 - **Copy as JSON** for the current row selection (single/multiple/select-all),
   preserving canonical types (BIGINT string, NULL→null, booleans, nested JSON).
+- **Inline Add Row**: a non-virtualized editable row in the table data grid with
+  type-aware inputs, value/NULL/default modes, auto (generated/identity) columns
+  omitted, Save/Cancel (Enter/Escape), validation, duplicate-insert guard, and
+  error preservation (the Add Row modal is no longer used).
+- **Connection grouping + accordion sidebar**: opt-in groups (create/rename/
+  delete/reorder), per-group expand/collapse (collapsed by default, persisted),
+  a master "Data Connections" accordion, and per-connection "Move to group" /
+  "Remove from group". Legacy connections stay ungrouped; deleting a group keeps
+  its connections.
 
 ## [0.4.1] — 2026-11-17
 

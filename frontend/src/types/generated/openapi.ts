@@ -4,6 +4,133 @@
  */
 
 export interface paths {
+    "/connection-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List connection groups */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data?: unknown;
+                            error?: components["schemas"]["response.APIError"];
+                            meta?: {
+                                [key: string]: unknown;
+                            };
+                            success?: boolean;
+                        } & components["schemas"]["data"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a connection group */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: never;
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connection-groups/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Persist a manual connection-group order */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: never;
+        };
+        trace?: never;
+    };
+    "/connection-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a connection group (members become ungrouped) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: never;
+        };
+        options?: never;
+        head?: never;
+        /** Rename a connection group / update expanded state */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: never;
+        };
+        trace?: never;
+    };
     "/connections": {
         parameters: {
             query?: never;
@@ -1077,6 +1204,36 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/connections/{id}/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Move a connection into a group (null = ungrouped) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: never;
+        };
         trace?: never;
     };
     "/connections/{id}/reconnect": {
@@ -2816,6 +2973,12 @@ export interface components {
              */
             mode?: "schema_data" | "schema" | "data";
         };
+        "handler.ConnectionGroupResponse": {
+            id?: string;
+            is_expanded?: boolean;
+            name?: string;
+            sort_order?: number;
+        };
         "handler.ConnectionRequest": {
             /**
              * @description Color is an optional #RRGGBB presentation hint; empty means "use default".
@@ -2856,6 +3019,7 @@ export interface components {
              * @enum {string}
              */
             driver?: "postgres" | "mysql" | "sqlite";
+            group_id?: string;
             /** @example 127.0.0.1 */
             host?: string;
             /** @example 9f1c7d2e4a6b4e89b88ad5f356bf7312 */

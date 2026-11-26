@@ -56,8 +56,23 @@ type ConnectionProfile struct {
 	// SortOrder is the manual sidebar position (0-based, unique). New
 	// connections are appended at the bottom; editing never changes it.
 	SortOrder int
+	// GroupID is the optional connection group this profile belongs to. nil means
+	// ungrouped (rendered directly in the main list).
+	GroupID   *string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ConnectionGroup is an optional, user-defined grouping of connections shown as
+// an accordion in the sidebar. Membership is explicit; connections without a
+// group remain ungrouped.
+type ConnectionGroup struct {
+	ID         string
+	Name       string
+	SortOrder  int
+	IsExpanded bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Redacted returns a copy of the profile with credential ciphertext removed.

@@ -49,7 +49,7 @@ func newTestHandler(t *testing.T) (*ConnectionHandler, *sql.DB, *security.Cipher
 		PingTimeout:     300 * time.Millisecond,
 	}, database.Postgres{}, database.MySQL{}, database.SQLite{})
 	repo := repository.NewConnectionRepository(store.DB())
-	h := NewConnectionHandler(repo, manager, cipher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewConnectionHandler(repo, repository.NewConnectionGroupRepository(store.DB()), manager, cipher, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return h, store.DB(), cipher
 }
 

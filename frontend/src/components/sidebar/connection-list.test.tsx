@@ -2,9 +2,13 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createConnectionGroup,
   deleteConnection,
+  listConnectionGroups,
   listConnections,
   reorderConnections,
+  setConnectionGroup,
+  updateConnectionGroup,
 } from "@/lib/api/endpoints";
 import { ApiClientError } from "@/lib/api-client";
 import { renderWithProviders } from "@/test/render";
@@ -19,6 +23,12 @@ vi.mock("@/lib/api/endpoints", () => ({
   testConnection: vi.fn(),
   deleteConnection: vi.fn(),
   reorderConnections: vi.fn(),
+  listConnectionGroups: vi.fn().mockResolvedValue([]),
+  createConnectionGroup: vi.fn(),
+  updateConnectionGroup: vi.fn(),
+  deleteConnectionGroup: vi.fn(),
+  reorderConnectionGroups: vi.fn(),
+  setConnectionGroup: vi.fn(),
 }));
 
 const savedConnection = {
@@ -275,5 +285,77 @@ describe("ConnectionList manual ordering", () => {
       "c1",
       "c2",
     ]);
+  });
+});
+
+describe("ConnectionList grouping", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useConnectionStore.setState({ activeConnectionId: null });
+    vi.mocked(listConnections).mockResolvedValue(reorderData as never);
+    vi.mocked(listConnectionGroups).mockResolvedValue([] as never);
+  });
+
+  it("hides and restores all connections via the master accordion", async () => {
+    renderWithProviders(<ConnectionList />);
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("connections-toggle"));
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("connections-toggle"));
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+  });
+
+  it("lists groups collapsed by default and hides members until expanded", async () => {
+    vi.mocked(listConnectionGroups).mockResolvedValue([
+      { id: "g1", name: "Dev", sort_order: 0, is_expanded: false },
+    ] as never);
+    vi.mocked(listConnections).mockResolvedValue([
+      { ...savedConnection, id: "c1", name: "Alpha", group_id: "g1" },
+    ] as never);
+    renderWithProviders(<ConnectionList />);
+
+    const toggle = await screen.findByTestId("group-toggle-g1");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+
+    vi.mocked(updateConnectionGroup).mockResolvedValue({} as never);
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(updateConnectionGroup).toHaveBeenCalledWith("g1", { is_expanded: true }),
+    );
+  });
+
+  it("creates a group from the header", async () => {
+    vi.mocked(createConnectionGroup).mockResolvedValue({ id: "g9", name: "Dev" } as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    fireEvent.click(screen.getByRole("button", { name: "New group" }));
+    fireEvent.change(await screen.findByLabelText("Group name"), {
+      target: { value: "Dev" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(createConnectionGroup).toHaveBeenCalledWith({ name: "Dev" }),
+    );
+  });
+
+  it("moves a connection into a group via the menu", async () => {
+    vi.mocked(listConnectionGroups).mockResolvedValue([
+      { id: "g1", name: "Dev", sort_order: 0, is_expanded: false },
+    ] as never);
+    vi.mocked(setConnectionGroup).mockResolvedValue({} as never);
+    renderWithProviders(<ConnectionList />);
+    await screen.findByText("Alpha");
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Reorder Alpha" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(await screen.findByTestId("conn-move-group-c1-g1"));
+
+    await waitFor(() =>
+      expect(setConnectionGroup).toHaveBeenCalledWith("c1", "g1"),
+    );
   });
 });

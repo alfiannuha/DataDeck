@@ -65,6 +65,22 @@ export type ConnectionResponse = Schemas["handler.ConnectionResponse"];
 export type ConnectionCreateRequest = Schemas["handler.ConnectionRequest"];
 export type ConnectionUpdateRequest = Schemas["handler.ConnectionUpdateRequest"];
 export type ReorderRequest = Schemas["handler.ReorderRequest"];
+export type ConnectionGroup = Schemas["handler.ConnectionGroupResponse"];
+// Simple request bodies (not emitted as OpenAPI schemas because the handlers do
+// not annotate a body parameter); kept in lockstep with the backend DTOs.
+export interface GroupCreateRequest {
+  name: string;
+}
+export interface GroupUpdateRequest {
+  name?: string;
+  is_expanded?: boolean;
+}
+export interface GroupReorderRequest {
+  group_ids: string[];
+}
+export interface SetConnectionGroupRequest {
+  group_id: string | null;
+}
 export type ConnectionTestRequest = Schemas["handler.ConnectionTestRequest"];
 export type TestConnectionResponse = Schemas["handler.TestConnectionResponse"];
 export type DeleteConnectionResponse = Schemas["handler.DeleteConnectionResponse"];

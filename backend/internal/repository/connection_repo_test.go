@@ -195,8 +195,8 @@ func TestConnectionRepositoryReadsLegacyStore(t *testing.T) {
 		t.Fatalf("count migrations: %v", err)
 	}
 	// PRF migrations are additive (001-004).
-	if migrations != 4 {
-		t.Errorf("schema_migrations count = %d, want 4", migrations)
+	if migrations != 5 {
+		t.Errorf("schema_migrations count = %d, want 5", migrations)
 	}
 
 	got, err := NewConnectionRepository(reopened.DB()).Get(ctx, "legacy")

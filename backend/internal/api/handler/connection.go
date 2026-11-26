@@ -53,6 +53,7 @@ func defaultPortFor(driver model.Driver) int {
 // ConnectionHandler serves the connection profile endpoints.
 type ConnectionHandler struct {
 	connections *repository.ConnectionRepository
+	groups      *repository.ConnectionGroupRepository
 	manager     *database.Manager
 	cipher      *security.Cipher
 	logger      *slog.Logger
@@ -77,12 +78,14 @@ type ConnectionHandler struct {
 // NewConnectionHandler constructs a handler for connection profile endpoints.
 func NewConnectionHandler(
 	connections *repository.ConnectionRepository,
+	groups *repository.ConnectionGroupRepository,
 	manager *database.Manager,
 	cipher *security.Cipher,
 	logger *slog.Logger,
 ) *ConnectionHandler {
 	return &ConnectionHandler{
 		connections:    connections,
+		groups:         groups,
 		manager:        manager,
 		cipher:         cipher,
 		logger:         logger,
@@ -153,6 +156,7 @@ type ConnectionResponse struct {
 	Username     *string   `json:"username" example:"appuser"`
 	SSLMode      string    `json:"ssl_mode" example:"disable"`
 	Color        string    `json:"color" example:"#3b82f6"`
+	GroupID      *string   `json:"group_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -168,6 +172,7 @@ func newConnectionResponse(profile model.ConnectionProfile) ConnectionResponse {
 		Username:     profile.Username,
 		SSLMode:      profile.SSLMode,
 		Color:        profile.Color,
+		GroupID:      profile.GroupID,
 		CreatedAt:    profile.CreatedAt,
 		UpdatedAt:    profile.UpdatedAt,
 	}
@@ -438,6 +443,231 @@ func (h *ConnectionHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 		out = append(out, newConnectionResponse(profile))
 	}
 	response.Success(w, out)
+}
+
+// ConnectionGroupResponse is the sanitized connection-group representation.
+type ConnectionGroupResponse struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	SortOrder  int    `json:"sort_order"`
+	IsExpanded bool   `json:"is_expanded"`
+}
+
+func newGroupResponse(group model.ConnectionGroup) ConnectionGroupResponse {
+	return ConnectionGroupResponse{
+		ID:         group.ID,
+		Name:       group.Name,
+		SortOrder:  group.SortOrder,
+		IsExpanded: group.IsExpanded,
+	}
+}
+
+// GroupCreateRequest is the body for POST /connection-groups.
+type GroupCreateRequest struct {
+	Name string `json:"name" binding:"required" example:"Development"`
+}
+
+// GroupUpdateRequest renames a group and/or updates its expanded state.
+type GroupUpdateRequest struct {
+	Name       string `json:"name,omitempty"`
+	IsExpanded *bool  `json:"is_expanded,omitempty"`
+}
+
+// GroupReorderRequest persists a manual group order (a full permutation).
+type GroupReorderRequest struct {
+	GroupIDs []string `json:"group_ids"`
+}
+
+// SetConnectionGroupRequest moves a connection into a group (null = ungrouped).
+type SetConnectionGroupRequest struct {
+	GroupID *string `json:"group_id"`
+}
+
+// ListGroups godoc
+// @Summary      List connection groups
+// @Tags         connection-groups
+// @Produce      json
+// @Success      200  {object}  response.Envelope{data=[]handler.ConnectionGroupResponse}
+// @Router       /connection-groups [get]
+func (h *ConnectionHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := h.groups.List(r.Context())
+	if err != nil {
+		h.internalError(w, r, "list_groups", err)
+		return
+	}
+	out := make([]ConnectionGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, newGroupResponse(group))
+	}
+	response.Success(w, out)
+}
+
+// CreateGroup godoc
+// @Summary      Create a connection group
+// @Tags         connection-groups
+// @Accept       json
+// @Produce      json
+// @Router       /connection-groups [post]
+func (h *ConnectionHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var req GroupCreateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		response.ValidationError(w, "group name is required")
+		return
+	}
+	id, err := newID()
+	if err != nil {
+		h.internalError(w, r, "generate_id", err)
+		return
+	}
+	group := model.ConnectionGroup{ID: id, Name: name}
+	if err := h.groups.Create(r.Context(), &group); err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			response.WriteError(w, http.StatusConflict, "CONFLICT", "a group with that name already exists")
+			return
+		}
+		h.internalError(w, r, "create_group", err)
+		return
+	}
+	response.Success(w, newGroupResponse(group))
+}
+
+// UpdateGroup godoc
+// @Summary      Rename a connection group / update expanded state
+// @Tags         connection-groups
+// @Accept       json
+// @Produce      json
+// @Router       /connection-groups/{id} [patch]
+func (h *ConnectionHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "group id is required")
+		return
+	}
+	var req GroupUpdateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	group, err := h.groups.Get(r.Context(), id)
+	if err != nil {
+		h.repositoryError(w, r, "get_group", err)
+		return
+	}
+	if name := strings.TrimSpace(req.Name); name != "" {
+		group.Name = name
+	}
+	if req.IsExpanded != nil {
+		group.IsExpanded = *req.IsExpanded
+	}
+	if err := h.groups.Update(r.Context(), &group); err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			response.WriteError(w, http.StatusConflict, "CONFLICT", "a group with that name already exists")
+			return
+		}
+		h.repositoryError(w, r, "update_group", err)
+		return
+	}
+	response.Success(w, newGroupResponse(group))
+}
+
+// DeleteGroup godoc
+// @Summary      Delete a connection group (members become ungrouped)
+// @Tags         connection-groups
+// @Produce      json
+// @Router       /connection-groups/{id} [delete]
+func (h *ConnectionHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "group id is required")
+		return
+	}
+	if err := h.groups.Delete(r.Context(), id); err != nil {
+		h.repositoryError(w, r, "delete_group", err)
+		return
+	}
+	response.Success(w, map[string]string{"id": id})
+}
+
+// ReorderGroups godoc
+// @Summary      Persist a manual connection-group order
+// @Tags         connection-groups
+// @Accept       json
+// @Produce      json
+// @Router       /connection-groups/order [patch]
+func (h *ConnectionHandler) ReorderGroups(w http.ResponseWriter, r *http.Request) {
+	var req GroupReorderRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	ids := make([]string, 0, len(req.GroupIDs))
+	for _, raw := range req.GroupIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			response.ValidationError(w, "group ids must not be empty")
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := h.groups.Reorder(r.Context(), ids); err != nil {
+		if errors.Is(err, repository.ErrInvalidOrder) {
+			response.ValidationError(w, "group_ids must list every existing group exactly once")
+			return
+		}
+		h.internalError(w, r, "reorder_groups", err)
+		return
+	}
+	groups, err := h.groups.List(r.Context())
+	if err != nil {
+		h.internalError(w, r, "list_groups", err)
+		return
+	}
+	out := make([]ConnectionGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, newGroupResponse(group))
+	}
+	response.Success(w, out)
+}
+
+// SetConnectionGroup godoc
+// @Summary      Move a connection into a group (null = ungrouped)
+// @Tags         connections
+// @Accept       json
+// @Produce      json
+// @Router       /connections/{id}/group [patch]
+func (h *ConnectionHandler) SetConnectionGroup(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		response.ValidationError(w, "connection id is required")
+		return
+	}
+	var req SetConnectionGroupRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	var groupID *string
+	if req.GroupID != nil {
+		trimmed := strings.TrimSpace(*req.GroupID)
+		if trimmed != "" {
+			groupID = &trimmed
+		}
+	}
+	if err := h.connections.SetGroup(r.Context(), id, groupID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			response.WriteError(w, http.StatusNotFound, "NOT_FOUND", "connection or group not found")
+			return
+		}
+		h.internalError(w, r, "set_connection_group", err)
+		return
+	}
+	profile, err := h.connections.Get(r.Context(), id)
+	if err != nil {
+		h.repositoryError(w, r, "get_connection", err)
+		return
+	}
+	response.Success(w, newConnectionResponse(*profile))
 }
 
 // Delete godoc

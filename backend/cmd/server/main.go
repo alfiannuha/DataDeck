@@ -85,10 +85,11 @@ func run() error {
 	connectionRepo := repository.NewConnectionRepository(store.DB())
 	historyRepo := repository.NewQueryHistoryRepository(store.DB())
 	savedQueryRepo := repository.NewSavedQueryRepository(store.DB())
+	groupRepo := repository.NewConnectionGroupRepository(store.DB())
 
 	server := &http.Server{
 		Addr:              cfg.Addr(),
-		Handler:           api.NewServer(cfg, logger, credentials, connectionRepo, historyRepo, savedQueryRepo, connections).Router(),
+		Handler:           api.NewServer(cfg, logger, credentials, connectionRepo, historyRepo, savedQueryRepo, groupRepo, connections).Router(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

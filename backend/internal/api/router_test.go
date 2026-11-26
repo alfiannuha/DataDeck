@@ -28,7 +28,7 @@ func newTestServer() *Server {
 	if err != nil {
 		panic(err)
 	}
-	return NewServer(cfg, logger, credentials, nil, nil, nil, nil)
+	return NewServer(cfg, logger, credentials, nil, nil, nil, nil, nil)
 }
 
 func TestHealthEndpoint(t *testing.T) {

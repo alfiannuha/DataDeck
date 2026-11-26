@@ -5,6 +5,8 @@
 export const queryKeys = {
   health: ["health"] as const,
   connections: ["connections"] as const,
+  /** Optional connection groups. */
+  groups: ["connection-groups"] as const,
   /** Selectable databases for a server-level connection (PRF-01). */
   databases: (connectionId: string) =>
     ["connections", connectionId, "databases"] as const,

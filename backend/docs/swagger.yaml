@@ -53,6 +53,17 @@ components:
           example: schema_data
           type: string
       type: object
+    handler.ConnectionGroupResponse:
+      properties:
+        id:
+          type: string
+        is_expanded:
+          type: boolean
+        name:
+          type: string
+        sort_order:
+          type: integer
+      type: object
     handler.ConnectionRequest:
       properties:
         color:
@@ -115,6 +126,8 @@ components:
           - mysql
           - sqlite
           example: postgres
+          type: string
+        group_id:
           type: string
         host:
           example: 127.0.0.1
@@ -1339,6 +1352,66 @@ info:
   version: "1.0"
 openapi: 3.1.0
 paths:
+  /connection-groups:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/data'
+                properties:
+                  data: {}
+                  error:
+                    $ref: '#/components/schemas/response.APIError'
+                  meta:
+                    additionalProperties: {}
+                    type: object
+                  success:
+                    type: boolean
+                type: object
+          description: OK
+      summary: List connection groups
+      tags:
+      - connection-groups
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses: {}
+      summary: Create a connection group
+      tags:
+      - connection-groups
+  /connection-groups/{id}:
+    delete:
+      responses: {}
+      summary: Delete a connection group (members become ungrouped)
+      tags:
+      - connection-groups
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses: {}
+      summary: Rename a connection group / update expanded state
+      tags:
+      - connection-groups
+  /connection-groups/order:
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses: {}
+      summary: Persist a manual connection-group order
+      tags:
+      - connection-groups
   /connections:
     get:
       description: Returns all persisted connection profiles with credentials omitted.
@@ -1984,6 +2057,17 @@ paths:
       summary: Preflight a database deletion
       tags:
       - database
+  /connections/{id}/group:
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses: {}
+      summary: Move a connection into a group (null = ungrouped)
+      tags:
+      - connections
   /connections/{id}/reconnect:
     post:
       description: 'Replaces the pool for the explicit database target with a freshly

@@ -24,7 +24,7 @@ func NewConnectionRepository(db *sql.DB) *ConnectionRepository {
 
 const connectionColumns = `id, name, driver, host, port, database_name, username,
 	encrypted_password, ssl_mode, ssh_enabled, ssh_host, ssh_port, ssh_username,
-	ssh_encrypted_password, ssh_key_path, color, sort_order, created_at, updated_at`
+	ssh_encrypted_password, ssh_key_path, color, sort_order, group_id, created_at, updated_at`
 
 // Create inserts a new connection profile, assigning timestamps when unset.
 func (r *ConnectionRepository) Create(ctx context.Context, profile *model.ConnectionProfile) error {
@@ -54,12 +54,12 @@ func (r *ConnectionRepository) Create(ctx context.Context, profile *model.Connec
 
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO connection_profiles (`+connectionColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		profile.ID, profile.Name, string(profile.Driver), nullString(profile.Host), nullInt(profile.Port),
 		profile.DatabaseName, nullString(profile.Username), nullString(profile.EncryptedPassword), sslMode,
 		boolToInt(profile.SSHEnabled), nullString(profile.SSHHost), nullInt(profile.SSHPort),
 		nullString(profile.SSHUsername), nullString(profile.SSHEncryptedPassword), nullString(profile.SSHKeyPath),
-		nullText(profile.Color), profile.SortOrder, profile.CreatedAt, profile.UpdatedAt)
+		nullText(profile.Color), profile.SortOrder, nullString(profile.GroupID), profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("connection %q: %w", profile.ID, ErrConflict)
@@ -220,6 +220,35 @@ func (r *ConnectionRepository) Reorder(ctx context.Context, ids []string) error 
 	return nil
 }
 
+// SetGroup moves a connection into a group, or to ungrouped when groupID is nil.
+// It validates that the target group exists. It never changes other fields.
+func (r *ConnectionRepository) SetGroup(ctx context.Context, id string, groupID *string) error {
+	if groupID != nil {
+		var exists int
+		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM connection_groups WHERE id = ?`, *groupID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("group %q: %w", *groupID, ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("lookup group %q: %w", *groupID, err)
+		}
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE connection_profiles SET group_id = ?, updated_at = ? WHERE id = ?`,
+		nullString(groupID), time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("set group for connection %q: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set group for connection %q: %w", id, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("connection %q: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
 func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 	var (
 		profile    model.ConnectionProfile
@@ -236,11 +265,12 @@ func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 		sshEncPw   sql.NullString
 		sshKey     sql.NullString
 		color      sql.NullString
+		groupID    sql.NullString
 	)
 	if err := s.Scan(
 		&profile.ID, &profile.Name, &driver, &host, &port, &profile.DatabaseName,
 		&username, &encrypted, &sslMode, &sshEnabled, &sshHost, &sshPort,
-		&sshUser, &sshEncPw, &sshKey, &color, &profile.SortOrder, &profile.CreatedAt, &profile.UpdatedAt,
+		&sshUser, &sshEncPw, &sshKey, &color, &profile.SortOrder, &groupID, &profile.CreatedAt, &profile.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -261,5 +291,6 @@ func scanConnection(s scanner) (*model.ConnectionProfile, error) {
 	profile.SSHEncryptedPassword = stringPtr(sshEncPw)
 	profile.SSHKeyPath = stringPtr(sshKey)
 	profile.Color = color.String
+	profile.GroupID = stringPtr(groupID)
 	return &profile, nil
 }

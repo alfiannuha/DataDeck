@@ -25,6 +25,7 @@ type Server struct {
 	connections  *repository.ConnectionRepository
 	history      *repository.QueryHistoryRepository
 	savedQueries *repository.SavedQueryRepository
+	groups       *repository.ConnectionGroupRepository
 	manager      *database.Manager
 }
 
@@ -36,6 +37,7 @@ func NewServer(
 	connections *repository.ConnectionRepository,
 	history *repository.QueryHistoryRepository,
 	savedQueries *repository.SavedQueryRepository,
+	groups *repository.ConnectionGroupRepository,
 	manager *database.Manager,
 ) *Server {
 	return &Server{
@@ -45,6 +47,7 @@ func NewServer(
 		connections:  connections,
 		history:      history,
 		savedQueries: savedQueries,
+		groups:       groups,
 		manager:      manager,
 	}
 }
@@ -62,7 +65,7 @@ func (s *Server) Router() http.Handler {
 	// (CORS is not sufficient for multipart "simple" requests). See middleware/csrf.go.
 	r.Use(middleware.CSRF(s.cfg.CORSAllowedOrigins))
 
-	connections := handler.NewConnectionHandler(s.connections, s.manager, s.credentials, s.logger)
+	connections := handler.NewConnectionHandler(s.connections, s.groups, s.manager, s.credentials, s.logger)
 	queries := handler.NewQueryHandler(s.connections, s.history, s.manager, s.credentials, s.logger)
 	savedQueries := handler.NewSavedQueryHandler(s.savedQueries, s.logger)
 
@@ -72,6 +75,12 @@ func (s *Server) Router() http.Handler {
 		r.Get("/connections", connections.List)
 		r.Get("/connections/status", connections.PoolStatus)
 		r.Patch("/connections/order", connections.Reorder)
+		r.Get("/connection-groups", connections.ListGroups)
+		r.Post("/connection-groups", connections.CreateGroup)
+		r.Patch("/connection-groups/order", connections.ReorderGroups)
+		r.Patch("/connection-groups/{id}", connections.UpdateGroup)
+		r.Delete("/connection-groups/{id}", connections.DeleteGroup)
+		r.Patch("/connections/{id}/group", connections.SetConnectionGroup)
 		r.Post("/connections", connections.Create)
 		r.Put("/connections/{id}", connections.Update)
 		r.Post("/connections/test", connections.Test)

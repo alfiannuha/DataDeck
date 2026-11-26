@@ -76,6 +76,9 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 	sort.Strings(gotPaths)
 
 	wantPaths := []string{
+		"/connection-groups",
+		"/connection-groups/order",
+		"/connection-groups/{id}",
 		"/connections",
 		"/connections/order",
 		"/connections/status",
@@ -88,6 +91,7 @@ func TestSwaggerSpecMatchesImplementation(t *testing.T) {
 		"/connections/{id}/databases",
 		"/connections/{id}/databases/{database}/delete",
 		"/connections/{id}/databases/{database}/delete-preflight",
+		"/connections/{id}/group",
 		"/connections/{id}/reconnect",
 		"/connections/{id}/schemas",
 		"/connections/{id}/table-backup",
@@ -200,6 +204,7 @@ func newContractRouter(t *testing.T) http.Handler {
 		repository.NewConnectionRepository(store.DB()),
 		repository.NewQueryHistoryRepository(store.DB()),
 		repository.NewSavedQueryRepository(store.DB()),
+		repository.NewConnectionGroupRepository(store.DB()),
 		database.NewManager(database.DefaultOptions(), database.Postgres{}, database.MySQL{}, database.SQLite{}),
 	)
 	return server.Router()
