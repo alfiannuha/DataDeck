@@ -317,6 +317,17 @@ func planMutation(driver model.Driver, table *model.Table, req RowMutationReques
 			if containsString(pkColumns, name) || column.Generated || column.Identity {
 				return nil, fmt.Errorf("%w: %q cannot be modified", ErrColumnReadOnly, name)
 			}
+			// Setting a column to SQL NULL: bind a nil value (the placeholder
+			// path emits `col = ?` -> NULL). Only nullable columns are allowed;
+			// a non-nullable column gets a clear validation error, never an
+			// identity error.
+			if raw == nil {
+				if !column.Nullable {
+					return nil, fmt.Errorf("%w: column %q does not allow NULL", ErrInvalidColumnValue, name)
+				}
+				resolved.changes = append(resolved.changes, resolvedChange{column: name, value: nil})
+				continue
+			}
 			value, err := convertValue(categorize(column.DataType), raw)
 			if err != nil {
 				return nil, fmt.Errorf("%w: %v", ErrRowIdentityInvalid, err)

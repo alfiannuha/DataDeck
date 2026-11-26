@@ -303,6 +303,60 @@ describe("TableDataView", () => {
     expect(t2.kind === "table-data" && t2.sort).toEqual([{ column: "id", direction: "desc" }]);
   });
 
+  it("keeps filters tab-local (no leakage between tabs)", async () => {
+    const filterA = [{ column: "name", operator: "equals" as const, value: "A" }];
+    const filterB = [{ column: "name", operator: "equals" as const, value: "B" }];
+    useWorkspaceStore.setState({
+      tabs: [
+        tableTab({ id: "t1", database: "alpha", filters: filterA }),
+        tableTab({ id: "t2", database: "beta", filters: filterB }),
+      ],
+      activeTabId: "t1",
+    });
+    renderWithProviders(<TableDataView />);
+
+    await waitFor(() => expect(browseTableData).toHaveBeenCalled());
+    const [, params] = vi.mocked(browseTableData).mock.calls.at(-1)!;
+    expect(params.database).toBe("alpha");
+    expect(params.filters).toEqual(filterA);
+    expect(params.filters).not.toEqual(filterB);
+
+    const [t1, t2] = useWorkspaceStore.getState().tabs;
+    expect(t1.kind === "table-data" && t1.filters).toEqual(filterA);
+    expect(t2.kind === "table-data" && t2.filters).toEqual(filterB);
+  });
+
+  it("copies selected rows as a JSON array with canonical types", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({
+        columns: [
+          { name: "id", database_type: "bigint", primary_key: true, updatable: false, nullable: false },
+          { name: "name", database_type: "text", nullable: true, updatable: true },
+          { name: "active", database_type: "boolean", nullable: false, updatable: true },
+        ],
+        rows: [
+          ["1", "A", true],
+          ["2", "B", false],
+        ],
+      }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    await screen.findByRole("grid", { name: "Table data grid" });
+
+    fireEvent.click(screen.getByLabelText("Select row 1"));
+    fireEvent.click(screen.getByLabelText("Select row 2"));
+    fireEvent.click(screen.getByTestId("selection-copy-json"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const parsed = JSON.parse(writeText.mock.calls[0][0] as string);
+    expect(parsed).toEqual([
+      { id: "1", name: "A", active: true },
+      { id: "2", name: "B", active: false },
+    ]);
+  });
+
   it("opens the export dialog bound to this tab (filters + sort + object type)", async () => {
     useWorkspaceStore.setState({
       tabs: [
@@ -502,13 +556,12 @@ describe("TableDataView add row", () => {
     await screen.findByTestId("table-data-add-row");
 
     fireEvent.click(screen.getByTestId("table-data-add-row"));
-    fireEvent.change(await screen.findByLabelText("name mode"), {
-      target: { value: "value" },
-    });
+    await screen.findByTestId("inline-add-row");
+    expect(screen.queryByTestId("add-row-dialog")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("name value"), {
       target: { value: "Alfie" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    fireEvent.click(screen.getByTestId("inline-add-save"));
 
     await waitFor(() =>
       expect(insertRow).toHaveBeenCalledWith(
@@ -542,10 +595,29 @@ describe("TableDataView add row", () => {
     );
     renderWithProviders(<TableDataView />);
     fireEvent.click(await screen.findByTestId("table-data-add-row"));
-    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    await screen.findByTestId("inline-add-row");
+    fireEvent.change(screen.getByLabelText("name value"), { target: { value: "X" } });
+    fireEvent.click(screen.getByTestId("inline-add-save"));
 
-    expect(await screen.findByTestId("add-row-dialog")).toBeInTheDocument();
-    expect(await screen.findByRole("alert")).toHaveTextContent("CONSTRAINT_VIOLATION");
+    expect(await screen.findByTestId("inline-add-error")).toHaveTextContent(
+      "CONSTRAINT_VIOLATION",
+    );
+    // The inline draft row stays open so the user keeps their input.
+    expect(screen.getByTestId("inline-add-row")).toBeInTheDocument();
+  });
+
+  it("cancels an inline add without inserting", async () => {
+    vi.mocked(browseTableData).mockResolvedValue(
+      pageResult({ row_capabilities: { insert: true } }) as never,
+    );
+    renderWithProviders(<TableDataView />);
+    fireEvent.click(await screen.findByTestId("table-data-add-row"));
+    await screen.findByTestId("inline-add-row");
+    fireEvent.change(screen.getByLabelText("name value"), { target: { value: "X" } });
+    fireEvent.click(screen.getByTestId("inline-add-cancel"));
+
+    expect(screen.queryByTestId("inline-add-row")).not.toBeInTheDocument();
+    expect(insertRow).not.toHaveBeenCalled();
   });
 });
 

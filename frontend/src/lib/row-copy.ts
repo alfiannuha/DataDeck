@@ -28,3 +28,20 @@ export function rowToJSON(columns: TableColumnInfo[], row: unknown[]): string {
   });
   return JSON.stringify(object, null, 2);
 }
+
+/**
+ * Multiple rows as a JSON array of column-keyed objects (PRF v0.4.2 Copy as
+ * JSON). Values keep their canonical types (BIGINT string, NULL→null, booleans).
+ */
+export function rowsToJSON(columns: TableColumnInfo[], rows: unknown[][]): string {
+  const objects = rows.map((row) => {
+    const object: Record<string, unknown> = {};
+    columns.forEach((column, index) => {
+      if (!column.name) return;
+      const value = row[index];
+      object[column.name] = value === undefined ? null : value;
+    });
+    return object;
+  });
+  return JSON.stringify(objects, null, 2);
+}

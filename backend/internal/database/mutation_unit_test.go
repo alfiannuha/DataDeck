@@ -152,3 +152,32 @@ func TestPlanMutationDeterministicColumnOrder(t *testing.T) {
 		t.Errorf("expected order = %v, want [status name age]", got)
 	}
 }
+
+func TestPlanMutationAllowsNullableNullChange(t *testing.T) {
+	resolved, err := planMutation(model.DriverPostgres, mutationTable(), RowMutationRequest{
+		Identity: map[string]any{"id": json.Number("1")},
+		Changes:  map[string]any{"name": nil},
+	}, true)
+	if err != nil {
+		t.Fatalf("planMutation(null nullable) error = %v", err)
+	}
+	if len(resolved.changes) != 1 || resolved.changes[0].column != "name" || resolved.changes[0].value != nil {
+		t.Fatalf("changes = %+v, want name=NULL", resolved.changes)
+	}
+	// Identity is derived from the PK only and is unaffected by the change.
+	if len(resolved.identity) != 1 || resolved.identity[0].column != "id" {
+		t.Fatalf("identity = %+v, want id", resolved.identity)
+	}
+}
+
+func TestPlanMutationRejectsNullOnNonNullable(t *testing.T) {
+	table := mutationTable()
+	table.Columns = append(table.Columns, model.Column{Name: "code", DataType: "text", OrdinalPosition: 5, Nullable: false})
+	_, err := planMutation(model.DriverPostgres, table, RowMutationRequest{
+		Identity: map[string]any{"id": json.Number("1")},
+		Changes:  map[string]any{"code": nil},
+	}, true)
+	if !errors.Is(err, ErrInvalidColumnValue) {
+		t.Fatalf("error = %v, want ErrInvalidColumnValue", err)
+	}
+}

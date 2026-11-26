@@ -3,6 +3,18 @@
 All notable changes to DataDeck are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Editing a row and setting a **nullable** column to NULL now succeeds (previously
+  returned `ROW_IDENTITY_INVALID`, because the filter value converter rejected
+  nil in the mutation path). Non-nullable columns return a clear
+  `INVALID_COLUMN_VALUE`; the row identity remains the original primary key.
+
+### Added
+- **Copy as JSON** for the current row selection (single/multiple/select-all),
+  preserving canonical types (BIGINT string, NULL→null, booleans, nested JSON).
+
 ## [0.4.1] — 2026-11-17
 
 ### Fixed

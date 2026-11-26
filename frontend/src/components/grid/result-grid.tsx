@@ -68,6 +68,19 @@ export interface GridInlineEdit {
   ) => Promise<void>;
 }
 
+/** Inline Add Row configuration (PRF v0.4.2). Renders a non-virtualized editable
+ * row above the data; only insertable columns are editable. */
+export interface GridInlineAdd {
+  active: boolean;
+  columns: TableColumnInfo[];
+  saving: boolean;
+  error?: string | null;
+  onCancel: () => void;
+  onSave: (
+    values: Record<string, { mode: "value" | "default" | "null"; value?: unknown }>,
+  ) => void;
+}
+
 /**
  * Virtualized result grid. TanStack Table owns the column model (headers,
  * sizing, resize); TanStack Virtual owns row virtualization. Rows stay as
@@ -91,6 +104,7 @@ export function ResultGrid({
   editingIndex = null,
   onCancelEdit,
   onDirtyChange,
+  addRow,
 }: {
   result: QueryResult;
   ariaLabel?: string;
@@ -113,6 +127,7 @@ export function ResultGrid({
   onCancelEdit?: () => void;
   /** Notifies the parent whenever unsaved edits exist (for leave-guards). */
   onDirtyChange?: (dirty: boolean) => void;
+  addRow?: GridInlineAdd;
 }) {
   const rows = (result.rows ?? []) as Row[];
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -215,6 +230,75 @@ export function ResultGrid({
       delete next[name];
       return next;
     });
+  }
+
+  // --- Inline Add Row (non-virtualized draft row) ----------------------------
+  type AddField = { mode: "value" | "default" | "null"; value: string };
+  const [addDraft, setAddDraft] = useState<Record<string, AddField>>({});
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!addRow?.active) {
+      setAddDraft({});
+      setAddErrors({});
+      return;
+    }
+    const next: Record<string, AddField> = {};
+    for (const column of addRow.columns) {
+      if (column.insertable === false) continue;
+      const name = column.name ?? "";
+      if (!name) continue;
+      next[name] = { mode: column.has_default ? "default" : "value", value: "" };
+    }
+    setAddDraft(next);
+    setAddErrors({});
+    // Reset only when add mode toggles on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addRow?.active]);
+
+  function patchAdd(name: string, patch: Partial<AddField>) {
+    setAddDraft((current) => ({ ...current, [name]: { ...current[name], ...patch } }));
+    setAddErrors((current) => {
+      if (!(name in current)) return current;
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+  }
+
+  function saveAddRow() {
+    if (!addRow?.active || addRow.saving) return;
+    const errors: Record<string, string> = {};
+    const values: Record<
+      string,
+      { mode: "value" | "default" | "null"; value?: unknown }
+    > = {};
+    for (const column of addRow.columns) {
+      if (column.insertable === false) continue;
+      const name = column.name ?? "";
+      if (!name) continue;
+      const field = addDraft[name] ?? { mode: "value" as const, value: "" };
+      const message = validateRowField(column, field.mode, field.value);
+      if (message) {
+        errors[name] = message;
+        continue;
+      }
+      if (field.mode === "value") {
+        values[name] = {
+          mode: "value",
+          value:
+            columnCategory(column.database_type) === "boolean"
+              ? field.value === "true"
+              : field.value,
+        };
+      } else if (field.mode === "null") {
+        values[name] = { mode: "null" };
+      } else {
+        values[name] = { mode: "default" };
+      }
+    }
+    setAddErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    addRow.onSave(values);
   }
 
   async function saveEditing() {
@@ -365,6 +449,149 @@ export function ResultGrid({
             );
           })}
         </div>
+
+        {addRow?.active ? (
+          <div
+            role="row"
+            aria-label="New row"
+            data-testid="inline-add-row"
+            className="grid border-b border-border bg-accent/10"
+            style={{ gridTemplateColumns, width: totalWidth, minHeight: ROW_HEIGHT }}
+          >
+            {headers.map((header, index) => {
+              if (header.id === "__select") {
+                return (
+                  <div key={header.id} role="gridcell" className="border-r border-border" />
+                );
+              }
+              if (header.id === "__actions") {
+                return (
+                  <div
+                    key={header.id}
+                    role="gridcell"
+                    className="flex items-center justify-center gap-0.5 border-r border-border"
+                  >
+                    <button
+                      type="button"
+                      aria-label="Save new row"
+                      title="Save (Enter)"
+                      data-testid="inline-add-save"
+                      disabled={addRow.saving}
+                      onClick={saveAddRow}
+                      className="rounded p-0.5 text-emerald-500 hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                    >
+                      <Check size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Cancel new row"
+                      title="Cancel (Esc)"
+                      data-testid="inline-add-cancel"
+                      disabled={addRow.saving}
+                      onClick={addRow.onCancel}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </div>
+                );
+              }
+              const dataIndex = index - prefixCount;
+              const column = addRow.columns[dataIndex];
+              if (!column || column.insertable === false) {
+                return (
+                  <div
+                    key={header.id}
+                    role="gridcell"
+                    title="This value is generated by the database"
+                    className="flex items-center border-r border-border px-2 text-xs italic text-subtle-foreground"
+                  >
+                    auto
+                  </div>
+                );
+              }
+              const name = column.name ?? "";
+              const field = addDraft[name] ?? { mode: "value" as const, value: "" };
+              const error = addErrors[name];
+              const category = columnCategory(column.database_type);
+              const inputClass =
+                "min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
+              return (
+                <div
+                  key={header.id}
+                  role="gridcell"
+                  className="flex items-center gap-1 overflow-hidden border-r border-border px-1"
+                >
+                  <select
+                    aria-label={`${name} mode`}
+                    title="value / NULL / default"
+                    value={field.mode}
+                    disabled={addRow.saving}
+                    onChange={(event) =>
+                      patchAdd(name, {
+                        mode: event.target.value as AddField["mode"],
+                      })
+                    }
+                    className="shrink-0 rounded border border-border bg-background px-0.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+                  >
+                    <option value="value">v</option>
+                    {column.nullable ? <option value="null">∅</option> : null}
+                    {column.has_default ? <option value="default">def</option> : null}
+                  </select>
+                  {field.mode === "value" ? (
+                    category === "boolean" ? (
+                      <select
+                        aria-label={`${name} value`}
+                        value={field.value}
+                        disabled={addRow.saving}
+                        onChange={(event) => patchAdd(name, { value: event.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="">true/false</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    ) : (
+                      <input
+                        aria-label={`${name} value`}
+                        aria-invalid={error ? true : undefined}
+                        title={error}
+                        value={field.value}
+                        disabled={addRow.saving}
+                        type={category === "date" ? "date" : "text"}
+                        inputMode={
+                          category === "integer" || category === "decimal"
+                            ? "numeric"
+                            : undefined
+                        }
+                        onChange={(event) => patchAdd(name, { value: event.target.value })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            saveAddRow();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            addRow.onCancel();
+                          }
+                        }}
+                        className={`${inputClass} ${error ? "border-destructive" : "border-border"}`}
+                      />
+                    )
+                  ) : (
+                    <span className="flex-1 text-xs italic text-subtle-foreground">
+                      {field.mode === "null" ? "NULL" : "default"}
+                    </span>
+                  )}
+                  {error ? (
+                    <span title={error} className="shrink-0 text-destructive">
+                      !
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
 
         {rows.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
@@ -526,6 +753,16 @@ export function ResultGrid({
           className="sticky bottom-0 border-t border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive"
         >
           {saveError}
+        </div>
+      ) : null}
+
+      {addRow?.active && addRow.error ? (
+        <div
+          role="alert"
+          data-testid="inline-add-error"
+          className="sticky bottom-0 border-t border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive"
+        >
+          {addRow.error}
         </div>
       ) : null}
     </div>

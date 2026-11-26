@@ -36,10 +36,11 @@ import {
 import { useTableData } from "@/hooks/use-table-data";
 import { copyText } from "@/lib/clipboard";
 import { ApiClientError } from "@/lib/api-client";
-import { deleteRow, updateRow } from "@/lib/api/endpoints";
+import { mutationErrorMessage } from "@/lib/mutation-errors";
+import { deleteRow, insertRow, updateRow } from "@/lib/api/endpoints";
 import { primaryKeyColumns, rowToRecord } from "@/lib/row-edit";
 import { isReadOnlyObject } from "@/lib/table-actions";
-import { rowToJSON, rowToTSV } from "@/lib/row-copy";
+import { rowToJSON, rowToTSV, rowsToJSON } from "@/lib/row-copy";
 import { useExportStore } from "@/store/useExportStore";
 import { useImportStore } from "@/store/useImportStore";
 import {
@@ -70,7 +71,6 @@ interface DialogTarget {
 }
 
 type DialogState =
-  | { kind: "add"; target: DialogTarget; columns: TableColumnInfo[] }
   | {
       kind: "duplicate";
       target: DialogTarget;
@@ -112,6 +112,9 @@ export function TableDataView() {
   const [editDirty, setEditDirty] = useState(false);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const target = {
     connectionId: tab?.connectionId ?? null,
@@ -293,10 +296,43 @@ export function TableDataView() {
 
   function startRowEdit(index: number) {
     if (!canUpdate) return;
+    setAdding(false);
     if (editingIndex !== null && editingIndex !== index && editDirty) {
       if (!window.confirm("Discard unsaved row changes?")) return;
     }
     setEditingIndex(index);
+  }
+
+  function startAdd() {
+    if (!data?.row_capabilities?.insert || isReadOnlyObject(data?.object_type)) return;
+    setEditingIndex(null);
+    setEditDirty(false);
+    setAddError(null);
+    setAdding(true);
+  }
+
+  async function saveNewRow(
+    values: Record<string, { mode: "value" | "default" | "null"; value?: unknown }>,
+  ) {
+    if (!tab || tab.kind !== "table-data" || !tab.connectionId || addSaving) return;
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      await insertRow(tab.connectionId, {
+        database: tab.database,
+        schema: tab.schema,
+        table: tab.table,
+        values,
+      });
+      setAdding(false);
+      setSelected(new Set());
+      await query.refetch();
+      flashStatus("Row added.");
+    } catch (cause) {
+      setAddError(mutationErrorMessage(cause, "Insert failed."));
+    } finally {
+      setAddSaving(false);
+    }
   }
 
   async function saveInlineRow(
@@ -331,6 +367,20 @@ export function TableDataView() {
     const ok = await copyText(text);
     flashStatus(
       ok ? `Copied ${indices.length} row(s).` : "Copy failed — clipboard unavailable.",
+    );
+  }
+
+  async function copySelectedJson() {
+    const indices = [...selected].sort((a, b) => a - b);
+    const picked = indices
+      .map((index) => rows[index])
+      .filter((row): row is unknown[] => Boolean(row));
+    if (picked.length === 0) return;
+    const ok = await copyText(rowsToJSON(columns, picked));
+    flashStatus(
+      ok
+        ? `Copied ${picked.length} row(s) as JSON.`
+        : "Copy failed — clipboard unavailable.",
     );
   }
 
@@ -586,10 +636,7 @@ export function TableDataView() {
               aria-label="Add row"
               disabled={Boolean(addRowDisabledReason)}
               title={addRowDisabledReason ?? undefined}
-              onClick={() => {
-                const target = dialogTarget();
-                if (target) setDialog({ kind: "add", target, columns });
-              }}
+              onClick={startAdd}
             >
               Add Row
             </Button>
@@ -678,18 +725,6 @@ export function TableDataView() {
         />
       ) : null}
 
-      {dialog?.kind === "add" ? (
-        <AddRowDialog
-          connectionId={dialog.target.connectionId}
-          database={dialog.target.database}
-          schema={dialog.target.schema}
-          table={dialog.target.table}
-          columns={dialog.columns}
-          onClose={() => setDialog(null)}
-          onInserted={closeDialogAndRefresh}
-        />
-      ) : null}
-
       {dialog?.kind === "duplicate" ? (
         <AddRowDialog
           connectionId={dialog.target.connectionId}
@@ -756,6 +791,14 @@ export function TableDataView() {
               onClick={() => void copySelected()}
             >
               Copy
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="selection-copy-json"
+              onClick={() => void copySelectedJson()}
+            >
+              Copy as JSON
             </Button>
             <Button
               variant="ghost"
@@ -838,6 +881,17 @@ export function TableDataView() {
               setEditDirty(false);
             }}
             onDirtyChange={setEditDirty}
+            addRow={{
+              active: adding,
+              columns,
+              saving: addSaving,
+              error: addError,
+              onCancel: () => {
+                setAdding(false);
+                setAddError(null);
+              },
+              onSave: (values) => void saveNewRow(values),
+            }}
           />
         ) : null}
       </div>
